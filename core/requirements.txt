@@ -1,0 +1,1 @@
+# TODO: pin FastAPI, uvicorn, kubernetes, httpx, pydantic, LLM SDK
