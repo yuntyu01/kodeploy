@@ -1,0 +1,219 @@
+/* =========================================================
+   Linear Design System — Colors & Type
+   Dark-mode-native. Inter Variable + Berkeley Mono.
+   ========================================================= */
+
+@import url('https://rsms.me/inter/inter.css');
+
+/* Berkeley Mono is a paid font; fall back to JetBrains Mono via Google Fonts.
+   Flagged in README as a substitution. */
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+:root {
+  /* ---------- Backgrounds ---------- */
+  --bg-marketing:   #08090a;  /* hero / marketing canvas */
+  --bg-marketing-2: #010102;  /* deepest */
+  --bg-panel:       #0f1011;  /* sidebar / panels */
+  --bg-surface:     #191a1b;  /* cards, dropdowns, dialogs */
+  --bg-surface-2:   #28282c;  /* hover / lifted */
+
+  /* ---------- Text ---------- */
+  --fg-1: #f7f8f8;  /* primary white-ish */
+  --fg-2: #d0d6e0;  /* body silver */
+  --fg-3: #8a8f98;  /* muted */
+  --fg-4: #62666d;  /* subtle / disabled */
+
+  /* ---------- Brand ---------- */
+  --brand-indigo:        #5e6ad2;  /* primary CTA bg */
+  --brand-violet:        #7170ff;  /* interactive accent */
+  --brand-violet-hover:  #828fff;  /* hover */
+  --security-lavender:   #7a7fad;
+
+  /* ---------- Status ---------- */
+  --green:   #27a644;
+  --emerald: #10b981;
+
+  /* ---------- Borders ---------- */
+  --border-1:        #23252a;
+  --border-2:        #34343a;
+  --border-3:        #3e3e44;
+  --border-subtle:   rgba(255, 255, 255, 0.05);
+  --border-standard: rgba(255, 255, 255, 0.08);
+  --line-tint:       #141516;
+  --line-tertiary:   #18191a;
+
+  /* ---------- Surface tints (button bgs) ---------- */
+  --tint-02: rgba(255, 255, 255, 0.02);
+  --tint-04: rgba(255, 255, 255, 0.04);
+  --tint-05: rgba(255, 255, 255, 0.05);
+  --tint-08: rgba(255, 255, 255, 0.08);
+
+  /* ---------- Overlay ---------- */
+  --overlay: rgba(0, 0, 0, 0.85);
+
+  /* ---------- Light-mode neutrals (login screen, etc.) ---------- */
+  --light-bg:        #f7f8f8;
+  --light-surface:   #f3f4f5;
+  --light-surface-2: #f5f6f7;
+  --light-border:    #d0d6e0;
+  --light-border-2:  #e6e6e6;
+  --white:           #ffffff;
+
+  /* ---------- Radii ---------- */
+  --radius-micro:  2px;
+  --radius-sm:     4px;
+  --radius-md:     6px;   /* default for buttons & inputs */
+  --radius-card:   8px;
+  --radius-panel:  12px;
+  --radius-lg:     22px;
+  --radius-pill:   9999px;
+
+  /* ---------- Spacing (8px grid + optical micro values) ---------- */
+  --space-1:  4px;
+  --space-2:  7px;   /* optical */
+  --space-3:  8px;
+  --space-4:  11px;  /* optical */
+  --space-5:  12px;
+  --space-6:  16px;
+  --space-7:  20px;
+  --space-8:  24px;
+  --space-9:  32px;
+  --space-10: 48px;
+  --space-11: 80px;
+
+  /* ---------- Shadows / elevation ---------- */
+  --shadow-subtle: rgba(0, 0, 0, 0.03) 0px 1.2px 0px 0px;
+  --shadow-ring:   rgba(0, 0, 0, 0.2) 0px 0px 0px 1px;
+  --shadow-inset:  rgba(0, 0, 0, 0.2) 0px 0px 12px 0px inset;
+  --shadow-elev:   rgba(0, 0, 0, 0.4) 0px 2px 4px;
+  --shadow-focus:  rgba(0, 0, 0, 0.1) 0px 4px 12px;
+  --shadow-dialog:
+    rgba(0, 0, 0, 0)    0px 8px 2px,
+    rgba(0, 0, 0, 0.01) 0px 5px 2px,
+    rgba(0, 0, 0, 0.04) 0px 3px 2px,
+    rgba(0, 0, 0, 0.07) 0px 1px 1px,
+    rgba(0, 0, 0, 0.08) 0px 0px 1px;
+
+  /* ---------- Type families ---------- */
+  --font-sans: "Inter Variable", "Inter", "SF Pro Display", -apple-system, system-ui,
+               "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, "Open Sans", "Helvetica Neue", sans-serif;
+  --font-mono: "Berkeley Mono", "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+
+  /* OpenType features — fundamental to Linear's typeface identity */
+  --font-features: "cv01", "ss03";
+
+  /* Three-tier weight system */
+  --w-light:    300;
+  --w-regular:  400;
+  --w-medium:   510;  /* signature */
+  --w-semibold: 590;
+}
+
+/* =========================================================
+   Base
+   ========================================================= */
+
+html, body {
+  background: var(--bg-marketing);
+  color: var(--fg-1);
+  font-family: var(--font-sans);
+  font-feature-settings: var(--font-features);
+  font-weight: var(--w-regular);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+* { font-feature-settings: var(--font-features); }
+
+code, pre, kbd, samp {
+  font-family: var(--font-mono);
+  font-feature-settings: normal;
+}
+
+/* =========================================================
+   Type scale (semantic classes)
+   Usage: <h1 class="display-xl">…</h1>
+   ========================================================= */
+
+.display-xl {
+  font: var(--w-medium) 72px/1.00 var(--font-sans);
+  letter-spacing: -1.584px; color: var(--fg-1);
+}
+.display-lg {
+  font: var(--w-medium) 64px/1.00 var(--font-sans);
+  letter-spacing: -1.408px; color: var(--fg-1);
+}
+.display {
+  font: var(--w-medium) 48px/1.00 var(--font-sans);
+  letter-spacing: -1.056px; color: var(--fg-1);
+}
+.h1 {
+  font: var(--w-regular) 32px/1.13 var(--font-sans);
+  letter-spacing: -0.704px; color: var(--fg-1);
+}
+.h2 {
+  font: var(--w-regular) 24px/1.33 var(--font-sans);
+  letter-spacing: -0.288px; color: var(--fg-1);
+}
+.h3 {
+  font: var(--w-semibold) 20px/1.33 var(--font-sans);
+  letter-spacing: -0.24px; color: var(--fg-1);
+}
+.body-lg {
+  font: var(--w-regular) 18px/1.6 var(--font-sans);
+  letter-spacing: -0.165px; color: var(--fg-2);
+}
+.body-emph {
+  font: var(--w-semibold) 17px/1.6 var(--font-sans);
+  color: var(--fg-1);
+}
+.body {
+  font: var(--w-regular) 16px/1.5 var(--font-sans);
+  color: var(--fg-2);
+}
+.body-medium { font-weight: var(--w-medium); }
+.body-semibold { font-weight: var(--w-semibold); }
+.small {
+  font: var(--w-regular) 15px/1.6 var(--font-sans);
+  letter-spacing: -0.165px; color: var(--fg-3);
+}
+.small-medium { font-weight: var(--w-medium); }
+.small-light { font-weight: var(--w-light); line-height: 1.47; }
+.caption-lg {
+  font: var(--w-medium) 14px/1.5 var(--font-sans);
+  letter-spacing: -0.182px; color: var(--fg-3);
+}
+.caption {
+  font: var(--w-regular) 13px/1.5 var(--font-sans);
+  letter-spacing: -0.13px; color: var(--fg-3);
+}
+.label {
+  font: var(--w-medium) 12px/1.4 var(--font-sans);
+  color: var(--fg-2);
+}
+.micro {
+  font: var(--w-medium) 11px/1.4 var(--font-sans);
+  color: var(--fg-3);
+}
+.tiny {
+  font: var(--w-medium) 10px/1.5 var(--font-sans);
+  letter-spacing: -0.15px; color: var(--fg-3);
+}
+.mono-body  { font: 400 14px/1.5 var(--font-mono); color: var(--fg-2); }
+.mono-cap   { font: 400 13px/1.5 var(--font-mono); color: var(--fg-3); }
+.mono-label { font: 400 12px/1.4 var(--font-mono); color: var(--fg-3); }
+
+/* =========================================================
+   Element defaults (so plain HTML inherits the system)
+   ========================================================= */
+
+h1 { font: var(--w-medium) 48px/1.00 var(--font-sans); letter-spacing: -1.056px; color: var(--fg-1); margin: 0; }
+h2 { font: var(--w-regular) 32px/1.13 var(--font-sans); letter-spacing: -0.704px; color: var(--fg-1); margin: 0; }
+h3 { font: var(--w-semibold) 20px/1.33 var(--font-sans); letter-spacing: -0.24px; color: var(--fg-1); margin: 0; }
+h4 { font: var(--w-semibold) 17px/1.4 var(--font-sans); color: var(--fg-1); margin: 0; }
+p  { font: var(--w-regular) 16px/1.5 var(--font-sans); color: var(--fg-2); margin: 0; }
+
+a { color: var(--brand-violet); text-decoration: none; }
+a:hover { color: var(--brand-violet-hover); }
+
+hr { border: 0; border-top: 1px solid var(--border-subtle); }
