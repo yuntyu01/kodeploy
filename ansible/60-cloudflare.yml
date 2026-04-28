@@ -1,0 +1,48 @@
+# ============================================================================
+# 30-cloudflared.yml — Cloudflare Tunnel 설치 및 설정
+# ----------------------------------------------------------------------------
+# managed 노드에 cloudflared를 설치하여 프라이빗 노드에 외부 접근 경로 제공
+# 흐름: RPM 다운로드 → 설치 → 인증/설정 배포 → service install로 서비스 등록
+# ============================================================================
+
+- hosts: managed
+  become: yes
+  tasks:
+    # GitHub에서 최신 ARM64 RPM 다운로드
+    - name: cloudflared download
+      get_url:
+        url: https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-aarch64.rpm
+        dest: /tmp/cloudflared.rpm
+
+    # RPM 설치 (Cloudflare가 GPG 서명을 안 하므로 검증 비활성화)
+    - name: install
+      dnf:
+        name: /tmp/cloudflared.rpm
+        state: present
+        disable_gpg_check: yes
+
+    # 설정 디렉토리 생성
+    - name: create config directory
+      file:
+        path: /etc/cloudflared
+        state: directory
+        mode: '0755'
+
+    # Cloudflare 터널 인증 파일 배포 (0600: 소유자만 읽기/쓰기)
+    - name: credentials deploy
+      copy:
+        src: ./files/tunnel-credentials.json
+        dest: /etc/cloudflared/credentials.json
+        mode: '0600'
+
+    # Jinja2 템플릿으로 설정 파일 생성
+    - name: config.yml
+      template:
+        src: cloudflared-config.yml.j2
+        dest: /etc/cloudflared/config.yml
+
+    # cloudflared service install: systemd 서비스 파일 자동 생성 + 등록 + 시작
+    - name: install and start service
+      command: cloudflared --no-autoupdate service install
+      args:
+        creates: /etc/systemd/system/cloudflared.service

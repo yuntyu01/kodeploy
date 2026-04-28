@@ -1,0 +1,7 @@
+tunnel: 058eee03-2ac7-4794-9828-a1c17dccf501
+credentials-file: /etc/cloudflared/credentials.json
+
+ingress:
+  - hostname: ssh.kodeploy.com
+    service: ssh://localhost:22
+  - service: http_status:404

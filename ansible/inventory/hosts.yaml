@@ -1,0 +1,14 @@
+all:
+  vars:
+    ansible_python_interpreter: /usr/bin/python3
+  children:
+    master:
+      hosts:
+        master:
+    workers:
+      hosts:
+        worker1:
+        worker2:
+    managed:
+      hosts:
+        managed:
