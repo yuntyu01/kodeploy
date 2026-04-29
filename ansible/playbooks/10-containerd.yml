@@ -1,0 +1,49 @@
+---
+- name: Install containerd
+  hosts: all
+  become: yes
+  tasks: 
+    - name: docker repo 추가
+      yum_repository:
+        name: docker-ce
+        description: Docker CE Stable
+        baseurl: https://download.docker.com/linux/centos/9/$basearch/stable
+        gpgkey: https://download.docker.com/linux/centos/gpg
+        gpgcheck: yes
+        enabled: yes
+
+    - name: containerd 설치
+      dnf:
+        name: containerd.io
+        state: present
+
+    - name: containerd 설정 디렉토리
+      file:
+        path: /etc/containerd
+        state: directory
+
+    - name: 기본 config.toml 생성
+      shell: containerd config default > /etc/containerd/config.toml
+      changed_when: true
+
+    - name: SystemdCgroup = true 설정
+      replace:
+        path: /etc/containerd/config.toml
+        regexp: "SystemdCgroup = false"
+        replace: "SystemdCgroup = true"
+
+    - name: containerd 시작
+      systemd:
+        name: containerd
+        enabled: yes
+        state: restarted
+        daemon_reload: yes
+
+    - name: containerd 동작 확인
+      command: ctr version
+      register: ctr_version
+      changed_when: false
+
+    - name: 결과출력
+      debug:
+        var: ctr_version.stdout_lines
