@@ -1,0 +1,21 @@
+---
+- name: Join Workers to cluster
+  hosts: workers
+  become: yes
+  tasks: 
+    - name: 이미 join 됐는지 확인
+      stat:
+        path: /etc/kubernetes/kubelet.conf
+      register: kubelet_conf_check
+
+    - name: join command 읽기 (로컬에서)
+      slurp:
+        src: /tmp/kubeadm_join_command.sh
+      delegate_to: localhost
+      become: no
+      register: join_command_b64
+      when: not kubelet_conf_check.stat.exists
+
+    - name: join command 실행
+      shell: "{{ join_command_b64.content | b64decode }}"
+      when: not kubelet_conf_check.stat.exists

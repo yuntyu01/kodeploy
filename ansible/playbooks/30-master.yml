@@ -1,0 +1,76 @@
+---
+- name: Initialize K8s Master
+  hosts: master
+  become: yes
+  
+  tasks:
+    - name: kubeadm 이미 init 됐는지 확인
+      stat:
+        path: /etc/kubernetes/admin.conf
+      register: kubeadm_init_check
+
+    - name: kubeadm init
+      command: >
+        kubeadm init
+        --apiserver-advertise-address={{ ansible_default_ipv4.address }}
+        --pod-network-cidr=192.168.0.0/16
+        --service-cidr=10.96.0.0/12
+        --cri-socket=unix:///var/run/containerd/containerd.sock
+      when: not kubeadm_init_check.stat.exists
+      register: kubeadm_init_result
+
+    - name: kubeadm init 결과 보기
+      debug:
+        var: kubeadm_init_result.stdout_lines
+      when: kubeadm_init_result.changed
+
+    - name: kube config 디렉토리 (root용)
+      file:
+        path: /root/.kube
+        state: directory
+        mode: '0755'
+
+    - name: admin.conf 복사 (root용)
+      copy:
+        src: /etc/kubernetes/admin.conf
+        dest: /root/.kube/config
+        remote_src: yes
+        owner: root
+        group: root
+        mode: '0600'
+
+    - name: kube config 디렉토리 (opc용)
+      file:
+        path: /home/opc/.kube
+        state: directory
+        owner: opc
+        group: opc
+        mode: '0755'
+
+    - name: admin.conf 복사 (opc용)
+      copy:
+        src: /etc/kubernetes/admin.conf
+        dest: /home/opc/.kube/config
+        remote_src: yes
+        owner: opc
+        group: opc
+        mode: '0600'
+
+    - name: join command 생성
+      command: kubeadm token create --print-join-command
+      register: join_command_output
+      changed_when: false
+
+    - name: join command를 로컬에 저장 (Worker가 쓸 수 있게)
+      copy:
+        content: "{{ join_command_output.stdout }}"
+        dest: /tmp/kubeadm_join_command.sh
+        mode: '0755'
+      delegate_to: localhost
+      become: no
+
+    - name: admin.conf을 로컬로 가져오기
+      fetch:
+        src: /etc/kubernetes/admin.conf
+        dest: ../kubeconfig/admin.conf
+        flat: yes
