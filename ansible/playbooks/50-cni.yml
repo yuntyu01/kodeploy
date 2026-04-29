@@ -1,0 +1,27 @@
+---
+- name: Install Calico CNI
+  hosts: master
+  become: yes
+  tasks:
+    - name: Tigera operator 설치
+      command: kubectl create -f https://raw.githubusercontent.com/projectcalico/calico/v3.27.0/manifests/tigera-operator.yaml
+      environment:
+        KUBECONFIG: /etc/kubernetes/admin.conf
+      register: tigera_result
+      failed_when:
+        - tigera_result.rc != 0
+        - "'AlreadyExists' not in tigera_result.stderr"
+
+    - name: Calico CR 설치
+      command: kubectl create -f https://raw.githubusercontent.com/projectcalico/calico/v3.27.0/manifests/custom-resources.yaml
+      environment:
+        KUBECONFIG: /etc/kubernetes/admin.conf
+      register: calico_result
+      failed_when:
+        - calico_result.rc != 0
+        - "'AlreadyExists' not in calico_result.stderr"
+
+    - name: Calico Pod 준비될 때까지 대기
+      shell: kubectl wait --for=condition=ready pod -l k8s-app=calico-node -n calico-system --timeout=300s
+      environment:
+        KUBECONFIG: /etc/kubernetes/admin.conf
