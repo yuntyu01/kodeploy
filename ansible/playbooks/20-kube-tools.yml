@@ -1,0 +1,42 @@
+---
+- name: Install kubeadm, kubelet, kubectl
+  hosts: all
+  become: yes
+  vars:
+    k8s_version: "1.35"
+  tasks: 
+    - name: Kubernetes repo 추가
+      yum_repository:
+        name: kubernetes
+        description: Kubernetes
+        baseurl: https://pkgs.k8s.io/core:/stable:/v{{ k8s_version }}/rpm/
+        gpgkey: https://pkgs.k8s.io/core:/stable:/v{{ k8s_version }}/rpm/repodata/repomd.xml.key
+        gpgcheck: yes
+        enabled: yes
+        exclude:
+          - kubelet
+          - kubeadm
+          - kubectl
+          - cri-tools
+          - kubernetes-cni
+
+    - name: kubeadm/kubelet/kubectl 설치
+      dnf:
+        name:
+          - kubelet
+          - kubeadm
+          - kubectl
+        state: present
+        disable_excludes: kubernetes
+
+    - name: kubelet enable
+      systemd:
+        name: kubelet
+        enabled: yes
+        daemon_reload: yes
+
+    - name: bash 자동완성
+      shell: kubectl completion bash > /etc/bash_completion.d/kubectl
+      args:
+        creates: /etc/bash_completion.d/kubectl
+
