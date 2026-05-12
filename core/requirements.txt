@@ -1,1 +1,6 @@
-# TODO: pin FastAPI, uvicorn, kubernetes, httpx, pydantic, LLM SDK
+fastapi==0.115.5
+uvicorn[standard]==0.32.1
+sqlalchemy==2.0.36
+pymysql==1.1.1
+cryptography==44.0.0
+kubernetes==31.0.0
