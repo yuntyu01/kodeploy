@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kodeploy-core-env
+data:
+  GHCR_USER: "yuntyu01"
+  GHCR_REPO_PREFIX: "kodeploy"
+  K8S_NAMESPACE: "default"
+  DB_HOST: "mysql"
+  DB_USER: "kodeploy"
+  DB_NAME: "kodeploy"

@@ -1,0 +1,45 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kodeploy-core
+  namespace: default
+  labels:
+    app: kodeploy-core
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: kodeploy-core
+  template:
+    metadata:
+      labels:
+        app: kodeploy-core
+    spec:
+      serviceAccountName: kodeploy-core
+      containers:
+        - name: core
+          image: ghcr.io/yuntyu01/kodeploy-core:latest
+          ports:
+            - containerPort: 8000
+          env:
+            - name: K8S_NAMESPACE
+              value: default
+            - name: GHCR_AUTH_SECRET
+              value: ghcr-auth
+            - name: GHCR_USER
+              valueFrom:
+                secretKeyRef:
+                  name: kodeploy-core-env
+                  key: GHCR_USER
+            - name: GHCR_REPO_PREFIX
+              value: kodeploy
+            - name: ANTHROPIC_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: kodeploy-core-env
+                  key: ANTHROPIC_API_KEY
+                  optional: true
+            - name: DB_HOST
+              value: mysql
+      imagePullSecrets:
+        - name: ghcr-auth

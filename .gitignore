@@ -57,6 +57,7 @@ yarn-error.log*
 *.local
 tunnel-credentials.json
 ansible/kubeconfig/
+deploy/k8s/secrets/
 
 # ---- Editors / OS ----
 .vscode/
