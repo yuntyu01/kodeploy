@@ -72,5 +72,26 @@
     - name: admin.conf을 로컬로 가져오기
       fetch:
         src: /etc/kubernetes/admin.conf
-        dest: ../kubeconfig/admin.conf
+        dest: "{{ playbook_dir }}/../../kubeconfig/admin.conf"
         flat: yes
+
+- name: Distribute kubeconfig to managed node
+  hosts: managed
+  become: yes
+
+  tasks:
+    - name: .kube 디렉토리 생성 (opc용)
+      file:
+        path: /home/opc/.kube
+        state: directory
+        owner: opc
+        group: opc
+        mode: '0755'
+
+    - name: admin.conf 배포 (opc용)
+      copy:
+        src: "{{ playbook_dir }}/../../kubeconfig/admin.conf"
+        dest: /home/opc/.kube/config
+        owner: opc
+        group: opc
+        mode: '0600'

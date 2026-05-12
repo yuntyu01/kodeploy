@@ -1,0 +1,29 @@
+---
+- name: Prepare worker nodes
+  hosts: workers
+  become: true
+
+  tasks:
+    - name: MySQL 데이터 디렉토리 생성
+      file:
+        path: /opt/mysql-data
+        state: directory
+        owner: 999
+        group: 999
+        mode: '0755'
+      when: inventory_hostname == 'worker1'
+
+- name: Copy K8s manifests
+  hosts: managed
+  become: false
+
+  vars:
+    remote_dir: /home/opc/k8s-manifests
+    local_dir: "{{ playbook_dir }}/../../deploy/k8s"
+
+  tasks:
+    - name: k8s manifests 동기화
+      copy:
+        src: "{{ local_dir }}/"
+        dest: "{{ remote_dir }}/"
+        mode: preserve

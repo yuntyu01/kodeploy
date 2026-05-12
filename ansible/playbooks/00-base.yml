@@ -45,6 +45,14 @@
     - name: sysctl 적용
       command: sysctl --system
 
+    - name: /etc/hosts에 노드 등록
+      lineinfile:
+        path: /etc/hosts
+        line: "{{ hostvars[item].ansible_host | default(hostvars[item].ansible_default_ipv4.address) }} {{ item }}"
+        regexp: "\\s{{ item }}$"
+        state: present
+      loop: "{{ groups['all'] }}"
+
     - name: firewalld 끄기 (개발단계)
       systemd:
         name: firewalld
