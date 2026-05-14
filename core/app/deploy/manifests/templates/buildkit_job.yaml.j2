@@ -1,0 +1,57 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: build-{{ build_id }}
+  namespace: {{ namespace }}
+  labels:
+    app: kodeploy-build
+    build-id: "{{ build_id }}"
+spec:
+  # 작업 종료 후 10분 뒤 자동 삭제
+  ttlSecondsAfterFinished: 600
+  # 빌드 실패 시 재시도하지 않음 (같은 이유로 또 실패할 확률 높음)
+  backoffLimit: 0
+  template:
+    metadata:
+      labels:
+        app: kodeploy-build
+        build-id: "{{ build_id }}"
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: buildkit
+          image: {{ buildkit_image }}
+          # rootless BuildKit 권장 보안 설정
+          securityContext:
+            seccompProfile:
+              type: Unconfined
+            runAsUser: 1000
+            runAsGroup: 1000
+          # 데몬리스 (buildkitd 잠깐 띄웠다 빌드 후 자동 종료)
+          command:
+            - buildctl-daemonless.sh
+          args:
+            - build
+            # Dockerfile v0 문법 사용
+            - --frontend=dockerfile.v0
+            # Git에서 직접 소스 fetch (중간 다운로드 없음)
+            - --opt=context={{ repo_url }}#{{ branch }}
+            # 빌드 결과 레지스트리로 즉시 push
+            - --output=type=image,name={{ image }},push=true
+          env:
+            # rootless에서 K8s 샌드박스 충돌 회피 (내부 프로세스 격리 해제)
+            - name: BUILDKITD_FLAGS
+              value: --oci-worker-no-process-sandbox
+          volumeMounts:
+            # GHCR 인증 정보 (~/.docker/config.json 표준 경로에 마운트)
+            - name: docker-config
+              mountPath: /home/user/.docker
+              readOnly: true
+      volumes:
+        - name: docker-config
+          # dockerconfigjson 타입 Secret을 config.json 파일로 투영
+          secret:
+            secretName: {{ ghcr_auth_secret }}
+            items:
+              - key: .dockerconfigjson
+                path: config.json

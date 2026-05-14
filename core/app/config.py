@@ -14,8 +14,8 @@ DATABASE_URL = f"mysql+pymysql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB
 # --- K8s / GHCR ---
 # K8S_NAMESPACE: BuildKit Job·Deployment·Service를 모두 이 네임스페이스에 만든다.
 K8S_NAMESPACE = os.getenv("K8S_NAMESPACE", "default")
-# GHCR_AUTH_SECRET: dockerconfigjson 타입 Secret 이름. push(BuildKit)와 pull(Deployment) 양쪽에서 사용.
-GHCR_AUTH_SECRET = os.getenv("GHCR_AUTH_SECRET", "ghcr-auth")
+# GHCR_AUTH_SECRET_NAME: dockerconfigjson 타입 Secret의 "이름". push(BuildKit)와 pull(Deployment) 양쪽에서 참조.
+GHCR_AUTH_SECRET_NAME = os.getenv("GHCR_AUTH_SECRET_NAME", "ghcr-auth")
 GHCR_USER = os.getenv("GHCR_USER", "")
 GHCR_REPO_PREFIX = os.getenv("GHCR_REPO_PREFIX", "kodeploy")
 

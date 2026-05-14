@@ -1,5 +1,9 @@
 FROM python:3.12-slim
 
+# stdout 버퍼링 끄기 (kubectl logs 즉시 반영) + .pyc 안 만들기
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1
+
 WORKDIR /app
 
 COPY requirements.txt .
