@@ -2,7 +2,6 @@
 - name: Prepare worker nodes
   hosts: workers
   become: true
-
   tasks:
     - name: MySQL 데이터 디렉토리 생성
       file:
