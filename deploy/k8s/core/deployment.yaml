@@ -21,25 +21,14 @@ spec:
           image: ghcr.io/yuntyu01/kodeploy-core:latest
           ports:
             - containerPort: 8000
+          envFrom:
+            - configMapRef:
+                name: kodeploy-core-env
           env:
-            - name: K8S_NAMESPACE
-              value: default
-            - name: GHCR_AUTH_SECRET
-              value: ghcr-auth
-            - name: GHCR_USER
+            - name: DB_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: kodeploy-core-env
-                  key: GHCR_USER
-            - name: GHCR_REPO_PREFIX
-              value: kodeploy
-            - name: ANTHROPIC_API_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: kodeploy-core-env
-                  key: ANTHROPIC_API_KEY
-                  optional: true
-            - name: DB_HOST
-              value: mysql
+                  name: mysql-secret
+                  key: MYSQL_PASSWORD
       imagePullSecrets:
         - name: ghcr-auth

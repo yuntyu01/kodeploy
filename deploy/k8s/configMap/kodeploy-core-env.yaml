@@ -5,6 +5,7 @@ metadata:
 data:
   GHCR_USER: "yuntyu01"
   GHCR_REPO_PREFIX: "kodeploy"
+  GHCR_AUTH_SECRET_NAME: "ghcr-auth"
   K8S_NAMESPACE: "default"
   DB_HOST: "mysql"
   DB_USER: "kodeploy"
