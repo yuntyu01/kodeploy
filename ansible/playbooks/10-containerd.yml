@@ -1,7 +1,7 @@
 ---
 - name: Install containerd
   hosts: all
-  become: yes
+  become: true
   tasks: 
     - name: docker repo 추가
       yum_repository:
@@ -9,8 +9,8 @@
         description: Docker CE Stable
         baseurl: https://download.docker.com/linux/centos/9/$basearch/stable
         gpgkey: https://download.docker.com/linux/centos/gpg
-        gpgcheck: yes
-        enabled: yes
+        gpgcheck: true
+        enabled: true
 
     - name: containerd 설치
       dnf:
@@ -35,9 +35,9 @@
     - name: containerd 시작
       systemd:
         name: containerd
-        enabled: yes
+        enabled: true
         state: restarted
-        daemon_reload: yes
+        daemon_reload: true
 
     - name: containerd 동작 확인
       command: ctr version

@@ -6,7 +6,7 @@
 # ============================================================================
 
 - hosts: managed
-  become: yes
+  become: true
   tasks:
     # GitHub에서 최신 ARM64 RPM 다운로드
     - name: cloudflared download
@@ -19,7 +19,7 @@
       dnf:
         name: /tmp/cloudflared.rpm
         state: present
-        disable_gpg_check: yes
+        disable_gpg_check: true
 
     # 설정 디렉토리 생성
     - name: create config directory

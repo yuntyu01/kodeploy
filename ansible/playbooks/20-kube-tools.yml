@@ -1,7 +1,7 @@
 ---
 - name: Install kubeadm, kubelet, kubectl
   hosts: all
-  become: yes
+  become: true
   vars:
     k8s_version: "1.35"
   tasks: 
@@ -11,8 +11,8 @@
         description: Kubernetes
         baseurl: https://pkgs.k8s.io/core:/stable:/v{{ k8s_version }}/rpm/
         gpgkey: https://pkgs.k8s.io/core:/stable:/v{{ k8s_version }}/rpm/repodata/repomd.xml.key
-        gpgcheck: yes
-        enabled: yes
+        gpgcheck: true
+        enabled: true
         exclude:
           - kubelet
           - kubeadm
@@ -32,8 +32,8 @@
     - name: kubelet enable
       systemd:
         name: kubelet
-        enabled: yes
-        daemon_reload: yes
+        enabled: true
+        daemon_reload: true
 
     - name: bash 자동완성
       shell: kubectl completion bash > /etc/bash_completion.d/kubectl

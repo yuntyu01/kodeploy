@@ -1,7 +1,7 @@
 ---
 - name: Initialize K8s Master
   hosts: master
-  become: yes
+  become: true
   
   tasks:
     - name: kubeadm 이미 init 됐는지 확인
@@ -34,7 +34,7 @@
       copy:
         src: /etc/kubernetes/admin.conf
         dest: /root/.kube/config
-        remote_src: yes
+        remote_src: true
         owner: root
         group: root
         mode: '0600'
@@ -51,7 +51,7 @@
       copy:
         src: /etc/kubernetes/admin.conf
         dest: /home/opc/.kube/config
-        remote_src: yes
+        remote_src: true
         owner: opc
         group: opc
         mode: '0600'
@@ -67,17 +67,17 @@
         dest: /tmp/kubeadm_join_command.sh
         mode: '0755'
       delegate_to: localhost
-      become: no
+      become: false
 
     - name: admin.conf을 로컬로 가져오기
       fetch:
         src: /etc/kubernetes/admin.conf
         dest: "{{ playbook_dir }}/../../kubeconfig/admin.conf"
-        flat: yes
+        flat: true
 
 - name: Distribute kubeconfig to managed node
   hosts: managed
-  become: yes
+  become: true
 
   tasks:
     - name: .kube 디렉토리 생성 (opc용)

@@ -1,7 +1,7 @@
 ---
 - name: Base setup for all K8s nodes
   hosts: all
-  become: yes
+  become: true
   tasks: 
     - name: SELinux permissive
       selinux:
@@ -49,21 +49,17 @@
       systemd:
         name: firewalld
         state: stopped
-        enabled: no
-      ignore_errors: yes
+        enabled: false
+      ignore_errors: true
 
-    # dnf-makecache.timer가 주기적으로 RPM 메타데이터를 갱신하면서 RSS 2GB+ 스파이크
-    # → 4GB master에서 global OOM 트리거 → BestEffort K8s 파드(calico 등) 1순위 희생
-    # 모든 노드에 동일 적용(워커도 빌드 Job과 겹치면 같은 문제 발생 가능)
-    # disable만 하면 systemd 의존성으로 부활 가능 → masked로 강제 잠금
+
     - name: dnf-makecache.timer 정지 및 mask
       systemd:
         name: dnf-makecache.timer
         state: stopped
-        enabled: no
-        masked: yes
+        enabled: false
+        masked: true
 
-    # timer를 꺼도 `dnf install` 호출 시 stale metadata면 자동 갱신 시도함 → 그 경로도 차단
     - name: dnf 자동 메타데이터 갱신 비활성화
       blockinfile:
         path: /etc/dnf/dnf.conf

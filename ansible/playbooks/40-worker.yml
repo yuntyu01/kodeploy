@@ -1,7 +1,7 @@
 ---
 - name: Join Workers to cluster
   hosts: workers
-  become: yes
+  become: true
   tasks: 
     - name: 이미 join 됐는지 확인
       stat:
@@ -12,7 +12,7 @@
       slurp:
         src: /tmp/kubeadm_join_command.sh
       delegate_to: localhost
-      become: no
+      become: false
       register: join_command_b64
       when: not kubelet_conf_check.stat.exists
 
