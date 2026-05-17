@@ -1,0 +1,70 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html,
+body,
+#root {
+  background: #08090a;
+  color: #f7f8f8;
+  font-family: "Inter Variable", Inter, "Pretendard Variable", Pretendard,
+    system-ui, sans-serif;
+  font-feature-settings: "cv01", "ss03";
+  -webkit-font-smoothing: antialiased;
+  min-height: 100vh;
+}
+
+* {
+  font-feature-settings: "cv01", "ss03";
+}
+
+.scroll-thin::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+.scroll-thin::-webkit-scrollbar-track {
+  background: transparent;
+}
+.scroll-thin::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 4px;
+}
+.scroll-thin::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+@keyframes kd-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(2px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.kd-fade-in {
+  animation: kd-fade-in 200ms ease-out;
+}
+
+@keyframes kd-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+.kd-pulse {
+  animation: kd-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes kd-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.kd-spin {
+  animation: kd-spin 0.7s linear infinite;
+}
