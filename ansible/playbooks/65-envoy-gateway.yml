@@ -1,0 +1,28 @@
+- name: Envoy Gateway 설치
+  hosts: managed
+  become: false
+  vars:
+    envoy_gateway_version: v1.2.6
+    install_url: "https://github.com/envoyproxy/gateway/releases/download/{{ envoy_gateway_version }}/install.yaml"
+  tasks:
+    - name: Envoy Gateway apply 
+      command: kubectl apply --server-side -f {{ install_url }}
+      register: apply_result
+      changed_when:
+        - "'created' in apply_result.stdout or 'configured' in apply_result.stdout"
+
+    - name: 컨트롤러 Pod Ready 대기
+      command: >
+        kubectl wait --namespace=envoy-gateway-system
+        --for=condition=Available deployment/envoy-gateway
+        --timeout=180s
+      changed_when: false
+
+    - name: 설치 확인
+      command: kubectl get pods -n envoy-gateway-system
+      register: pods_result
+      changed_when: false
+
+    - name: Pod 상태 출력
+      debug:
+        var: pods_result.stdout_lines
