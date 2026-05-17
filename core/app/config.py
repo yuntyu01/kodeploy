@@ -23,3 +23,15 @@ GHCR_REPO_PREFIX = os.getenv("GHCR_REPO_PREFIX", "kodeploy")
 # rootless 이미지: privileged 권한 없이 클러스터 안에서 빌드하기 위함.
 BUILDKIT_IMAGE = os.getenv("BUILDKIT_IMAGE", "moby/buildkit:rootless")
 BUILD_TIMEOUT_SECONDS = int(os.getenv("BUILD_TIMEOUT_SECONDS", "600"))
+
+# --- CORS ---
+# 쉼표로 구분된 허용 origin 목록. 개발은 localhost, 운영은 Cloudflare Pages 도메인.
+# "*"로 두면 전부 허용 (개발 편의용, 운영에서는 명시).
+ALLOWED_ORIGINS = [
+    o.strip()
+    for o in os.getenv(
+        "ALLOWED_ORIGINS",
+        "http://localhost:5173,http://127.0.0.1:5173",
+    ).split(",")
+    if o.strip()
+]

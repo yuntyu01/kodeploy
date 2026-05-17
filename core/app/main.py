@@ -3,7 +3,9 @@
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
+from app.config import ALLOWED_ORIGINS
 from app.deploy.router import router as deploy_router
 from app.shared.db import Base, engine
 
@@ -16,6 +18,16 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="KoDeploy", lifespan=lifespan)
+
+# Cloudflare Pages 등 별도 도메인 프론트에서 호출 허용
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=ALLOWED_ORIGINS,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 app.include_router(deploy_router)
 
 
