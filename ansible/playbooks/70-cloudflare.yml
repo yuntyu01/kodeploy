@@ -1,0 +1,50 @@
+- hosts: managed
+  become: true
+  vars:
+    cloudflared_force_reinstall: false
+  tasks:
+    - name: 토큰 주입 확인
+      assert:
+        that: cloudflared_tunnel_token is defined and cloudflared_tunnel_token | length > 0
+        fail_msg: |
+          cloudflared_tunnel_token이 비었습니다.
+          terraform output -raw tunnel_token 결과를 -e 로 전달하세요.
+
+    # GitHub에서 최신 ARM64 RPM 다운로드
+    - name: cloudflared RPM 다운로드
+      get_url:
+        url: https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-aarch64.rpm
+        dest: /tmp/cloudflared.rpm
+
+    # RPM 설치 — disablerepo='*'로 repo 메타데이터 로딩 회피.
+    # 이게 없으면 dnf가 BaseOS/AppStream 등 모든 repo 메타데이터를
+    # 메모리에 로드하면서 2GB+ 폭주 → 4GB 노드 전체 OOM.
+    # cloudflared는 의존성이 거의 없어서(libc 정도) disablerepo로도 안전.
+    # Cloudflare가 GPG 서명을 안 하므로 GPG 검증도 비활성화.
+    - name: cloudflared 설치 (repo 메타데이터 로딩 회피)
+      dnf:
+        name: /tmp/cloudflared.rpm
+        state: present
+        disable_gpg_check: true
+        disablerepo: '*'
+
+    # 토큰 회전 시 기존 서비스를 제거해야 새 토큰으로 재설치됨
+    # cloudflared service install은 systemd 유닛이 있으면 skip하기 때문
+    - name: 기존 cloudflared service 제거 (force_reinstall=true)
+      command: cloudflared service uninstall
+      args:
+        removes: /etc/systemd/system/cloudflared.service
+      when: cloudflared_force_reinstall
+
+    # systemd 유닛 생성 + 토큰 등록 + 시작
+    # remotely-managed 모드라 config.yml/credentials.json 불필요
+    - name: cloudflared service install (token mode)
+      command: cloudflared --no-autoupdate service install {{ cloudflared_tunnel_token }}
+      args:
+        creates: /etc/systemd/system/cloudflared.service
+
+    - name: cloudflared 서비스 활성화
+      systemd:
+        name: cloudflared
+        enabled: true
+        state: started
