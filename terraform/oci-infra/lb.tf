@@ -31,6 +31,9 @@ resource "oci_network_load_balancer_backend_set" "http" {
   name                     = "http-backend-set"
   network_load_balancer_id = oci_network_load_balancer_network_load_balancer.kodeploy.id
   policy                   = "FIVE_TUPLE"
+  # SNAT 활성화 — 워커가 NLB로 응답하도록 함 (비대칭 라우팅 회피)
+  # 클라이언트 IP는 Gateway 컨트롤러의 X-Forwarded-For 헤더로 확인
+  is_preserve_source = false
 
   # TCP 헬스체크 — 포트 80이 열려있는지 확인하여 정상 노드만 트래픽 수신
   health_checker {
@@ -67,6 +70,8 @@ resource "oci_network_load_balancer_backend_set" "https" {
   name                     = "https-backend-set"
   network_load_balancer_id = oci_network_load_balancer_network_load_balancer.kodeploy.id
   policy                   = "FIVE_TUPLE"
+  # SNAT 활성화 — HTTP 백엔드 셋과 동일 사유 (비대칭 라우팅 회피)
+  is_preserve_source = false
 
   # TCP 헬스체크 — 포트 443이 열려있는지 확인
   health_checker {
