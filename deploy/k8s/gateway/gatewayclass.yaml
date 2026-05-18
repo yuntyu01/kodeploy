@@ -1,0 +1,20 @@
+# ============================================================================
+# gatewayclass.yaml — Envoy Gateway용 GatewayClass
+# ----------------------------------------------------------------------------
+# controllerName이 Envoy Gateway 컨트롤러를 가리키고, parametersRef로
+# 위 EnvoyProxy 인프라 설정을 연결한다.
+#
+# 이 클래스를 spec.gatewayClassName에 지정하는 Gateway 리소스가 만들어지면,
+# 컨트롤러가 EnvoyProxy 스펙대로 envoy proxy Service/Deployment를 생성한다.
+# ============================================================================
+apiVersion: gateway.networking.k8s.io/v1
+kind: GatewayClass
+metadata:
+  name: kodeploy
+spec:
+  controllerName: gateway.envoyproxy.io/gatewayclass-controller
+  parametersRef:
+    group: gateway.envoyproxy.io
+    kind: EnvoyProxy
+    name: kodeploy-proxy
+    namespace: envoy-gateway-system

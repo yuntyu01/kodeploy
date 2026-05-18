@@ -1,0 +1,40 @@
+# ============================================================================
+# httproute.yaml — kodeploy-core로의 HTTP 라우팅 규칙
+# ----------------------------------------------------------------------------
+# api.kodeploy.com 호스트로 들어오는 트래픽을 kodeploy-core Service로 전달.
+# HTTP(80) 요청은 HTTPS(443)로 리다이렉트.
+# ============================================================================
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: kodeploy-core
+  namespace: default
+spec:
+  parentRefs:
+    - name: kodeploy
+      sectionName: https
+  hostnames:
+    - api.kodeploy.com
+  rules:
+    - backendRefs:
+        - name: kodeploy-core
+          port: 80
+
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: kodeploy-core-redirect
+  namespace: default
+spec:
+  parentRefs:
+    - name: kodeploy
+      sectionName: http
+  hostnames:
+    - api.kodeploy.com
+  rules:
+    - filters:
+        - type: RequestRedirect
+          requestRedirect:
+            scheme: https
+            statusCode: 301

@@ -1,0 +1,107 @@
+- name: Self-signed wildcard TLS 인증서 생성 → K8s Secret YAML로 저장
+  hosts: localhost
+  connection: local
+  vars:
+    domain: kodeploy.com
+    cert_dir: "{{ playbook_dir }}/../../.tls-selfsigned"
+    secret_path: "{{ playbook_dir }}/../../deploy/k8s/secrets/kodeploy-tls.yaml"
+  tasks:
+    - name: 인증서 디렉토리 생성
+      file:
+        path: "{{ cert_dir }}"
+        state: directory
+        mode: "0700"
+
+    - name: CA 개인키 생성
+      command: >
+        openssl genrsa -out {{ cert_dir }}/ca.key 4096
+      args:
+        creates: "{{ cert_dir }}/ca.key"
+
+    - name: CA 인증서 생성 (10년)
+      command: >
+        openssl req -x509 -new -nodes
+        -key {{ cert_dir }}/ca.key
+        -sha256 -days 3650
+        -subj "/CN={{ domain }} CA"
+        -out {{ cert_dir }}/ca.crt
+      args:
+        creates: "{{ cert_dir }}/ca.crt"
+
+    - name: 서버 개인키 생성
+      command: >
+        openssl genrsa -out {{ cert_dir }}/tls.key 4096
+      args:
+        creates: "{{ cert_dir }}/tls.key"
+
+    - name: SAN 설정 파일 생성
+      copy:
+        dest: "{{ cert_dir }}/san.cnf"
+        content: |
+          [req]
+          req_extensions = v3_req
+          distinguished_name = dn
+          [dn]
+          [v3_req]
+          subjectAltName = DNS:{{ domain }},DNS:*.{{ domain }}
+
+    - name: CSR 생성
+      command: >
+        openssl req -new
+        -key {{ cert_dir }}/tls.key
+        -subj "/CN=*.{{ domain }}"
+        -config {{ cert_dir }}/san.cnf
+        -out {{ cert_dir }}/tls.csr
+      args:
+        creates: "{{ cert_dir }}/tls.csr"
+
+    - name: CA로 서버 인증서 서명 (1년)
+      command: >
+        openssl x509 -req
+        -in {{ cert_dir }}/tls.csr
+        -CA {{ cert_dir }}/ca.crt
+        -CAkey {{ cert_dir }}/ca.key
+        -CAcreateserial
+        -days 365 -sha256
+        -extensions v3_req
+        -extfile {{ cert_dir }}/san.cnf
+        -out {{ cert_dir }}/tls.crt
+      args:
+        creates: "{{ cert_dir }}/tls.crt"
+
+    - name: 인증서 내용 확인
+      command: openssl x509 -in {{ cert_dir }}/tls.crt -noout -subject -dates -ext subjectAltName
+      register: cert_info
+      changed_when: false
+
+    - name: 인증서 정보 출력
+      debug:
+        var: cert_info.stdout_lines
+
+    - name: tls.crt 읽기
+      slurp:
+        src: "{{ cert_dir }}/tls.crt"
+      register: tls_crt
+
+    - name: tls.key 읽기
+      slurp:
+        src: "{{ cert_dir }}/tls.key"
+      register: tls_key
+
+    - name: K8s TLS Secret YAML 생성
+      copy:
+        dest: "{{ secret_path }}"
+        content: |
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: kodeploy-tls
+            namespace: default
+          type: kubernetes.io/tls
+          data:
+            tls.crt: {{ tls_crt.content }}
+            tls.key: {{ tls_key.content }}
+
+    - name: 완료
+      debug:
+        msg: "Secret YAML 생성 완료: deploy/k8s/secrets/kodeploy-tls.yaml"

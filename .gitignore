@@ -59,6 +59,7 @@ tunnel-credentials.json
 ansible/kubeconfig/
 kubeconfig/
 deploy/k8s/secrets/
+.tls-selfsigned/
 .claude/
 
 # ---- Editors / OS ----

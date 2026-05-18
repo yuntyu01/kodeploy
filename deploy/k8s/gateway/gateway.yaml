@@ -1,0 +1,36 @@
+# ============================================================================
+# gateway.yaml — kodeploy Gateway (Envoy Gateway 데이터 플레인 진입점)
+# ----------------------------------------------------------------------------
+# GatewayClass "kodeploy"를 참조 → 컨트롤러가 EnvoyProxy 스펙대로
+# NodePort(30080/30443) Service + envoy Deployment를 자동 생성.
+#
+# 트래픽 흐름:
+#   인터넷 → NLB(:80/:443) → NodePort(30080/30443) → Envoy Pod
+#     → HTTPRoute 규칙에 따라 백엔드 Service로 전달
+# ============================================================================
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: kodeploy
+  namespace: default
+spec:
+  gatewayClassName: kodeploy
+  listeners:
+    - name: http
+      protocol: HTTP
+      port: 80
+      allowedRoutes:
+        namespaces:
+          from: Same
+
+    - name: https
+      protocol: HTTPS
+      port: 443
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - kind: Secret
+            name: kodeploy-tls
+      allowedRoutes:
+        namespaces:
+          from: Same

@@ -1,0 +1,39 @@
+# ============================================================================
+# envoyproxy.yaml — Envoy proxy(데이터 플레인) 인프라 설정
+# ----------------------------------------------------------------------------
+# GatewayClass의 parametersRef로 연결되어, 컨트롤러가 envoy proxy를 띄울 때
+# 이 스펙을 따라 Service/Deployment 형태를 결정한다.
+#
+# envoyService.type=NodePort: NLB(L4)의 백엔드가 워커의 NodePort(30080/30443)로
+# 트래픽을 보내고, kube-proxy가 envoy proxy Pod으로 forward.
+# 외부 LB 추가나 다른 컨트롤러 공존 등 향후 확장에 유연.
+#
+# patch.strategicMerge로 nodePort 값 고정 — 자동 할당이면 재생성 시 변동되어
+# NLB 백엔드 동기화가 깨질 수 있음.
+# ============================================================================
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: EnvoyProxy
+metadata:
+  name: kodeploy-proxy
+  namespace: envoy-gateway-system
+spec:
+  provider:
+    type: Kubernetes
+    kubernetes:
+      envoyService:
+        type: NodePort
+        patch:
+          type: StrategicMerge
+          value:
+            spec:
+              ports:
+                - name: http
+                  port: 80
+                  targetPort: 10080
+                  nodePort: 30080
+                  protocol: TCP
+                - name: https
+                  port: 443
+                  targetPort: 10443
+                  nodePort: 30443
+                  protocol: TCP

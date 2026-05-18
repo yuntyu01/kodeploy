@@ -35,20 +35,22 @@ resource "oci_network_load_balancer_backend_set" "http" {
   # 클라이언트 IP는 Gateway 컨트롤러의 X-Forwarded-For 헤더로 확인
   is_preserve_source = false
 
-  # TCP 헬스체크 — 포트 80이 열려있는지 확인하여 정상 노드만 트래픽 수신
+  # TCP 헬스체크 — Envoy proxy Service의 NodePort 30080이 열려있는지 확인
   health_checker {
     protocol = "TCP"
-    port     = 80
+    port     = 30080
   }
 }
 
-# HTTP 백엔드 — 각 워커 노드를 HTTP 백엔드 셋에 등록 (포트 80)
+# HTTP 백엔드 — 각 워커 노드의 NodePort 30080으로 트래픽 전달
+# envoy proxy Service(envoy-gateway-system ns)가 NodePort 30080에 노출되어 있어,
+# 어느 워커로 가도 kube-proxy가 envoy proxy Pod으로 forward.
 resource "oci_network_load_balancer_backend" "http" {
   for_each = toset(local.worker_keys)
 
   network_load_balancer_id = oci_network_load_balancer_network_load_balancer.kodeploy.id
   backend_set_name         = oci_network_load_balancer_backend_set.http.name
-  port                     = 80
+  port                     = 30080
   target_id                = oci_core_instance.node[each.key].id
   name                     = "${each.key}-http"
 }
@@ -73,20 +75,20 @@ resource "oci_network_load_balancer_backend_set" "https" {
   # SNAT 활성화 — HTTP 백엔드 셋과 동일 사유 (비대칭 라우팅 회피)
   is_preserve_source = false
 
-  # TCP 헬스체크 — 포트 443이 열려있는지 확인
+  # TCP 헬스체크 — Envoy proxy Service의 NodePort 30443이 열려있는지 확인
   health_checker {
     protocol = "TCP"
-    port     = 443
+    port     = 30443
   }
 }
 
-# HTTPS 백엔드 — 각 워커 노드를 HTTPS 백엔드 셋에 등록 (포트 443)
+# HTTPS 백엔드 — 각 워커 노드의 NodePort 30443으로 트래픽 전달
 resource "oci_network_load_balancer_backend" "https" {
   for_each = toset(local.worker_keys)
 
   network_load_balancer_id = oci_network_load_balancer_network_load_balancer.kodeploy.id
   backend_set_name         = oci_network_load_balancer_backend_set.https.name
-  port                     = 443
+  port                     = 30443
   target_id                = oci_core_instance.node[each.key].id
   name                     = "${each.key}-https"
 }

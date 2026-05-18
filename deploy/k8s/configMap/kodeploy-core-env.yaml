@@ -11,4 +11,4 @@ data:
   DB_USER: "kodeploy"
   DB_NAME: "kodeploy"
   # 프론트(Cloudflare Pages 등) 도메인. 쉼표로 여러 개 허용 가능.
-  ALLOWED_ORIGINS: "https://kodeploy.pages.dev"
+  ALLOWED_ORIGINS: "https://kodeploy.pages.dev,http://localhost:5173,http://127.0.0.1:5173"
