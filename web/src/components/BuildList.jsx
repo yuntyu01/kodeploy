@@ -71,7 +71,9 @@ export default function BuildList({ refreshSignal, onSelect, selectedId }) {
       )}
 
       {loading && builds.length === 0 && (
-        <div className="text-[12px] text-fg-4 py-6 text-center">불러오는 중…</div>
+        <div className="text-[12px] text-fg-4 py-6 text-center">
+          불러오는 중…
+        </div>
       )}
 
       {!loading && builds.length === 0 && !error && (
@@ -96,15 +98,19 @@ export default function BuildList({ refreshSignal, onSelect, selectedId }) {
                   ? "rgba(94,106,210,0.08)"
                   : "transparent",
                 border: `1px solid ${
-                  active ? "rgba(94,106,210,0.25)" : "rgba(255,255,255,0.06)"
+                  active
+                    ? "rgba(94,106,210,0.25)"
+                    : "rgba(255,255,255,0.06)"
                 }`,
               }}
               onMouseEnter={(e) =>
                 !active &&
-                (e.currentTarget.style.background = "rgba(255,255,255,0.025)")
+                (e.currentTarget.style.background =
+                  "rgba(255,255,255,0.025)")
               }
               onMouseLeave={(e) =>
-                !active && (e.currentTarget.style.background = "transparent")
+                !active &&
+                (e.currentTarget.style.background = "transparent")
               }
             >
               <span

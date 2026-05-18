@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { GitBranch } from "lucide-react";
 import { createDeploy } from "../api/deploy.js";
 
 export default function DeployForm({ onCreated }) {
@@ -31,9 +32,9 @@ export default function DeployForm({ onCreated }) {
   };
 
   return (
-    <form onSubmit={handleSubmit} className="kd-fade-in">
+    <form onSubmit={handleSubmit} className="kd-fade-in max-w-[720px]">
       <h2
-        className="text-[20px] text-fg-1 mb-1.5"
+        className="text-[20px] text-fg-1 mb-1"
         style={{ fontWeight: 510, letterSpacing: -0.4 }}
       >
         GitHub 저장소 배포
@@ -50,7 +51,7 @@ export default function DeployForm({ onCreated }) {
             border: "1px solid rgba(255,255,255,0.09)",
           }}
         >
-          <span className="text-fg-3 mr-3 text-[13px] font-mono shrink-0">↗</span>
+          <GitBranch size={16} strokeWidth={1.6} className="text-fg-3 mr-3 shrink-0" />
           <input
             autoFocus
             value={repoUrl}
@@ -59,6 +60,7 @@ export default function DeployForm({ onCreated }) {
             className="flex-1 bg-transparent outline-none text-[13px] text-fg-1 py-3 font-mono"
             style={{ fontWeight: 500 }}
             disabled={submitting}
+            onKeyDown={(e) => e.key === "Enter" && handleSubmit()}
           />
         </div>
         <button
@@ -73,9 +75,7 @@ export default function DeployForm({ onCreated }) {
         >
           {submitting ? (
             <span className="flex items-center gap-2">
-              <span
-                className="w-3.5 h-3.5 rounded-full border-2 border-white/30 border-t-white kd-spin"
-              />
+              <span className="w-3.5 h-3.5 rounded-full border-2 border-white/30 border-t-white kd-spin" />
               요청 중
             </span>
           ) : (
@@ -84,7 +84,7 @@ export default function DeployForm({ onCreated }) {
         </button>
       </div>
 
-      <div className="flex gap-2 mb-2 text-[12px]">
+      <div className="flex gap-4 text-[12px]">
         <label className="flex items-center gap-2 text-fg-3">
           <span style={{ fontWeight: 510 }}>브랜치</span>
           <input

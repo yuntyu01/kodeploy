@@ -1,11 +1,10 @@
 import { useState } from "react";
-import Brand from "./components/Brand.jsx";
+import TopBar from "./components/TopBar.jsx";
 import DeployForm from "./components/DeployForm.jsx";
 import BuildList from "./components/BuildList.jsx";
 import BuildDetail from "./components/BuildDetail.jsx";
 
 export default function App() {
-  // refreshSignal을 토글해서 BuildList에 새로고침을 트리거
   const [refreshSignal, setRefreshSignal] = useState(0);
   const [selectedId, setSelectedId] = useState(null);
 
@@ -15,35 +14,24 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen flex flex-col">
-      <header
-        className="flex items-center px-6 h-14 shrink-0"
-        style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}
-      >
-        <Brand size={20} />
-        <span className="ml-3 text-[12px] text-fg-4">
-          GitHub → Build → Deploy
-        </span>
-      </header>
+    <div className="h-screen w-screen flex flex-col" style={{ background: "#08090a" }}>
+      <TopBar />
 
-      <main className="flex-1 min-h-0 flex flex-col gap-8 px-6 py-10 max-w-[1100px] w-full mx-auto">
-        <section
-          className="p-6 rounded-xl"
-          style={{
-            background: "#0c0d0e",
-            border: "1px solid rgba(255,255,255,0.06)",
-          }}
+      <div className="flex-1 min-h-0 flex flex-col" style={{ background: "#0f1011" }}>
+        {/* Deploy form strip */}
+        <div
+          className="shrink-0 px-6 py-5"
+          style={{ borderBottom: "1px solid rgba(255,255,255,0.09)" }}
         >
           <DeployForm onCreated={handleCreated} />
-        </section>
+        </div>
 
-        <section className="grid grid-cols-1 lg:grid-cols-[minmax(0,340px)_1fr] gap-6">
+        {/* Build list + detail */}
+        <div className="flex-1 min-h-0 flex">
+          {/* Left: build list */}
           <div
-            className="p-5 rounded-xl"
-            style={{
-              background: "#0c0d0e",
-              border: "1px solid rgba(255,255,255,0.06)",
-            }}
+            className="w-[340px] shrink-0 overflow-auto scroll-thin p-4"
+            style={{ borderRight: "1px solid rgba(255,255,255,0.09)" }}
           >
             <BuildList
               refreshSignal={refreshSignal}
@@ -51,17 +39,13 @@ export default function App() {
               selectedId={selectedId}
             />
           </div>
-          <div
-            className="p-5 rounded-xl"
-            style={{
-              background: "#0c0d0e",
-              border: "1px solid rgba(255,255,255,0.06)",
-            }}
-          >
+
+          {/* Right: build detail */}
+          <div className="flex-1 min-w-0 overflow-auto scroll-thin p-5">
             <BuildDetail buildId={selectedId} />
           </div>
-        </section>
-      </main>
+        </div>
+      </div>
     </div>
   );
 }
