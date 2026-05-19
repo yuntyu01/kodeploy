@@ -19,6 +19,17 @@ resource "cloudflare_record" "ssh" {
   comment         = "Cloudflare Tunnel (managed by Terraform)"
 }
 
+# 와일드카드 — 유저 앱 서브도메인 ({app_name}.kodeploy.com) 전부 NLB로
+resource "cloudflare_record" "wildcard" {
+  zone_id = var.cloudflare_zone_id
+  name    = "*"
+  content = var.nlb_public_ip
+  type    = "A"
+  proxied = true
+  ttl     = 1
+  comment = "User app subdomains (Cloudflare proxy ON)"
+}
+
 # API 도메인 A 레코드 — OCI NLB 공인 IP
 # proxied=true로 Cloudflare 앞단에 두어 WAF/DDoS/CDN 혜택을 받음.
 # Cloudflare SSL/TLS 모드는 Full (strict 아님) — origin은 self-signed 인증서로

@@ -38,3 +38,9 @@ def core_v1() -> client.CoreV1Api:
 def apps_v1() -> client.AppsV1Api:
     _ensure_loaded()
     return client.AppsV1Api()
+
+
+# Gateway API 등 CRD 조작용
+def custom() -> client.CustomObjectsApi:
+    _ensure_loaded()
+    return client.CustomObjectsApi()

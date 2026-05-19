@@ -15,8 +15,16 @@ _env = Environment(
 )
 
 
-# 단일 템플릿 렌더 + yaml 파싱
+# 단일 문서 템플릿 렌더 + yaml 파싱 (deployment/service 같은 단일 리소스용)
 def render(template_name: str, **vars) -> dict:
     template = _env.get_template(template_name)
     rendered = template.render(**vars)
     return yaml.safe_load(rendered)
+
+
+# 다중 문서 템플릿 렌더 (tenant: ns + ResourceQuota + Secret 같은 묶음)
+# yaml의 `---` 구분자로 분리된 문서 여러 개를 list로 반환.
+def render_all(template_name: str, **vars) -> list[dict]:
+    template = _env.get_template(template_name)
+    rendered = template.render(**vars)
+    return [doc for doc in yaml.safe_load_all(rendered) if doc]

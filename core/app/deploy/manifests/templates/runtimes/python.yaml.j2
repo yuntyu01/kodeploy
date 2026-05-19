@@ -1,0 +1,72 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ app_name }}                                   # 유저 앱 이름 (repo에서 파생)
+  namespace: {{ tenant_id }}                             # 테넌트 ns가 격리 단위
+  labels:
+    app: {{ app_name }}
+    runtime: python                                      # 런타임 라벨 — 셀렉터로 종류별 일괄 조회 가능
+    tenant: {{ tenant_id }}                              # 테넌트 라벨 (kubectl ... -l tenant=xxx 일괄 조회용)
+    user: "{{ user_id }}"                                # 유저 라벨
+    managed-by: kodeploy
+spec:
+  replicas: {{ replicas | default(1) }}
+  selector:
+    matchLabels:
+      app: {{ app_name }}
+  template:
+    metadata:
+      labels:
+        app: {{ app_name }}
+        runtime: python
+        tenant: {{ tenant_id }}                          # Pod에도 라벨 박아야 셀렉터 일괄 조회 가능
+        user: "{{ user_id }}"
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: app
+          image: {{ image }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          ports:
+            - containerPort: {{ port | default(8000) }}
+          envFrom:
+            - secretRef:
+                name: {{ app_name }}-env                 # 유저가 UI에서 추가한 envvar 묶음 (Secret 통째 흡수)
+                optional: true                           # Secret 없어도 Pod 시작 가능 (첫 배포 시 자연스러움)
+          env:                                           # 플랫폼 주입값 — envFrom과 충돌 시 이쪽이 이김
+            - name: PYTHONUNBUFFERED
+              value: "1"                                 # stdout 즉시 flush (kubectl logs 실시간 반영)
+          resources:
+            requests:
+              cpu: {{ req_cpu }}m                        # 스케줄러 보장값
+              memory: {{ req_mem }}Mi
+            limits:
+              cpu: {{ lim_cpu }}m                        # 런타임 상한 (초과 시 throttle / OOMKill)
+              memory: {{ lim_mem }}Mi
+          startupProbe:                                  # 부팅 단계 전용. 통과 전엔 liveness/readiness 멈춤
+            tcpSocket:
+              port: {{ port | default(8000) }}
+            failureThreshold: 12                         # 실패 N회까지 허용
+            periodSeconds: 5                             # N초마다 체크 → 최대 60초까지 부팅 허용
+          livenessProbe:                                 # 프로세스 살아있나 — 실패 시 컨테이너 재시작
+            tcpSocket:
+              port: {{ port | default(8000) }}
+            periodSeconds: 10
+            failureThreshold: 3                          # 연속 N회 실패 시 재시작 (30초)
+          readinessProbe:                                # 트래픽 받을 준비 됐나 — 실패 시 endpoint에서만 제외
+            tcpSocket:
+              port: {{ port | default(8000) }}
+            periodSeconds: 5
+            failureThreshold: 3                          # 연속 N회 실패 시 endpoint 제외 (15초)
+      imagePullSecrets:
+        - name: {{ ghcr_auth_secret }}                   # private GHCR 이미지 pull용

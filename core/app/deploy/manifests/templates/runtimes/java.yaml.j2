@@ -1,0 +1,72 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ app_name }}                                   # 유저 앱 이름 (repo에서 파생)
+  namespace: {{ tenant_id }}                             # 테넌트 ns가 격리 단위
+  labels:
+    app: {{ app_name }}
+    runtime: java                                        # 런타임 라벨
+    tenant: {{ tenant_id }}
+    user: "{{ user_id }}"
+    managed-by: kodeploy
+spec:
+  replicas: {{ replicas | default(1) }}
+  selector:
+    matchLabels:
+      app: {{ app_name }}
+  template:
+    metadata:
+      labels:
+        app: {{ app_name }}
+        runtime: java
+        tenant: {{ tenant_id }}                          # Pod에도 라벨 박아야 셀렉터 일괄 조회 가능
+        user: "{{ user_id }}"
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: app
+          image: {{ image }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          ports:
+            - containerPort: {{ port | default(8080) }}  # Spring Boot 기본 포트
+          envFrom:
+            - secretRef:
+                name: {{ app_name }}-env                 # 유저가 UI에서 추가한 envvar 묶음 (Secret 통째 흡수)
+                optional: true                           # Secret 없어도 Pod 시작 가능 (첫 배포 시 자연스러움)
+          env:                                           # 플랫폼 주입값 — envFrom과 충돌 시 이쪽이 이김
+            - name: JAVA_TOOL_OPTIONS                    # JVM이 cgroup limits 인식 + heap 75%로 설정
+              value: "-XX:+UseContainerSupport -XX:MaxRAMPercentage=75.0 -XX:InitialRAMPercentage=50.0"
+          resources:
+            requests:
+              cpu: {{ req_cpu }}m                        # 스케줄러 보장값
+              memory: {{ req_mem }}Mi
+            limits:
+              cpu: {{ lim_cpu }}m                        # 런타임 상한 (JVM heap이 이 값 기준 75%)
+              memory: {{ lim_mem }}Mi
+          startupProbe:                                  # 부팅 단계 전용. Spring Boot는 느려서 길게
+            tcpSocket:
+              port: {{ port | default(8080) }}
+            failureThreshold: 30                         # 실패 N회까지 허용
+            periodSeconds: 10                            # N초마다 체크 → 최대 300초까지 부팅 허용
+          livenessProbe:                                 # 프로세스 살아있나 — 실패 시 재시작
+            tcpSocket:
+              port: {{ port | default(8080) }}
+            periodSeconds: 10
+            failureThreshold: 3                          # 연속 N회 실패 시 재시작 (30초)
+          readinessProbe:                                # 트래픽 받을 준비 됐나 — 실패 시 endpoint 제외
+            tcpSocket:
+              port: {{ port | default(8080) }}
+            periodSeconds: 5
+            failureThreshold: 3                          # 연속 N회 실패 시 endpoint 제외 (15초)
+      imagePullSecrets:
+        - name: {{ ghcr_auth_secret }}                   # private GHCR 이미지 pull용
