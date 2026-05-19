@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { listBuilds } from "../api/deploy.js";
 import StatusBadge from "./StatusBadge.jsx";
 
-const ACTIVE = new Set(["queued", "building", "deploying"]);
+const ACTIVE = new Set(["queued", "building", "built", "deploying"]);
 
 function formatTime(iso) {
   if (!iso) return "";
@@ -11,7 +11,7 @@ function formatTime(iso) {
   return d.toLocaleString("ko-KR", { hour12: false });
 }
 
-export default function BuildList({ refreshSignal, onSelect, selectedId }) {
+export default function BuildList({ refreshSignal, onSelect, selectedId, onNewDeploy }) {
   const [builds, setBuilds] = useState([]);
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -55,6 +55,18 @@ export default function BuildList({ refreshSignal, onSelect, selectedId }) {
           빌드 기록
         </span>
         <span className="text-[10.5px] text-fg-4">{builds.length}건</span>
+        <button
+          onClick={onNewDeploy}
+          className="ml-auto px-2.5 py-1 rounded-md text-[11px] text-fg-2 transition-colors"
+          style={{
+            fontWeight: 510,
+            border: "1px solid rgba(255,255,255,0.09)",
+          }}
+          onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.04)")}
+          onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+        >
+          + 새 배포
+        </button>
       </div>
 
       {error && (

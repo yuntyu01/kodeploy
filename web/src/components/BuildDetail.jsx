@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { getBuild } from "../api/deploy.js";
 import StatusBadge from "./StatusBadge.jsx";
 
-const ACTIVE = new Set(["queued", "building", "deploying"]);
+const ACTIVE = new Set(["queued", "building", "built", "deploying"]);
 
 export default function BuildDetail({ buildId }) {
   const [build, setBuild] = useState(null);

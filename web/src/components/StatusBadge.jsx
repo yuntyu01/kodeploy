@@ -6,16 +6,21 @@ const STYLES = {
     label: "빌드 중",
     pulse: true,
   },
+  built: {
+    bg: "rgba(94,106,210,0.12)",
+    color: "#a4abee",
+    label: "빌드 완료",
+  },
   deploying: {
     bg: "rgba(245,158,11,0.12)",
     color: "#f59e0b",
     label: "배포 중",
     pulse: true,
   },
-  deployed: {
+  running: {
     bg: "rgba(16,185,129,0.12)",
     color: "#10b981",
-    label: "배포 완료",
+    label: "실행 중",
   },
   failed: { bg: "rgba(239,68,68,0.12)", color: "#ef4444", label: "실패" },
 };

@@ -7,7 +7,7 @@ const NAV_ITEMS = [
   { label: "GitHub", href: "https://github.com", external: true },
 ];
 
-export default function TopBar() {
+export default function TopBar({ onLogoClick }) {
   return (
     <header
       className="relative flex items-center h-14 px-6 shrink-0 gap-4"
@@ -17,7 +17,10 @@ export default function TopBar() {
       }}
     >
       {/* Brand (left) */}
-      <div className="flex items-center gap-3 min-w-0">
+      <div
+        className="flex items-center gap-3 min-w-0 cursor-pointer"
+        onClick={onLogoClick}
+      >
         <Brand size={20} />
         <span className="text-[12px] text-fg-4">
           GitHub → Build → Deploy

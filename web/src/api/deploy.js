@@ -17,10 +17,19 @@ async function request(path, options = {}) {
   return res.json();
 }
 
-export function createDeploy({ repoUrl, branch = "main", port = 80 }) {
+// 백엔드 schemas.Runtime과 sync (python/java). 추가 시 UI dropdown도 같이.
+export const RUNTIMES = ["python", "java"];
+
+export function createDeploy({ repoUrl, branch = "main", port = 80, runtime, name }) {
   return request("/deploy", {
     method: "POST",
-    body: JSON.stringify({ repo_url: repoUrl, branch, port }),
+    body: JSON.stringify({
+      repo_url: repoUrl,
+      branch,
+      port,
+      runtime,
+      name: name?.trim() || null,                 // 빈 값이면 서버가 app-<hex8> 자동 생성
+    }),
   });
 }
 
