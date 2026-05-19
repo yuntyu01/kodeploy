@@ -1,12 +1,12 @@
 apiVersion: v1
-kind: Service
+kind: Service                                            # Pod IP 변동에 안 흔들리는 안정적 가상 IP/DNS 부여
 metadata:
   name: kodeploy-core
   namespace: default
 spec:
   selector:
-    app: kodeploy-core
+    app: kodeploy-core                                   # 이 라벨 가진 Pod을 endpoint로 등록
   ports:
-    - port: 80
-      targetPort: 8000
-  type: ClusterIP
+    - port: 80                                           # Service 자체가 노출하는 포트 (HTTPRoute가 부르는 번호)
+      targetPort: 8000                                   # 백엔드 Pod의 containerPort
+  type: ClusterIP                                        # 클러스터 내부 전용 — 외부 노출은 Gateway/HTTPRoute가 담당

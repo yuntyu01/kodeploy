@@ -42,7 +42,7 @@ env/
 # ---- Node / web ----
 node_modules/
 dist/
-build/
+web/build/
 .next/
 .vite/
 .cache/
@@ -59,6 +59,7 @@ tunnel-credentials.json
 ansible/kubeconfig/
 kubeconfig/
 deploy/k8s/secrets/
+deploy/k8s/build/ghcr-auth.yaml
 .tls-selfsigned/
 .claude/
 

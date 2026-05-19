@@ -1,34 +1,59 @@
 apiVersion: apps/v1
-kind: Deployment
+kind: Deployment                                         # Pod을 정해진 수만큼 유지하는 컨트롤러
 metadata:
   name: kodeploy-core
   namespace: default
   labels:
     app: kodeploy-core
 spec:
-  replicas: 1
+  replicas: 1                                            # Pod 복제본 수
   selector:
     matchLabels:
-      app: kodeploy-core
+      app: kodeploy-core                                 # 이 라벨 가진 Pod을 "내 Pod"으로 인식
   template:
     metadata:
       labels:
-        app: kodeploy-core
+        app: kodeploy-core                               # selector와 반드시 매칭
     spec:
-      serviceAccountName: kodeploy-core
+      serviceAccountName: kodeploy-core                  # in-cluster K8s API 호출용 SA (rbac.yaml)
       containers:
         - name: core
           image: ghcr.io/yuntyu01/kodeploy-core:latest
           ports:
-            - containerPort: 8000
+            - containerPort: 8000                        # 컨테이너 내부 listen 포트 (문서화용)
+          resources:
+            requests:                                    # 스케줄러 보장값 — 가벼운 FastAPI 백엔드
+              cpu: 100m                                  # 0.1 vCPU
+              memory: 256Mi
+            limits:                                      # 런타임 상한 (초과 시 throttle / OOMKill)
+              cpu: 500m
+              memory: 512Mi
           envFrom:
             - configMapRef:
-                name: kodeploy-core-env
+                name: kodeploy-core-env                  # 환경변수 묶음 일괄 주입
           env:
-            - name: DB_PASSWORD
+            - name: DB_PASSWORD                          # 시크릿은 개별로
               valueFrom:
                 secretKeyRef:
                   name: mysql-secret
                   key: MYSQL_PASSWORD
+          startupProbe:                                  # 부팅 단계 전용. 통과 전엔 liveness/readiness 멈춤
+            httpGet:
+              path: /healthz                             # main.py의 /healthz 엔드포인트
+              port: 8000
+            failureThreshold: 12                         # 실패 N회까지 허용
+            periodSeconds: 5                             # N초마다 체크 → 최대 60초까지 부팅 허용
+          livenessProbe:                                 # 프로세스 살아있나 — 실패 시 재시작
+            httpGet:
+              path: /healthz
+              port: 8000
+            periodSeconds: 10                            # N초마다 체크
+            failureThreshold: 3                          # 연속 N회 실패 시 재시작 (30초)
+          readinessProbe:                                # 트래픽 받을 준비 됐나 — 실패 시 endpoint에서만 제외
+            httpGet:
+              path: /healthz
+              port: 8000
+            periodSeconds: 5
+            failureThreshold: 3                          # 연속 N회 실패 시 endpoint 제외 (15초)
       imagePullSecrets:
-        - name: ghcr-auth
+        - name: ghcr-auth                                # private GHCR 이미지 pull용 인증

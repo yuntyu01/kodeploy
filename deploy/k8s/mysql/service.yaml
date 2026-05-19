@@ -6,11 +6,10 @@ metadata:
   labels:
     app: mysql
 spec:
-  # StatefulSet용 헤드리스 서비스
-  clusterIP: None
+  clusterIP: None                                        # headless — 가상 IP 없이 Pod DNS만 부여 (StatefulSet 안정 식별용)
   selector:
-    app: mysql
+    app: mysql                                           # 이 라벨 가진 Pod을 endpoint로 등록
   ports:
-    - port: 3306
-      targetPort: 3306
-      name: mysql
+    - port: 3306                                         # Service가 노출하는 포트
+      targetPort: 3306                                   # 백엔드 Pod의 containerPort
+      name: mysql                                        # 포트 이름 — 다른 리소스가 이름으로 참조 가능

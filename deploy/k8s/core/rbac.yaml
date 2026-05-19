@@ -1,35 +1,40 @@
 apiVersion: v1
-kind: ServiceAccount
+kind: ServiceAccount                                     # Pod에 붙는 K8s 내부 신원 (토큰 자동 mount)
 metadata:
   name: kodeploy-core
   namespace: default
 ---
 apiVersion: rbac.authorization.k8s.io/v1
-kind: Role
+kind: ClusterRole                                        # 클러스터 전역 권한 (ns 무관 — kodeploy-build, tenant-xxx 모두 적용)
 metadata:
   name: kodeploy-core
-  namespace: default
 rules:
-  - apiGroups: ["batch"]
+  - apiGroups: ["batch"]                                 # BuildKit 빌드 Job 관리용 (kodeploy-build ns)
     resources: ["jobs", "jobs/status"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
-  - apiGroups: ["apps"]
-    resources: ["deployments"]
+  - apiGroups: ["apps"]                                  # 유저 앱 Deployment 배포/재배포용 (tenant ns)
+    resources: ["deployments", "deployments/status"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: [""]                                      # core API 그룹
+    resources: ["namespaces"]                            # 테넌트 ns 프로비저닝용
+    verbs: ["get", "create"]
   - apiGroups: [""]
-    resources: ["services", "pods", "pods/log"]
+    resources: ["services", "pods", "pods/log",          # services=앱 Svc / pods=BuildKit Pod / pods/log=빌드 로그
+                "secrets", "resourcequotas"]              # secrets=ghcr-auth 복사 / resourcequotas=테넌트 자원 cap
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["gateway.networking.k8s.io"]             # 유저 앱 서브도메인 라우팅용
+    resources: ["httproutes"]
+    verbs: ["get", "create"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
+kind: ClusterRoleBinding                                 # SA를 ClusterRole에 연결 
 metadata:
   name: kodeploy-core
-  namespace: default
 subjects:
-  - kind: ServiceAccount
+  - kind: ServiceAccount                                 
     name: kodeploy-core
     namespace: default
 roleRef:
-  kind: Role
+  kind: ClusterRole                                      # 어떤 권한을 (위에서 정의한 ClusterRole)
   name: kodeploy-core
-  apiGroup: rbac.authorization.k8s.io
+  apiGroup: rbac.authorization.k8s.io                    # RBAC v1 그룹 (빠뜨리면 validation 에러)

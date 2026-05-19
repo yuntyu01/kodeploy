@@ -1,19 +1,19 @@
 apiVersion: v1
-kind: PersistentVolume
+kind: PersistentVolume                                   # 클러스터 차원의 실제 스토리지 자원 (PVC가 이걸 잡아 씀)
 metadata:
   name: mysql-data
 spec:
   capacity:
-    storage: 5Gi
-  accessModes: ["ReadWriteOnce"]
-  persistentVolumeReclaimPolicy: Retain
-  storageClassName: manual
-  local:
-    path: /opt/mysql-data
-  nodeAffinity:
+    storage: 5Gi                                         # PVC 요청보다 같거나 커야 바인딩됨
+  accessModes: ["ReadWriteOnce"]                         # 한 노드에서만 read/write (RWO)
+  persistentVolumeReclaimPolicy: Retain                  # PVC 삭제돼도 데이터 보존 (Delete였으면 자동 삭제)
+  storageClassName: manual                               # PVC와 같은 이름이어야 매칭 — 동적 프로비저너 안 거침
+  local:                                                 # local PV — 특정 노드 디스크에 직접 매핑
+    path: /opt/mysql-data                                # 노드 안의 실제 경로 (80-k8s-copy-manifests에서 미리 생성)
+  nodeAffinity:                                          # 이 PV는 어느 노드의 디스크인지 강제 지정
     required:
       nodeSelectorTerms:
         - matchExpressions:
             - key: kubernetes.io/hostname
               operator: In
-              values: ["worker1"]
+              values: ["worker1"]                        # mysql Pod이 worker1에 핀됨 (다른 노드로 옮길 수 없음)

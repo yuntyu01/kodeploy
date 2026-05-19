@@ -1,57 +1,48 @@
 apiVersion: batch/v1
-kind: Job
+kind: Job                                                # 일회성 작업 — 성공할 때까지 Pod을 실행 후 종료
 metadata:
-  name: build-{{ build_id }}
-  namespace: {{ namespace }}
+  name: build-{{ (user_id|string)[:8] }}-{{ build_id }}  # user_id 앞 8자 + build_id 8자 → 충돌 회피
+  namespace: kodeploy-build
   labels:
     app: kodeploy-build
-    build-id: "{{ build_id }}"
+    build-id: "{{ build_id }}"                           # service.py가 라벨로 Pod 찾아 로그 조회
+    user-id: "{{ user_id }}"
 spec:
-  # 작업 종료 후 10분 뒤 자동 삭제
-  ttlSecondsAfterFinished: 600
-  # 빌드 실패 시 재시도하지 않음 (같은 이유로 또 실패할 확률 높음)
-  backoffLimit: 0
+  ttlSecondsAfterFinished: 1200                          # 종료 후 N초 뒤 Job/Pod 자동 삭제 (20분)
+  backoffLimit: 0                                        # 실패 시 재시도 횟수 — 0이면 한 번만 시도
   template:
     metadata:
       labels:
         app: kodeploy-build
         build-id: "{{ build_id }}"
     spec:
-      restartPolicy: Never
+      restartPolicy: Never                               # Pod 컨테이너 실패 시 재시작 X (Job 정책상 Never/OnFailure만 허용)
       containers:
         - name: buildkit
           image: {{ buildkit_image }}
-          # rootless BuildKit 권장 보안 설정
-          securityContext:
+          securityContext:                               # rootless BuildKit 권장 보안 설정
             seccompProfile:
-              type: Unconfined
-            runAsUser: 1000
+              type: Unconfined                           # rootless 빌드에 필요한 syscall 허용
+            runAsUser: 1000                              # 비-root UID로 실행
             runAsGroup: 1000
-          # 데몬리스 (buildkitd 잠깐 띄웠다 빌드 후 자동 종료)
           command:
-            - buildctl-daemonless.sh
+            - buildctl-daemonless.sh                     # 데몬리스 — buildkitd 잠깐 띄웠다 빌드 후 자동 종료
           args:
             - build
-            # Dockerfile v0 문법 사용
-            - --frontend=dockerfile.v0
-            # Git에서 직접 소스 fetch (중간 다운로드 없음)
-            - --opt=context={{ repo_url }}#{{ branch }}
-            # 빌드 결과 레지스트리로 즉시 push
-            - --output=type=image,name={{ image }},push=true
+            - --frontend=dockerfile.v0                   # Dockerfile v0 문법 사용
+            - --opt=context={{ repo_url }}#{{ branch }}  # Git에서 직접 fetch (로컬 다운로드 단계 없음)
+            - --output=type=image,name={{ image }},push=true  # 빌드 결과를 GHCR로 즉시 push
           env:
-            # rootless에서 K8s 샌드박스 충돌 회피 (내부 프로세스 격리 해제)
             - name: BUILDKITD_FLAGS
-              value: --oci-worker-no-process-sandbox
+              value: --oci-worker-no-process-sandbox     # rootless에서 K8s 샌드박스 충돌 회피
           volumeMounts:
-            # GHCR 인증 정보 (~/.docker/config.json 표준 경로에 마운트)
             - name: docker-config
-              mountPath: /home/user/.docker
+              mountPath: /home/user/.docker              # ~/.docker/config.json 표준 경로 (BuildKit이 여기서 인증 정보 읽음)
               readOnly: true
       volumes:
         - name: docker-config
-          # dockerconfigjson 타입 Secret을 config.json 파일로 투영
-          secret:
+          secret:                                        # dockerconfigjson Secret을 config.json 파일로 투영
             secretName: {{ ghcr_auth_secret }}
             items:
-              - key: .dockerconfigjson
-                path: config.json
+              - key: .dockerconfigjson                   # Secret 안의 키
+                path: config.json                        # 마운트된 디렉토리 안에서의 파일명

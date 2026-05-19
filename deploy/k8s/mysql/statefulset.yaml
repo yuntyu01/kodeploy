@@ -1,11 +1,10 @@
 apiVersion: apps/v1
-kind: StatefulSet
+kind: StatefulSet                                        # Pod에 안정적 이름/스토리지 부여 (DB·메시지큐 같은 stateful 앱용)
 metadata:
   name: mysql
   namespace: default
 spec:
-  # 헤드리스 서비스 이름과 일치해야 stable network identity가 보장된다.
-  serviceName: mysql
+  serviceName: mysql                                     # 아래 headless Service 이름과 일치해야 Pod DNS 살아남
   replicas: 1
   selector:
     matchLabels:
@@ -20,16 +19,16 @@ spec:
           image: mysql:8.4
           ports:
             - containerPort: 3306
-              name: mysql
+              name: mysql                                # 포트에 이름 붙이면 Service에서 이름으로 참조 가능
           env:
-            - name: MYSQL_ROOT_PASSWORD
+            - name: MYSQL_ROOT_PASSWORD                  # root 계정 비번 (mysqladmin ping에서도 사용)
               valueFrom:
                 secretKeyRef:
                   name: mysql-secret
                   key: MYSQL_ROOT_PASSWORD
-            - name: MYSQL_DATABASE
+            - name: MYSQL_DATABASE                       # 부팅 시 자동 생성될 DB 이름
               value: kodeploy
-            - name: MYSQL_USER
+            - name: MYSQL_USER                           # 일반 사용자 계정 (앱 접근용)
               valueFrom:
                 secretKeyRef:
                   name: mysql-secret
@@ -41,39 +40,38 @@ spec:
                   key: MYSQL_PASSWORD
           volumeMounts:
             - name: data
-              mountPath: /var/lib/mysql
-          # mysqladmin ping으로 살아있는지 확인. readiness가 통과해야 Service가 트래픽을 보냄.
-          readinessProbe:
+              mountPath: /var/lib/mysql                  # MySQL 데이터 디렉토리 → PVC로 영구화
+          readinessProbe:                                # 트래픽 받을 준비 됐나 — 실패 시 Service endpoint 제외
             exec:
               command:
                 - bash
                 - -c
                 - mysqladmin ping -h 127.0.0.1 -uroot -p"${MYSQL_ROOT_PASSWORD}"
-            initialDelaySeconds: 15
-            periodSeconds: 5
-            timeoutSeconds: 3
-          livenessProbe:
+            initialDelaySeconds: 15                      # 컨테이너 시작 후 N초 기다렸다 첫 체크
+            periodSeconds: 5                             # N초마다 체크
+            timeoutSeconds: 3                            # 응답 N초 안 오면 실패로 간주
+          livenessProbe:                                 # 프로세스 살아있나 — 실패 시 컨테이너 재시작
             exec:
               command:
                 - bash
                 - -c
                 - mysqladmin ping -h 127.0.0.1 -uroot -p"${MYSQL_ROOT_PASSWORD}"
-            initialDelaySeconds: 60
+            initialDelaySeconds: 60                      # liveness는 더 늦게 시작 (오탐으로 재시작 방지)
             periodSeconds: 10
             timeoutSeconds: 5
           resources:
-            requests:
-              cpu: 100m
+            requests:                                    # 스케줄러가 자리 잡을 때 쓰는 보장값
+              cpu: 100m                                  # 0.1 vCPU
               memory: 400Mi
-            limits:
+            limits:                                      # 런타임 실제 상한 (초과 시 throttle / OOMKill)
               cpu: 500m
               memory: 1Gi
-  volumeClaimTemplates:
+  volumeClaimTemplates:                                  # Pod마다 자동 PVC 생성 — Pod 재시작/이동해도 같은 볼륨에 재바인딩
     - metadata:
         name: data
       spec:
-        accessModes: ["ReadWriteOnce"]
-        storageClassName: manual
+        accessModes: ["ReadWriteOnce"]                   # 한 노드에서만 read/write (RWO) — local PV는 RWO만 가능
+        storageClassName: manual                         # 동적 프로비저너 안 씀 → 아래 pv.yaml의 수동 PV에 바인딩
         resources:
           requests:
             storage: 5Gi

@@ -14,8 +14,9 @@ def _to_status(build: Build) -> StatusResponse:
     return StatusResponse(
         build_id=build.build_id,
         status=build.status,
-        image=build.image,
+        repo_url=build.repo_url,
         app_name=build.app_name,
+        runtime=build.runtime,
         error=build.error,
         analysis=build.analysis,
         logs=build.logs,
@@ -29,17 +30,23 @@ def _to_status(build: Build) -> StatusResponse:
 async def create_deploy(
     req: DeployRequest, db: Session = Depends(get_db)
 ) -> DeployResponse:
-    build = await service.start_build(
-        db,
-        repo_url=str(req.repo_url),
-        branch=req.branch,
-        port=req.port,
-    )
+    try:
+        build = await service.start_build(
+            db,
+            repo_url=str(req.repo_url),
+            runtime=req.runtime,
+            name=req.name,
+            branch=req.branch,
+            port=req.port,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     return DeployResponse(
         build_id=build.build_id,
         status=build.status,
-        image=build.image,
+        repo_url=build.repo_url,
         app_name=build.app_name,
+        runtime=build.runtime,
     )
 
 
