@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { GitBranch } from "lucide-react";
 import { createDeploy, RUNTIMES } from "../api/deploy.js";
 
@@ -7,16 +8,36 @@ const RUNTIME_META = {
   java: { name: "Java", tag: "Spring Boot · JDK 17+" },
 };
 
-export default function DeployForm({ onCreated }) {
+// runtime별 기본 listen 포트
+const DEFAULT_PORTS = {
+  python: 8000,
+  java: 8080,
+};
+
+export default function DeployForm({ onRequestGuide }) {
+  const navigate = useNavigate();
   const [repoUrl, setRepoUrl] = useState("");
   const [name, setName] = useState("");
   const [branch, setBranch] = useState("main");
-  const [port, setPort] = useState(80);
+  const [port, setPort] = useState(DEFAULT_PORTS[RUNTIMES[0]] ?? 80);
   const [buildMode, setBuildMode] = useState("dockerfile");
+  const [dockerfilePath, setDockerfilePath] = useState("Dockerfile");
   const [useDb, setUseDb] = useState(false);
   const [runtime, setRuntime] = useState(RUNTIMES[0]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState(null);
+
+  // Dockerfile 모드 + 해당 runtime 변경 시 우측 가이드 패널 자동 표시.
+  // auto 모드면 패널 닫기. X 버튼으로 닫아도 buildMode/runtime이 안 바뀌면 다시 안 열림.
+  useEffect(() => {
+    onRequestGuide?.(buildMode === "dockerfile" ? runtime : null);
+  }, [buildMode, runtime, onRequestGuide]);
+
+  // runtime 변경 시 default 포트 자동 적용 (사용자 수정 후에도 reset됨 — MVP 단순화).
+  useEffect(() => {
+    const def = DEFAULT_PORTS[runtime];
+    if (def) setPort(def);
+  }, [runtime]);
 
   const disabled = !repoUrl.trim() || submitting;
 
@@ -32,13 +53,13 @@ export default function DeployForm({ onCreated }) {
         branch: branch.trim() || "main",
         port: Number(port) || 80,
         runtime,
+        useDb,
+        dockerfilePath:
+          buildMode === "dockerfile" ? dockerfilePath.trim() || "Dockerfile" : "Dockerfile",
       });
-      onCreated?.(build);
-      setRepoUrl("");
-      setName("");
+      navigate(`/builds/${build.build_id}`);
     } catch (err) {
       setError(err.message || "배포 요청 실패");
-    } finally {
       setSubmitting(false);
     }
   };
@@ -125,9 +146,9 @@ export default function DeployForm({ onCreated }) {
                 onClick={() => setRuntime(r)}
                 className="flex-1 h-10 rounded-lg text-[13px] transition-colors flex items-center justify-center"
                 style={{
-                  background: active ? "rgba(94,106,210,0.12)" : "rgba(255,255,255,0.03)",
-                  border: `1px solid ${active ? "rgba(94,106,210,0.25)" : "rgba(255,255,255,0.06)"}`,
-                  color: active ? "#a4abee" : "#8a8f98",
+                  background: active ? "rgba(129,139,224,0.12)" : "rgba(255,255,255,0.03)",
+                  border: `1px solid ${active ? "rgba(129,139,224,0.25)" : "rgba(255,255,255,0.06)"}`,
+                  color: active ? "#818be0" : "#8a8f98",
                   fontWeight: 510,
                 }}
                 disabled={submitting}
@@ -160,9 +181,9 @@ export default function DeployForm({ onCreated }) {
                 onClick={() => setUseDb(d.id)}
                 className="flex-1 h-10 rounded-lg text-[13px] transition-colors flex items-center justify-center"
                 style={{
-                  background: active ? "rgba(94,106,210,0.12)" : "rgba(255,255,255,0.03)",
-                  border: `1px solid ${active ? "rgba(94,106,210,0.25)" : "rgba(255,255,255,0.06)"}`,
-                  color: active ? "#a4abee" : "#8a8f98",
+                  background: active ? "rgba(129,139,224,0.12)" : "rgba(255,255,255,0.03)",
+                  border: `1px solid ${active ? "rgba(129,139,224,0.25)" : "rgba(255,255,255,0.06)"}`,
+                  color: active ? "#818be0" : "#8a8f98",
                   fontWeight: 510,
                 }}
                 disabled={submitting}
@@ -197,9 +218,9 @@ export default function DeployForm({ onCreated }) {
                     onClick={() => setBuildMode(m.id)}
                     className="flex-1 h-10 rounded-lg text-[12px] transition-all flex items-center justify-center"
                     style={{
-                      background: active ? "rgba(94,106,210,0.12)" : "rgba(255,255,255,0.03)",
-                      border: `1px solid ${active ? "rgba(94,106,210,0.25)" : "rgba(255,255,255,0.06)"}`,
-                      color: active ? "#a4abee" : "#8a8f98",
+                      background: active ? "rgba(129,139,224,0.12)" : "rgba(255,255,255,0.03)",
+                      border: `1px solid ${active ? "rgba(129,139,224,0.25)" : "rgba(255,255,255,0.06)"}`,
+                      color: active ? "#818be0" : "#8a8f98",
                       fontWeight: 510,
                     }}
                     disabled={submitting}
@@ -235,9 +256,31 @@ export default function DeployForm({ onCreated }) {
           )}
         </div>
         {buildMode === "dockerfile" && (
-          <p className="text-[11px] text-fg-4 mt-2" style={{ fontWeight: 450 }}>
-            프로젝트 루트에 Dockerfile이 있어야 합니다.
-          </p>
+          <div className="mt-3">
+            <div
+              className="text-[10.5px] tracking-[0.08em] text-fg-3 mb-2"
+              style={{ fontWeight: 590 }}
+            >
+              Dockerfile 경로
+            </div>
+            <input
+              value={dockerfilePath}
+              onChange={(e) => setDockerfilePath(e.target.value)}
+              placeholder="Dockerfile"
+              className="w-full bg-transparent outline-none text-fg-1 text-[14px] rounded-md px-3 py-2 placeholder:text-fg-3"
+              style={{
+                border: "1px solid rgba(255,255,255,0.09)",
+                background: "rgba(255,255,255,0.02)",
+                fontWeight: 510,
+              }}
+              disabled={submitting}
+            />
+            <p className="text-[11px] text-fg-3 mt-2" style={{ fontWeight: 450 }}>
+              프로젝트 루트에 Dockerfile이 있어야 합니다. 서브 디렉토리에 있으면{" "}
+              <span style={{ color: "#d0d6e0" }}>subdir/Dockerfile</span> 같이
+              입력.
+            </p>
+          </div>
         )}
       </div>
 
@@ -253,7 +296,7 @@ export default function DeployForm({ onCreated }) {
           <input
             value={name}
             onChange={(e) => setName(e.target.value)}
-            placeholder="my-app (비워두면 자동)"
+            placeholder="비워두면 자동으로 채워져요"
             className="bg-transparent outline-none text-fg-1 text-[14px] rounded-md px-3 py-2 w-1/2 placeholder:text-fg-3"
             style={{
               border: "1px solid rgba(255,255,255,0.09)",
@@ -271,11 +314,11 @@ export default function DeployForm({ onCreated }) {
         type="submit"
         disabled={disabled}
         className="w-full py-3 rounded-lg text-[14px] text-white transition-colors disabled:opacity-40"
-        style={{ background: "#5e6ad2", fontWeight: 510 }}
+        style={{ background: "#6672d5", fontWeight: 510 }}
         onMouseEnter={(e) =>
           !disabled && (e.currentTarget.style.background = "#828fff")
         }
-        onMouseLeave={(e) => (e.currentTarget.style.background = "#5e6ad2")}
+        onMouseLeave={(e) => (e.currentTarget.style.background = "#6672d5")}
       >
         {submitting ? (
           <span className="flex items-center justify-center gap-2">

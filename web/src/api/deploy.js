@@ -20,7 +20,15 @@ async function request(path, options = {}) {
 // 백엔드 schemas.Runtime과 sync (python/java). 추가 시 UI dropdown도 같이.
 export const RUNTIMES = ["python", "java"];
 
-export function createDeploy({ repoUrl, branch = "main", port = 80, runtime, name }) {
+export function createDeploy({
+  repoUrl,
+  branch = "main",
+  port = 80,
+  runtime,
+  name,
+  useDb = false,
+  dockerfilePath = "Dockerfile",
+}) {
   return request("/deploy", {
     method: "POST",
     body: JSON.stringify({
@@ -29,6 +37,8 @@ export function createDeploy({ repoUrl, branch = "main", port = 80, runtime, nam
       port,
       runtime,
       name: name?.trim() || null,                 // 빈 값이면 서버가 app-<hex8> 자동 생성
+      use_db: useDb,                              // true면 같은 ns에 mysql 자동 프로비저닝
+      dockerfile_path: dockerfilePath || "Dockerfile",
     }),
   });
 }

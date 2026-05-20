@@ -8,7 +8,7 @@ export default {
         "kd-panel": "#0f1011",
         "kd-surface": "#191a1b",
         "kd-surface2": "#28282c",
-        "fg-1": "#f7f8f8",
+        "fg-1": "#dde0e4",
         "fg-2": "#d0d6e0",
         "fg-3": "#8a8f98",
         "fg-4": "#62666d",

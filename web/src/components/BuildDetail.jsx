@@ -1,12 +1,44 @@
 import { useEffect, useState } from "react";
+import { useParams } from "react-router-dom";
+import { Activity, ArrowLeft, ScrollText, Terminal } from "lucide-react";
 import { getBuild } from "../api/deploy.js";
+import { formatFull } from "../lib/format.js";
 import StatusBadge from "./StatusBadge.jsx";
 
 const ACTIVE = new Set(["queued", "building", "built", "deploying"]);
 
-export default function BuildDetail({ buildId }) {
+const TABS = [
+  {
+    id: "terminal",
+    label: "터미널",
+    sub: "Pod 쉘 접속",
+    icon: Terminal,
+    color: "#818be0",
+    ready: false,
+  },
+  {
+    id: "monitoring",
+    label: "모니터링",
+    sub: "CPU · 메모리 · 요청량",
+    icon: Activity,
+    color: "#10b981",
+    ready: false,
+  },
+  {
+    id: "logs",
+    label: "로그",
+    sub: "빌드 / 실행 로그",
+    icon: ScrollText,
+    color: "#f59e0b",
+    ready: true,
+  },
+];
+
+export default function BuildDetail() {
+  const { id: buildId } = useParams();
   const [build, setBuild] = useState(null);
   const [error, setError] = useState(null);
+  const [activeTab, setActiveTab] = useState(null);
 
   useEffect(() => {
     if (!buildId) return;
@@ -28,23 +60,13 @@ export default function BuildDetail({ buildId }) {
     };
 
     setBuild(null);
+    setActiveTab(null);
     tick();
     return () => {
       cancelled = true;
       if (timer) clearTimeout(timer);
     };
   }, [buildId]);
-
-  if (!buildId) {
-    return (
-      <div
-        className="text-[12px] text-fg-4 h-full flex items-center justify-center rounded-lg"
-        style={{ border: "1px dashed rgba(255,255,255,0.09)", minHeight: 240 }}
-      >
-        왼쪽에서 빌드를 선택하세요.
-      </div>
-    );
-  }
 
   if (error) {
     return (
@@ -68,11 +90,12 @@ export default function BuildDetail({ buildId }) {
   }
 
   return (
-    <div className="kd-fade-in flex flex-col gap-5">
-      <div className="flex items-center gap-3">
+    <div className="kd-fade-in h-full flex flex-col">
+      {/* Header */}
+      <div className="flex items-center gap-3 mb-5 shrink-0">
         <span
-          className="font-mono text-[13px] text-violet-brand"
-          style={{ fontWeight: 510 }}
+          className="text-[13px]"
+          style={{ fontWeight: 510, color: "#818be0" }}
         >
           {build.build_id}
         </span>
@@ -82,34 +105,130 @@ export default function BuildDetail({ buildId }) {
         <StatusBadge status={build.status} />
       </div>
 
-      <Field label="이미지" value={build.image} mono />
-      {build.error && (
-        <Field label="에러" value={build.error} color="#fca5a5" />
-      )}
-      {build.analysis && <Field label="AI 분석" value={build.analysis} />}
-
-      <div>
-        <div
-          className="text-[10.5px] uppercase tracking-[0.08em] text-fg-3 mb-2"
-          style={{ fontWeight: 590 }}
-        >
-          빌드 로그
+      {/* Picker (default) */}
+      {activeTab === null && (
+        <div className="flex-1 flex items-center justify-center">
+          <div className="flex flex-col items-center gap-6">
+            <div
+              className="text-[15px] text-fg-3"
+              style={{ fontWeight: 510 }}
+            >
+              표시할 패널을 선택하세요
+            </div>
+            <div className="flex gap-4 flex-wrap justify-center">
+              {TABS.map((t) => {
+                const Icon = t.icon;
+                const disabled = !t.ready;
+                return (
+                  <button
+                    key={t.id}
+                    onClick={disabled ? undefined : () => setActiveTab(t.id)}
+                    disabled={disabled}
+                    className="w-[200px] h-[200px] rounded-xl flex flex-col items-center justify-center gap-3 transition-all relative"
+                    style={{
+                      border: "1px solid rgba(255,255,255,0.08)",
+                      background: "rgba(255,255,255,0.02)",
+                      cursor: disabled ? "not-allowed" : "pointer",
+                      opacity: disabled ? 0.55 : 1,
+                    }}
+                    onMouseEnter={(e) => {
+                      if (!disabled) {
+                        e.currentTarget.style.background =
+                          "rgba(129,139,224,0.1)";
+                        e.currentTarget.style.borderColor =
+                          "rgba(129,139,224,0.3)";
+                      }
+                    }}
+                    onMouseLeave={(e) => {
+                      if (!disabled) {
+                        e.currentTarget.style.background =
+                          "rgba(255,255,255,0.02)";
+                        e.currentTarget.style.borderColor =
+                          "rgba(255,255,255,0.08)";
+                      }
+                    }}
+                  >
+                    <Icon
+                      size={36}
+                      strokeWidth={1.3}
+                      style={{ color: t.color }}
+                    />
+                    <span
+                      className="text-[17px] text-fg-1"
+                      style={{ fontWeight: 510 }}
+                    >
+                      {t.label}
+                    </span>
+                    <span className="text-[12px] text-fg-4 text-center leading-tight">
+                      {t.sub}
+                    </span>
+                    {disabled && (
+                      <span
+                        className="absolute top-3 right-3 text-[9.5px] px-1.5 py-0.5 rounded"
+                        style={{
+                          background: "rgba(255,255,255,0.05)",
+                          color: "#8a8f98",
+                          fontWeight: 510,
+                        }}
+                      >
+                        준비중
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
         </div>
-        <pre
-          className="text-[11.5px] font-mono text-fg-2 p-3 rounded-md overflow-auto scroll-thin whitespace-pre-wrap break-all"
-          style={{
-            background: "rgba(255,255,255,0.02)",
-            border: "1px solid rgba(255,255,255,0.06)",
-            maxHeight: 360,
-          }}
-        >
-          {build.logs || "(로그 없음)"}
-        </pre>
-      </div>
+      )}
 
-      <div className="text-[11px] text-fg-4">
-        생성 {build.created_at} · 갱신 {build.updated_at}
-      </div>
+      {/* Active tab — logs */}
+      {activeTab === "logs" && (
+        <div className="flex-1 min-h-0 flex flex-col">
+          <button
+            onClick={() => setActiveTab(null)}
+            className="self-start flex items-center gap-1.5 text-[12px] text-fg-4 hover:text-fg-2 transition-colors mb-4"
+            style={{ fontWeight: 510 }}
+          >
+            <ArrowLeft size={12} strokeWidth={1.8} />
+            <span>뒤로</span>
+          </button>
+
+          <div className="flex flex-col gap-5">
+            <Field label="이미지" value={build.image} mono />
+            {build.error && (
+              <Field label="에러" value={build.error} color="#fca5a5" />
+            )}
+            {build.analysis && (
+              <Field label="AI 분석" value={build.analysis} />
+            )}
+
+            <div>
+              <div
+                className="text-[10.5px] uppercase tracking-[0.08em] text-fg-3 mb-2"
+                style={{ fontWeight: 590 }}
+              >
+                빌드 로그
+              </div>
+              <pre
+                className="text-[11.5px] font-sans text-fg-2 p-3 rounded-md overflow-auto scroll-thin whitespace-pre-wrap break-all"
+                style={{
+                  background: "rgba(255,255,255,0.02)",
+                  border: "1px solid rgba(255,255,255,0.06)",
+                  maxHeight: 360,
+                }}
+              >
+                {build.logs || "(로그 없음)"}
+              </pre>
+            </div>
+
+            <div className="text-[11px] text-fg-4">
+              생성 {formatFull(build.created_at)} · 갱신{" "}
+              {formatFull(build.updated_at)}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
