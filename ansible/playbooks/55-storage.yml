@@ -1,0 +1,16 @@
+---
+# local-path-provisioner — 노드 로컬 디스크 동적 PV 프로비저너.
+# 테넌트 mysql StatefulSet 등 stateful 워크로드의 PVC를 자동으로 노드 디스크에 매핑.
+# 버전 태그(v0.0.30)를 핀해서 upstream 변경에 안 깨지게.
+- name: Install local-path-provisioner
+  hosts: managed
+  become: false
+  vars:
+    local_path_version: v0.0.30
+    local_path_url: >-
+      https://raw.githubusercontent.com/rancher/local-path-provisioner/{{ local_path_version }}/deploy/local-path-storage.yaml
+
+  tasks:
+    - name: local-path-provisioner 적용
+      command: kubectl apply -f {{ local_path_url }}
+      changed_when: true
