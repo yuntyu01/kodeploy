@@ -12,8 +12,8 @@ rules:
   - apiGroups: ["batch"]                                 # BuildKit 빌드 Job 관리용 (kodeploy-build ns)
     resources: ["jobs", "jobs/status"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
-  - apiGroups: ["apps"]                                  # 유저 앱 Deployment 배포/재배포용 (tenant ns)
-    resources: ["deployments", "deployments/status"]
+  - apiGroups: ["apps"]                                  # 유저 앱 Deployment + mysql StatefulSet 관리용 (tenant ns)
+    resources: ["deployments", "deployments/status", "statefulsets"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
   - apiGroups: [""]                                      # core API 그룹
     resources: ["namespaces"]                            # 테넌트 ns 프로비저닝용

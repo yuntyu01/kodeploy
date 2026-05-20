@@ -14,6 +14,18 @@ stringData:                                              # base64 인코딩 안 
   MYSQL_ROOT_PASSWORD: {{ root_password }}               # 백엔드 secrets.token_urlsafe(24)로 생성
   MYSQL_USER: {{ username }}
   MYSQL_PASSWORD: {{ password }}
+  # 앱 컨테이너에 envFrom으로 일괄 주입되는 표준 키 (runtime/framework 무관 단일 컨벤션)
+  DB_HOST: mysql                                         # 같은 ns headless Service 이름
+  DB_PORT: "3306"
+  DB_NAME: {{ database | default("app") }}
+  DB_USER: {{ username }}
+  DB_PASSWORD: {{ password }}
+  # Spring Boot Relaxed Binding 자동 인식 — application.properties 수정 0
+  SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/{{ database | default("app") }}?useSSL=false&allowPublicKeyRetrieval=true
+  SPRING_DATASOURCE_USERNAME: {{ username }}
+  SPRING_DATASOURCE_PASSWORD: {{ password }}
+  # SQLAlchemy 등 Python OSS의 표준 (Heroku 컨벤션 호환)
+  DATABASE_URL: mysql+pymysql://{{ username }}:{{ password }}@mysql:3306/{{ database | default("app") }}
 ---
 apiVersion: v1
 kind: Service
@@ -60,9 +72,22 @@ spec:
         tenant: {{ tenant_id }}                          # Pod에도 라벨 박아야 셀렉터 일괄 조회 가능
         user: "{{ user_id }}"
     spec:
+      # PSS restricted 호환 — mysql 공식 이미지의 mysql user(UID 999)로 실행.
+      # fsGroup으로 volume ownership 자동 chown.
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        fsGroup: 999
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: mysql
           image: mysql:8.4
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
           ports:
             - containerPort: 3306
               name: mysql

@@ -43,6 +43,9 @@ spec:
             - secretRef:
                 name: {{ app_name }}-env                 # 유저가 UI에서 추가한 envvar 묶음 (Secret 통째 흡수)
                 optional: true                           # Secret 없어도 Pod 시작 가능 (첫 배포 시 자연스러움)
+            - secretRef:
+                name: mysql-secret                       # use_db=True일 때 자동 주입 (DB_HOST/PORT/NAME/USER/PASSWORD)
+                optional: true                           # use_db=False면 Secret 없음 — optional이라 안전
           env:                                           # 플랫폼 주입값 — envFrom과 충돌 시 이쪽이 이김
             - name: JAVA_TOOL_OPTIONS                    # JVM이 cgroup limits 인식 + heap 75%로 설정
               value: "-XX:+UseContainerSupport -XX:MaxRAMPercentage=75.0 -XX:InitialRAMPercentage=50.0"

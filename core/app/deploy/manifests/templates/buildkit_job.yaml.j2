@@ -30,7 +30,9 @@ spec:
           args:
             - build
             - --frontend=dockerfile.v0                   # Dockerfile v0 문법 사용
-            - --opt=context={{ repo_url }}#{{ branch }}  # Git에서 직접 fetch (로컬 다운로드 단계 없음)
+            # Git context — subdir 있으면 `:subdir` 붙여 BuildKit이 그 디렉토리를 context로 (COPY . . 기준점)
+            - --opt=context={{ repo_url }}#{{ branch }}{% if dockerfile_subdir %}:{{ dockerfile_subdir }}{% endif %}
+            - --opt=filename={{ dockerfile_filename }}   # context 기준 Dockerfile 파일명
             - --output=type=image,name={{ image }},push=true  # 빌드 결과를 GHCR로 즉시 push
           env:
             - name: BUILDKITD_FLAGS

@@ -17,6 +17,8 @@ class DeployRequest(BaseModel):
     port: int = 80
     runtime: Runtime                                     # 자동 감지 X — 유저가 명시적으로 선택
     name: str | None = None                              # K8s 리소스 이름 + 서브도메인. None이면 서버가 app-<hex8> 자동 생성
+    use_db: bool = False                                 # True면 같은 ns에 mysql 자동 프로비저닝
+    dockerfile_path: str = "Dockerfile"                  # repo root 기준 Dockerfile 경로 — "Dockerfile.multi", "subdir/Dockerfile" 등
 
 
 # POST /deploy 직후 응답 (build_id 반환)
@@ -33,6 +35,7 @@ class StatusResponse(BaseModel):
     build_id: str
     status: str
     repo_url: str
+    branch: str
     app_name: str
     runtime: str
     error: str | None = None

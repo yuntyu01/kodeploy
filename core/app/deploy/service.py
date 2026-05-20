@@ -105,6 +105,8 @@ async def start_build(
     branch: str = "main",
     port: int = 80,
     user_id: uuid.UUID | None = None,
+    use_db: bool = False,
+    dockerfile_path: str = "Dockerfile",
 ) -> Build:
     repo_url = _normalize_repo_url(repo_url)
     build_id = uuid.uuid4().hex[:8]
@@ -123,6 +125,8 @@ async def start_build(
         port=port,
         runtime=runtime,
         user_id=user_id,
+        use_db=use_db,
+        dockerfile_path=dockerfile_path,
     )
     build = crud.create_build(db, build)
 
@@ -147,12 +151,23 @@ async def _run_build(build_id: str) -> None:
             build.status = "building"
             db.commit()
 
+            # dockerfile_path를 subdir + filename으로 분리.
+            # subdir이 있으면 BuildKit context를 그 subdir로 변경 (COPY . . 의 기준).
+            df_path = build.dockerfile_path or "Dockerfile"
+            if "/" in df_path:
+                idx = df_path.rfind("/")
+                dockerfile_subdir, dockerfile_filename = df_path[:idx], df_path[idx + 1:]
+            else:
+                dockerfile_subdir, dockerfile_filename = "", df_path
+
             job = manifests.buildkit_job(
                 build_id=build.build_id,
                 user_id=build.user_id_str,
                 image=build.image,
                 repo_url=build.repo_url,
                 branch=build.branch,
+                dockerfile_subdir=dockerfile_subdir,
+                dockerfile_filename=dockerfile_filename,
             )
             k8s.batch_v1().create_namespaced_job(
                 namespace=config.BUILD_NAMESPACE, body=job
@@ -168,12 +183,21 @@ async def _run_build(build_id: str) -> None:
                 db.commit()
                 return
 
-            build.status = "built"
+            build.status = "built" # 빌드 과정 완료
             db.commit()
 
-            build.status = "deploying"
+            # 추후 이미지 스캔 등 추가 가능
+
+            build.status = "deploying" # 클러스터 배포 시작
             db.commit()
             _ensure_tenant_ns(build)
+
+            # mysql 토글 — PVC/Secret은 보존 (데이터·비번 유지)
+            if build.use_db:
+                _ensure_mysql(build)
+            else:
+                _teardown_mysql(build)
+
             _apply_deployment(build)
 
             ready = await _wait_for_rollout(build.app_name, build.tenant_id)
@@ -209,7 +233,9 @@ async def _wait_for_job(job_name: str) -> bool:
     return False
 
 
-ROLLOUT_TIMEOUT_SECONDS = 120
+# java startupProbe(failureThreshold 30 × period 10s = 5분)와 동일 상한.
+# multi-stage Dockerfile + java -jar 패턴은 보통 1분 안에 부팅, 5분이면 충분 여유.
+ROLLOUT_TIMEOUT_SECONDS = 300
 
 
 async def _wait_for_rollout(app_name: str, namespace: str) -> bool:
@@ -245,7 +271,9 @@ def _get_job_logs(build_id: str) -> str:
         return f"로그 조회 실패: {e}"
 
 
-# 테넌트 ns 프로비저닝 (Namespace + ResourceQuota + ghcr-auth). 이미 있으면 skip.
+# 테넌트 ns 프로비저닝 (Namespace + ResourceQuota + ghcr-auth).
+# Namespace/Secret은 idempotent create(409 skip), ResourceQuota는 patch로 갱신 가능.
+# 이유: use_db 토글에 따라 mysql 컴포넌트가 quota에 합산되거나 빠질 수 있어 재배포 시 갱신 필요.
 def _ensure_tenant_ns(build: Build) -> None:
     if build.user_id is None:
         return
@@ -259,7 +287,9 @@ def _ensure_tenant_ns(build: Build) -> None:
     )
     dockerconfigjson_b64 = secret.data[".dockerconfigjson"]
 
-    quota = runtimes.compute_quota([build.runtime])
+    # use_db True면 mysql 자원도 quota에 합산 — 재배포 시마다 현재 상태 반영
+    components = [build.runtime] + (["mysql"] if build.use_db else [])
+    quota = runtimes.compute_quota(components)
     docs = manifests.tenant(
         tenant_id=ns,
         user_id=build.user_id_str,
@@ -273,7 +303,17 @@ def _ensure_tenant_ns(build: Build) -> None:
             if kind == "Namespace":
                 core.create_namespace(body=doc)
             elif kind == "ResourceQuota":
-                core.create_namespaced_resource_quota(namespace=ns, body=doc)
+                # 재배포 시 use_db 변경 반영: 있으면 patch, 없으면 create
+                try:
+                    core.read_namespaced_resource_quota(name=ns, namespace=ns)
+                    core.patch_namespaced_resource_quota(
+                        name=ns, namespace=ns, body={"spec": doc["spec"]}
+                    )
+                    continue  # 외부 except로 떨어지지 않도록
+                except ApiException as e:
+                    if e.status != 404:
+                        raise
+                    core.create_namespaced_resource_quota(namespace=ns, body=doc)
             elif kind == "Secret":
                 core.create_namespaced_secret(namespace=ns, body=doc)
         except ApiException as e:
@@ -281,9 +321,48 @@ def _ensure_tenant_ns(build: Build) -> None:
                 raise
 
 
-# Deployment + Service idempotent apply (재배포 시 JSON patch, 없으면 create)
-# JSON patch를 쓰는 이유: strategic merge patch는 ports 같은 list를 키 기반으로
-# 머지해서 옛 포트가 남거나, Service의 immutable clusterIP를 건드릴 위험이 있음.
+# use_db=True: 같은 ns에 mysql Secret/Service/StatefulSet 프로비저닝 (모두 409 skip).
+# 재배포 시 다시 호출돼도 안전 — 첫 호출의 비번이 영구 유지되고,
+# 옛 PVC가 남아있으면 새 StatefulSet이 자동 재바인딩해서 데이터 자연 복원.
+def _ensure_mysql(build: Build) -> None:
+    apps = k8s.apps_v1()
+    core = k8s.core_v1()
+    ns = build.tenant_id
+
+    docs = manifests.mysql(tenant_id=ns, user_id=build.user_id_str)
+    for doc in docs:
+        kind = doc["kind"]
+        try:
+            if kind == "Secret":
+                core.create_namespaced_secret(namespace=ns, body=doc)
+            elif kind == "Service":
+                core.create_namespaced_service(namespace=ns, body=doc)
+            elif kind == "StatefulSet":
+                apps.create_namespaced_stateful_set(namespace=ns, body=doc)
+        except ApiException as e:
+            if e.status != 409:
+                raise
+
+
+# use_db=False: StatefulSet + Service만 삭제. PVC/Secret은 의도적으로 보존.
+# 다시 use_db=True로 켜면 새 StatefulSet이 옛 PVC + 옛 Secret에 자동 바인딩 → 복원.
+# 데이터 진짜 삭제는 별도 명시 액션으로 분리 (현재 미구현).
+def _teardown_mysql(build: Build) -> None:
+    apps = k8s.apps_v1()
+    core = k8s.core_v1()
+    ns = build.tenant_id
+
+    for delete_call in (
+        lambda: apps.delete_namespaced_stateful_set(name="mysql", namespace=ns),
+        lambda: core.delete_namespaced_service(name="mysql", namespace=ns),
+    ):
+        try:
+            delete_call()
+        except ApiException as e:
+            if e.status != 404:
+                raise
+
+
 def _apply_deployment(build: Build) -> None:
     apps = k8s.apps_v1()
     core = k8s.core_v1()
