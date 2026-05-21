@@ -24,7 +24,7 @@ stringData:                                              # base64 인코딩 안 
   SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/{{ database | default("app") }}?useSSL=false&allowPublicKeyRetrieval=true
   SPRING_DATASOURCE_USERNAME: {{ username }}
   SPRING_DATASOURCE_PASSWORD: {{ password }}
-  # SQLAlchemy 등 Python OSS의 표준 (Heroku 컨벤션 호환)
+  # SQLAlchemy 등 Python OSS의 표준 
   DATABASE_URL: mysql+pymysql://{{ username }}:{{ password }}@mysql:3306/{{ database | default("app") }}
 ---
 apiVersion: v1

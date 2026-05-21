@@ -23,7 +23,10 @@ class Build(Base):
     port: Mapped[int] = mapped_column(Integer)
     runtime: Mapped[str] = mapped_column(String(20))     # 유저가 선택한 런타임 (python/java) — 스키마가 검증
     use_db: Mapped[bool] = mapped_column(Boolean, default=False)  # True면 ns에 mysql 프로비저닝
-    dockerfile_path: Mapped[str] = mapped_column(String(200), default="Dockerfile")  # BuildKit --opt filename=...
+    build_mode: Mapped[str] = mapped_column(String(20), default="dockerfile")  # "dockerfile" | "auto"(nixpacks)
+    dockerfile_path: Mapped[str] = mapped_column(String(200), default="Dockerfile")  # dockerfile 모드 — BuildKit filename
+    project_path: Mapped[str] = mapped_column(String(200), default="")  # auto 모드 — repo root 기준 서브디렉토리 (빈 값=root)
+    dockerfile_content: Mapped[str | None] = mapped_column(LONGTEXT, nullable=True)  # 실제 빌드에 쓰인 Dockerfile 텍스트. UI 노출 + AI 분석용
     status: Mapped[str] = mapped_column(String(20), default="queued")
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     analysis: Mapped[str | None] = mapped_column(Text, nullable=True)

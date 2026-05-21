@@ -7,7 +7,7 @@ const HL = { color: "#818be0", fontWeight: 510 };
 export default function Python() {
   return (
     <>
-      <Section title="Dockerfile — 이대로 복붙">
+      <Section title="Dockerfile 양식">
         <CodeBlock>
           {`FROM python:3.12-slim
 WORKDIR /app

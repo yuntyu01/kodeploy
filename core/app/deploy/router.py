@@ -18,6 +18,8 @@ def _to_status(build: Build) -> StatusResponse:
         branch=build.branch,
         app_name=build.app_name,
         runtime=build.runtime,
+        build_mode=build.build_mode,
+        dockerfile_content=build.dockerfile_content,
         error=build.error,
         analysis=build.analysis,
         logs=build.logs,
@@ -40,7 +42,9 @@ async def create_deploy(
             branch=req.branch,
             port=req.port,
             use_db=req.use_db,
+            build_mode=req.build_mode,
             dockerfile_path=req.dockerfile_path,
+            project_path=req.project_path,
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))

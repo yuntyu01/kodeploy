@@ -203,6 +203,35 @@ export default function BuildDetail() {
               <Field label="AI 분석" value={build.analysis} />
             )}
 
+            {build.dockerfile_content && (
+              <div>
+                <div
+                  className="text-[10.5px] uppercase tracking-[0.08em] text-fg-3 mb-2 flex items-center gap-2"
+                  style={{ fontWeight: 590 }}
+                >
+                  Dockerfile
+                  {build.build_mode === "auto" && (
+                    <span
+                      className="normal-case tracking-normal text-[10px] text-fg-4"
+                      style={{ fontWeight: 510 }}
+                    >
+                      nixpacks 자동 생성
+                    </span>
+                  )}
+                </div>
+                <pre
+                  className="text-[11.5px] font-mono text-fg-2 p-3 rounded-md overflow-auto scroll-thin"
+                  style={{
+                    background: "rgba(255,255,255,0.02)",
+                    border: "1px solid rgba(255,255,255,0.06)",
+                    maxHeight: 360,
+                  }}
+                >
+                  {build.dockerfile_content}
+                </pre>
+              </div>
+            )}
+
             <div>
               <div
                 className="text-[10.5px] uppercase tracking-[0.08em] text-fg-3 mb-2"

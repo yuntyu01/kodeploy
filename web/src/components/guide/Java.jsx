@@ -4,7 +4,7 @@ import { Code, CodeBlock, Section } from "./atoms.jsx";
 export default function Java() {
   return (
     <>
-      <Section title="Dockerfile — 이대로 복붙">
+      <Section title="Dockerfile 양식">
         <CodeBlock>
 {`FROM eclipse-temurin:17-jdk AS build
 WORKDIR /app

@@ -20,8 +20,9 @@ export default function DeployForm({ onRequestGuide }) {
   const [name, setName] = useState("");
   const [branch, setBranch] = useState("main");
   const [port, setPort] = useState(DEFAULT_PORTS[RUNTIMES[0]] ?? 80);
-  const [buildMode, setBuildMode] = useState("dockerfile");
+  const [buildMode, setBuildMode] = useState("auto");
   const [dockerfilePath, setDockerfilePath] = useState("Dockerfile");
+  const [projectPath, setProjectPath] = useState("");
   const [useDb, setUseDb] = useState(false);
   const [runtime, setRuntime] = useState(RUNTIMES[0]);
   const [submitting, setSubmitting] = useState(false);
@@ -54,8 +55,10 @@ export default function DeployForm({ onRequestGuide }) {
         port: Number(port) || 80,
         runtime,
         useDb,
+        buildMode,
         dockerfilePath:
           buildMode === "dockerfile" ? dockerfilePath.trim() || "Dockerfile" : "Dockerfile",
+        projectPath: buildMode === "auto" ? projectPath.trim().replace(/^\/+|\/+$/g, "") : "",
       });
       navigate(`/builds/${build.build_id}`);
     } catch (err) {
@@ -216,7 +219,7 @@ export default function DeployForm({ onRequestGuide }) {
                     key={m.id}
                     type="button"
                     onClick={() => setBuildMode(m.id)}
-                    className="flex-1 h-10 rounded-lg text-[12px] transition-all flex items-center justify-center"
+                    className="flex-1 h-10 rounded-lg text-[13px] transition-all flex items-center justify-center"
                     style={{
                       background: active ? "rgba(129,139,224,0.12)" : "rgba(255,255,255,0.03)",
                       border: `1px solid ${active ? "rgba(129,139,224,0.25)" : "rgba(255,255,255,0.06)"}`,
@@ -279,6 +282,35 @@ export default function DeployForm({ onRequestGuide }) {
               프로젝트 루트에 Dockerfile이 있어야 합니다. 서브 디렉토리에 있으면{" "}
               <span style={{ color: "#d0d6e0" }}>subdir/Dockerfile</span> 같이
               입력.
+            </p>
+          </div>
+        )}
+        {buildMode === "auto" && (
+          <div className="mt-3">
+            <div
+              className="text-[10.5px] tracking-[0.08em] text-fg-3 mb-2"
+              style={{ fontWeight: 590 }}
+            >
+              앱 디렉토리 (선택)
+            </div>
+            <input
+              value={projectPath}
+              onChange={(e) => setProjectPath(e.target.value)}
+              placeholder="비워두면 자동 탐색 (예: backend)"
+              className="w-full bg-transparent outline-none text-fg-1 text-[14px] rounded-md px-3 py-2 placeholder:text-fg-3"
+              style={{
+                border: "1px solid rgba(255,255,255,0.09)",
+                background: "rgba(255,255,255,0.02)",
+                fontWeight: 510,
+              }}
+              disabled={submitting}
+            />
+            <p className="text-[11px] text-fg-3 mt-2" style={{ fontWeight: 450 }}>
+              <span style={{ color: "#d0d6e0" }}>pom.xml</span>,{" "}
+              <span style={{ color: "#d0d6e0" }}>requirements.txt</span> 같은
+              파일이 있는 폴더 경로를 입력하세요.
+              <br />
+              모노레포·비표준 구조면 자동 탐색이 실패할 수 있어요.
             </p>
           </div>
         )}

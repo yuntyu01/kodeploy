@@ -19,6 +19,8 @@ async function request(path, options = {}) {
 
 // 백엔드 schemas.Runtime과 sync (python/java). 추가 시 UI dropdown도 같이.
 export const RUNTIMES = ["python", "java"];
+// 백엔드 schemas.BuildMode와 sync ("dockerfile"=유저 Dockerfile / "auto"=nixpacks 자동)
+export const BUILD_MODES = ["dockerfile", "auto"];
 
 export function createDeploy({
   repoUrl,
@@ -27,7 +29,9 @@ export function createDeploy({
   runtime,
   name,
   useDb = false,
+  buildMode = "dockerfile",
   dockerfilePath = "Dockerfile",
+  projectPath = "",
 }) {
   return request("/deploy", {
     method: "POST",
@@ -38,7 +42,9 @@ export function createDeploy({
       runtime,
       name: name?.trim() || null,                 // 빈 값이면 서버가 app-<hex8> 자동 생성
       use_db: useDb,                              // true면 같은 ns에 mysql 자동 프로비저닝
+      build_mode: buildMode,                      // "dockerfile" | "auto"(nixpacks)
       dockerfile_path: dockerfilePath || "Dockerfile",
+      project_path: projectPath || "",            // auto 모드 — 서브디렉토리. 빈 값=repo root
     }),
   });
 }

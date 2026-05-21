@@ -1,8 +1,11 @@
 """배포 오케스트레이션."""
 
 import asyncio
+import os.path
 import re
 import time
+import urllib.error
+import urllib.request
 import uuid
 
 from kubernetes.client.exceptions import ApiException
@@ -21,6 +24,27 @@ def _normalize_repo_url(url: str) -> str:
     if not url.endswith(".git"):
         url = url + ".git"
     return url
+
+
+_GITHUB_REPO_PATTERN = re.compile(r"https?://github\.com/([^/]+)/([^/]+?)(?:\.git)?/?$")
+
+
+# Public GitHub repo에서 파일 텍스트를 raw URL로 fetch. 실패하면 None (빌드는 계속).
+# Private repo · GitHub 외 SCM은 미지원 — 그 경우엔 dockerfile_content NULL로 두고
+# UI에서 "표시 불가"로 처리.
+def _fetch_github_raw(repo_url: str, branch: str, path: str) -> str | None:
+    m = _GITHUB_REPO_PATTERN.match(repo_url)
+    if not m:
+        return None
+    user, repo = m.group(1), m.group(2)
+    raw_url = f"https://raw.githubusercontent.com/{user}/{repo}/{branch}/{path}"
+    try:
+        with urllib.request.urlopen(raw_url, timeout=10) as resp:
+            if resp.status == 200:
+                return resp.read().decode("utf-8", errors="replace")
+    except (urllib.error.URLError, TimeoutError, ValueError):
+        pass
+    return None
 
 
 # 예약 서브도메인 (시스템 인프라용) — 유저 입력 거절
@@ -106,7 +130,9 @@ async def start_build(
     port: int = 80,
     user_id: uuid.UUID | None = None,
     use_db: bool = False,
+    build_mode: str = "dockerfile",
     dockerfile_path: str = "Dockerfile",
+    project_path: str = "",
 ) -> Build:
     repo_url = _normalize_repo_url(repo_url)
     build_id = uuid.uuid4().hex[:8]
@@ -126,7 +152,9 @@ async def start_build(
         runtime=runtime,
         user_id=user_id,
         use_db=use_db,
+        build_mode=build_mode,
         dockerfile_path=dockerfile_path,
+        project_path=project_path.strip("/"),  # 앞뒤 슬래시 정리 — manifest에서 ${PROJECT_PATH:+/$PROJECT_PATH}로 결합
     )
     build = crud.create_build(db, build)
 
@@ -148,34 +176,73 @@ async def _run_build(build_id: str) -> None:
             return
 
         try:
+            # 빌드 시작 전에 Dockerfile 텍스트를 DB에 보존 (UI 노출 + AI 분석용).
+            # dockerfile 모드: GitHub raw fetch. auto 모드: 빌드 후 init container 로그에서 추출.
+            if build.build_mode == "dockerfile":
+                content = await asyncio.to_thread(
+                    _fetch_github_raw, build.repo_url, build.branch, build.dockerfile_path
+                )
+                if content is not None:
+                    build.dockerfile_content = content
+                    db.commit()
+
             build.status = "building"
             db.commit()
 
-            # dockerfile_path를 subdir + filename으로 분리.
-            # subdir이 있으면 BuildKit context를 그 subdir로 변경 (COPY . . 의 기준).
-            df_path = build.dockerfile_path or "Dockerfile"
-            if "/" in df_path:
-                idx = df_path.rfind("/")
-                dockerfile_subdir, dockerfile_filename = df_path[:idx], df_path[idx + 1:]
+            if build.build_mode == "auto":
+                job = manifests.nixpacks_buildkit_job(
+                    build_id=build.build_id,
+                    user_id=build.user_id_str,
+                    image=build.image,
+                    repo_url=build.repo_url,
+                    branch=build.branch,
+                    project_path=build.project_path,
+                )
             else:
-                dockerfile_subdir, dockerfile_filename = "", df_path
+                # dockerfile_path를 subdir + filename으로 분리 (BuildKit context를 subdir로 좁힘).
+                dockerfile_subdir, dockerfile_filename = os.path.split(
+                    build.dockerfile_path or "Dockerfile"
+                )
+                job = manifests.buildkit_job(
+                    build_id=build.build_id,
+                    user_id=build.user_id_str,
+                    image=build.image,
+                    repo_url=build.repo_url,
+                    branch=build.branch,
+                    dockerfile_subdir=dockerfile_subdir,
+                    dockerfile_filename=dockerfile_filename,
+                )
 
-            job = manifests.buildkit_job(
-                build_id=build.build_id,
-                user_id=build.user_id_str,
-                image=build.image,
-                repo_url=build.repo_url,
-                branch=build.branch,
-                dockerfile_subdir=dockerfile_subdir,
-                dockerfile_filename=dockerfile_filename,
-            )
             k8s.batch_v1().create_namespaced_job(
                 namespace=config.BUILD_NAMESPACE, body=job
             )
 
             job_name = _build_job_name(build.build_id, build.user_id_str)
             success = await _wait_for_job(job_name)
-            build.logs = _get_job_logs(build.build_id)
+
+            # auto 모드: init container 로그도 함께. 빌드 실패가 init 단계(nixpacks)일 때
+            # buildkit 로그는 비어있고 진짜 원인은 init에 있음. UI에서 디버깅 가능하게 둘 다 노출.
+            if build.build_mode == "auto":
+                init_logs = _get_init_container_logs(build.build_id, "nixpacks")
+                main_logs = _get_job_logs(build.build_id)
+                parts = []
+                if init_logs:
+                    parts.append(f"=== nixpacks (init) ===\n{init_logs}")
+                if main_logs:
+                    parts.append(f"=== buildkit (main) ===\n{main_logs}")
+                build.logs = "\n\n".join(parts) if parts else ""
+
+                if init_logs:
+                    extracted = _extract_between(
+                        init_logs,
+                        "===KODEPLOY_DOCKERFILE_START===",
+                        "===KODEPLOY_DOCKERFILE_END===",
+                    )
+                    if extracted:
+                        build.dockerfile_content = extracted
+                        db.commit()
+            else:
+                build.logs = _get_job_logs(build.build_id)
 
             if not success:
                 build.status = "failed"
@@ -253,7 +320,7 @@ async def _wait_for_rollout(app_name: str, namespace: str) -> bool:
     return False
 
 
-# build-id 라벨로 BuildKit Pod 찾아 로그 조회
+# build-id 라벨로 BuildKit Pod 찾아 로그 조회 (main container 기본)
 def _get_job_logs(build_id: str) -> str:
     core = k8s.core_v1()
     pods = core.list_namespaced_pod(
@@ -269,6 +336,38 @@ def _get_job_logs(build_id: str) -> str:
         )
     except ApiException as e:
         return f"로그 조회 실패: {e}"
+
+
+# 같은 Pod의 특정 init container 로그 조회 (auto 모드의 nixpacks container용)
+def _get_init_container_logs(build_id: str, container_name: str) -> str:
+    core = k8s.core_v1()
+    pods = core.list_namespaced_pod(
+        namespace=config.BUILD_NAMESPACE,
+        label_selector=f"build-id={build_id}",
+    )
+    if not pods.items:
+        return ""
+    pod_name = pods.items[0].metadata.name
+    try:
+        return core.read_namespaced_pod_log(
+            name=pod_name,
+            namespace=config.BUILD_NAMESPACE,
+            container=container_name,
+        )
+    except ApiException:
+        return ""
+
+
+# 텍스트에서 marker 사이 추출 — nixpacks init container 로그 파싱용
+def _extract_between(text: str, start: str, end: str) -> str | None:
+    s = text.find(start)
+    if s < 0:
+        return None
+    s += len(start)
+    e = text.find(end, s)
+    if e < 0:
+        return None
+    return text[s:e].strip("\n")
 
 
 # 테넌트 ns 프로비저닝 (Namespace + ResourceQuota + ghcr-auth).

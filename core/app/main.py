@@ -4,16 +4,37 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import text
 
 from app.config import ALLOWED_ORIGINS
 from app.deploy.router import router as deploy_router
 from app.shared.db import Base, engine
 
 
-# 부팅 시 DB 테이블 자동 생성 (Alembic 도입 전 임시)
+# create_all은 새 테이블만 만들고 기존 테이블에 컬럼 추가 안 함 — 누적 마이그레이션이
+# 늘면 Alembic 도입. 지금은 작은 규모라 멱등 ALTER 한 줄씩 시도하는 게 단순.
+_COLUMN_MIGRATIONS = [
+    "ALTER TABLE builds ADD COLUMN build_mode VARCHAR(20) NOT NULL DEFAULT 'dockerfile'",
+    "ALTER TABLE builds ADD COLUMN dockerfile_content LONGTEXT NULL",
+    "ALTER TABLE builds ADD COLUMN project_path VARCHAR(200) NOT NULL DEFAULT ''",
+]
+
+
+def _apply_column_migrations() -> None:
+    with engine.begin() as conn:
+        for sql in _COLUMN_MIGRATIONS:
+            try:
+                conn.execute(text(sql))
+            except Exception as e:
+                if "Duplicate column" not in str(e):  # MySQL 에러 메시지
+                    raise
+
+
+# 부팅 시 DB 테이블 자동 생성 + 컬럼 마이그레이션 (Alembic 도입 전 임시)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     Base.metadata.create_all(bind=engine)
+    _apply_column_migrations()
     yield
 
 

@@ -6,12 +6,12 @@
 //   - 텍스트는 fg-1 흰색 고정 — 색은 dot에만
 const STYLES = {
   queued:    { color: "#8a8f98", label: "대기" },
-  building:  { color: "#f59e0b", label: "빌드 중", pulse: true },
-  built:     { color: "#f59e0b", label: "빌드 완료" },
-  deploying: { color: "#f59e0b", label: "배포 중", pulse: true },
+  building:  { color: "#b45309", label: "빌드 중", pulse: true },
+  built:     { color: "#b45309", label: "빌드 완료" },
+  deploying: { color: "#b45309", label: "배포 중", pulse: true },
   deployed:  { color: "#818be0", label: "배포 완료" },
-  running:   { color: "#10b981", label: "실행 중" },
-  failed:    { color: "#ef4444", label: "실패" },
+  running:   { color: "#047857", label: "실행 중" },
+  failed:    { color: "#b91c1c", label: "실패" },
 };
 
 export default function StatusBadge({ status }) {
