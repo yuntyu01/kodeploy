@@ -1,11 +1,14 @@
 import { useState } from "react";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
-import BuildDetail from "./components/BuildDetail.jsx";
-import BuildListWidget from "./components/BuildListWidget.jsx";
+import CommitListWidget from "./components/CommitListWidget.jsx";
+import Dashboard from "./components/Dashboard.jsx";
 import DeployForm from "./components/DeployForm.jsx";
 import Guide from "./components/Guide.jsx";
 import GuidePanel from "./components/GuidePanel.jsx";
+import Home from "./components/Home.jsx";
+import LoginModal from "./components/LoginModal.jsx";
 import TopBar from "./components/TopBar.jsx";
+import { AuthProvider } from "./contexts/AuthContext.jsx";
 
 function FormView() {
   // 가이드 패널 열림 여부 + 어떤 runtime의 가이드를 보여줄지.
@@ -36,16 +39,6 @@ function FormView() {
   );
 }
 
-function BuildDetailView() {
-  return (
-    <div className="flex-1 overflow-auto scroll-thin">
-      <div className="max-w-[900px] mx-auto px-6 py-6 h-full">
-        <BuildDetail />
-      </div>
-    </div>
-  );
-}
-
 function GuideView() {
   return (
     <div className="flex-1 overflow-auto scroll-thin">
@@ -55,21 +48,31 @@ function GuideView() {
 }
 
 export default function App() {
+  // LoginModal은 App 최상위에서 관리 — TopBar 클릭, DeployForm 401 응답 등 어디서든 트리거.
+  // AuthProvider가 openLogin을 자식들에게 흘려준다.
+  const [showLogin, setShowLogin] = useState(false);
+
   return (
     <BrowserRouter>
-      <div className="h-screen w-screen flex flex-col" style={{ background: "#08090a" }}>
-        <TopBar />
-        <div className="flex-1 min-h-0 flex flex-col" style={{ background: "#0f1011" }}>
-          <Routes>
-            <Route path="/" element={<FormView />} />
-            <Route path="/builds/:id" element={<BuildDetailView />} />
-            <Route path="/guide" element={<GuideView />} />
-            <Route path="/guide/:section" element={<GuideView />} />
-            <Route path="*" element={<Navigate to="/" replace />} />
-          </Routes>
+      <AuthProvider onOpenLogin={() => setShowLogin(true)}>
+        <div className="h-screen w-screen flex flex-col" style={{ background: "#08090a" }}>
+          <TopBar onLogin={() => setShowLogin(true)} />
+          <div className="flex-1 min-h-0 flex flex-col" style={{ background: "#0f1011" }}>
+            <Routes>
+              <Route path="/" element={<Home />} />
+              <Route path="/deploy" element={<FormView />} />
+              <Route path="/dashboard" element={<Dashboard />} />
+              <Route path="/guide" element={<GuideView />} />
+              <Route path="/guide/:section" element={<GuideView />} />
+              {/* 옛 빌드 단위 URL → dashboard로 흡수 (북마크/공유 호환) */}
+              <Route path="/builds/:id" element={<Navigate to="/dashboard" replace />} />
+              <Route path="*" element={<Navigate to="/" replace />} />
+            </Routes>
+          </div>
+          <CommitListWidget />
+          {showLogin && <LoginModal onClose={() => setShowLogin(false)} />}
         </div>
-        <BuildListWidget />
-      </div>
+      </AuthProvider>
     </BrowserRouter>
   );
 }

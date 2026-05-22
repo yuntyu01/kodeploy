@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
-import { useParams } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 import { Activity, ArrowLeft, ScrollText, Terminal } from "lucide-react";
 import { getBuild } from "../api/deploy.js";
 import { formatFull } from "../lib/format.js";
+import { useAuth } from "../contexts/AuthContext.jsx";
 import StatusBadge from "./StatusBadge.jsx";
 
 const ACTIVE = new Set(["queued", "building", "built", "deploying"]);
@@ -35,13 +36,25 @@ const TABS = [
 ];
 
 export default function BuildDetail() {
+  const navigate = useNavigate();
   const { id: buildId } = useParams();
+  const { user, loading: authLoading, openLogin } = useAuth();
   const [build, setBuild] = useState(null);
   const [error, setError] = useState(null);
   const [activeTab, setActiveTab] = useState(null);
 
+  // 미로그인 진입(직접 URL 또는 mount 후 logout) — LoginModal 띄우고 홈으로.
+  // authLoading 동안엔 user가 아직 null일 수 있으니 기다린다.
   useEffect(() => {
-    if (!buildId) return;
+    if (authLoading) return;
+    if (!user) {
+      openLogin?.();
+      navigate("/", { replace: true });
+    }
+  }, [authLoading, user, openLogin, navigate]);
+
+  useEffect(() => {
+    if (!buildId || authLoading || !user) return;    // 인증 확정 + 본인 로그인 후에만 fetch
     let cancelled = false;
     let timer;
 
@@ -55,7 +68,15 @@ export default function BuildDetail() {
           timer = setTimeout(tick, 2500);
         }
       } catch (err) {
-        if (!cancelled) setError(err.message || "조회 실패");
+        if (cancelled) return;
+        // 401: cookie 만료/logout → LoginModal + 홈으로 (위 effect가 이미 처리 중일 수 있음)
+        if (err.status === 401) {
+          openLogin?.();
+          navigate("/", { replace: true });
+          return;
+        }
+        // 404: 다른 user의 build_id로 진입 — 백엔드가 본인 거 아니면 404 마스킹
+        setError(err.message || "조회 실패");
       }
     };
 
@@ -66,7 +87,10 @@ export default function BuildDetail() {
       cancelled = true;
       if (timer) clearTimeout(timer);
     };
-  }, [buildId]);
+  }, [buildId, authLoading, user?.id, navigate, openLogin]);
+
+  // 인증 확인 전엔 빈 화면 (깜빡임 방지)
+  if (authLoading || !user) return null;
 
   if (error) {
     return (
@@ -220,7 +244,7 @@ export default function BuildDetail() {
                   )}
                 </div>
                 <pre
-                  className="text-[11.5px] font-mono text-fg-2 p-3 rounded-md overflow-auto scroll-thin"
+                  className="text-[11.5px] font-sans text-fg-2 p-3 rounded-md overflow-auto scroll-thin"
                   style={{
                     background: "rgba(255,255,255,0.02)",
                     border: "1px solid rgba(255,255,255,0.06)",

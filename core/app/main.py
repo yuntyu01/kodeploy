@@ -6,6 +6,9 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 
+from app.auth.router import router as auth_router
+# Base.metadata.create_all이 인식하도록 model 모듈 import (side-effect)
+from app.auth import model as _auth_model  # noqa: F401
 from app.config import ALLOWED_ORIGINS
 from app.deploy.router import router as deploy_router
 from app.shared.db import Base, engine
@@ -17,6 +20,8 @@ _COLUMN_MIGRATIONS = [
     "ALTER TABLE builds ADD COLUMN build_mode VARCHAR(20) NOT NULL DEFAULT 'dockerfile'",
     "ALTER TABLE builds ADD COLUMN dockerfile_content LONGTEXT NULL",
     "ALTER TABLE builds ADD COLUMN project_path VARCHAR(200) NOT NULL DEFAULT ''",
+    # 1유저=1앱 — 첫 배포 시 결정되는 앱 이름 (서브도메인이라 unique).
+    "ALTER TABLE users ADD COLUMN app_name VARCHAR(50) NULL UNIQUE",
 ]
 
 
@@ -49,6 +54,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(auth_router)
 app.include_router(deploy_router)
 
 

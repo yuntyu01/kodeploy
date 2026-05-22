@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { ChevronUp, GitCommitHorizontal, Minus } from "lucide-react";
 import { listBuilds } from "../api/deploy.js";
 import { relativeTime } from "../lib/format.js";
+import { useAuth } from "../contexts/AuthContext.jsx";
 import BuildListPanel from "./BuildListPanel.jsx";
 import StatusBadge from "./StatusBadge.jsx";
 
@@ -11,12 +12,25 @@ const VISIBLE_COUNT = 2;
 
 export default function BuildListWidget() {
   const navigate = useNavigate();
+  const location = useLocation();
+  const { user } = useAuth();
   const { id: selectedId } = useParams();
   const [builds, setBuilds] = useState([]);
   const [minimized, setMinimized] = useState(false);
   const [showPanel, setShowPanel] = useState(false);
 
+  // 숨김 조건:
+  //   - 랜딩("/"): 마케팅 화면에 빌드 목록이 뜨면 어색
+  //   - 미로그인: 본인 빌드만 보이게 — 미로그인은 보일 빌드 자체가 없음
+  // user 변경(로그인↔로그아웃, 다른 계정 전환) 시 의존성으로 자연 재실행 → builds 클리어 + 새 polling.
+  const isHome = location.pathname === "/";
+  const hidden = isHome || !user;
+
   useEffect(() => {
+    if (hidden) {
+      setBuilds([]);                                 // 이전 user의 빌드 잔여 클리어
+      return;
+    }
     let cancelled = false;
     let timer;
 
@@ -40,7 +54,10 @@ export default function BuildListWidget() {
       cancelled = true;
       if (timer) clearTimeout(timer);
     };
-  }, []);
+  }, [hidden, user?.id]);                            // user.id 변경(계정 전환) 시 재폴링
+
+  // hooks 호출 후 early return (rules-of-hooks 준수)
+  if (hidden) return null;
 
   const visible = builds.slice(0, VISIBLE_COUNT);
   const hiddenCount = Math.max(0, builds.length - VISIBLE_COUNT);

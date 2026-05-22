@@ -31,6 +31,9 @@ spec:
           envFrom:
             - configMapRef:
                 name: kodeploy-core-env                  # 환경변수 묶음 일괄 주입
+            - secretRef:
+                name: kodeploy-oauth                     # GITHUB_CLIENT_ID / GITHUB_CLIENT_SECRET
+                optional: true                           # 없으면 /auth/github/login만 500 — /healthz는 살아있게
           env:
             - name: DB_PASSWORD                          # 시크릿은 개별로
               valueFrom:

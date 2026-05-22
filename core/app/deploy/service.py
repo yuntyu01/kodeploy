@@ -1,6 +1,7 @@
 """배포 오케스트레이션."""
 
 import asyncio
+import json
 import os.path
 import re
 import time
@@ -12,6 +13,7 @@ from kubernetes.client.exceptions import ApiException
 from sqlalchemy.orm import Session
 
 from app import config
+from app.auth.model import User
 from app.deploy import crud, manifests, runtimes
 from app.deploy.model import Build
 from app.shared import k8s
@@ -93,42 +95,99 @@ def _extract_from_repo(repo_url: str) -> str | None:
     return candidate
 
 
+# 1유저=1앱: user.app_name이 있으면 그대로 재사용 (변경 불가). 없으면 첫 배포로 보고
+# 입력값 검증 + 다른 유저와 중복 검사 후 user.app_name에 저장.
 def _resolve_app_name(
     name: str | None,
     repo_url: str,
-    user_id: uuid.UUID | None,
+    user: User,
     db: Session,
 ) -> str:
+    # 두 번째 배포 이후 — 이미 고정된 이름 그대로
+    if user.app_name:
+        return user.app_name
+
+    # 첫 배포 — 입력값 검증 또는 자동 생성
     if name:
         _validate_name_format(name)
-        return name
+        candidate = name
+    else:
+        candidate = _extract_from_repo(repo_url) or f"app-{uuid.uuid4().hex[:8]}"
 
-    derived = _extract_from_repo(repo_url)
-    if derived:
-        return derived
+    # 다른 유저가 이미 쓰고 있는지 확인 (DB unique 제약이 막아주지만 친절한 에러용)
+    existing = db.query(User).filter(User.app_name == candidate).first()
+    if existing:
+        raise ValueError(f"이미 사용 중인 이름: {candidate}")
 
-    return f"app-{uuid.uuid4().hex[:8]}"
-
-
-# build_id로 단건 빌드 상태 조회
-def get_state(db: Session, build_id: str) -> Build | None:
-    return crud.get_build(db, build_id)
-
-
-# 전체 빌드 목록 조회
-def list_builds(db: Session) -> list[Build]:
-    return crud.list_builds(db)
+    # user에 fix (이후 배포는 자동으로 이 이름 재사용)
+    user.app_name = candidate
+    db.commit()
+    return candidate
 
 
-# Build row 생성 + 백그라운드 빌드 태스크 등록
+# build_id로 단건 빌드 상태 조회 — user_id 주면 본인 빌드만
+def get_state(
+    db: Session, build_id: str, user_id: uuid.UUID | None = None,
+) -> Build | None:
+    return crud.get_build(db, build_id, user_id=user_id)
+
+
+# 빌드 목록 (user_id 주면 본인 것만)
+def list_builds(db: Session, user_id: uuid.UUID | None = None) -> list[Build]:
+    return crud.list_builds(db, user_id=user_id)
+
+
+# 최근 커밋 조회 — public repo 한정 (unauthenticated GitHub API, IP당 60req/h).
+# private repo 지원은 App installation token 도입 시 분기 추가.
+# 실패는 빈 리스트로 swallow — UI에서 "없음" 표시되면 충분.
+def fetch_recent_commits(
+    repo_url: str, branch: str, per_page: int = 10,
+) -> list[dict]:
+    m = _GITHUB_REPO_PATTERN.match(repo_url.rstrip("/"))
+    if not m:
+        return []
+    owner, repo = m.group(1), m.group(2)
+    api_url = (
+        f"https://api.github.com/repos/{owner}/{repo}/commits"
+        f"?sha={branch}&per_page={per_page}"
+    )
+    try:
+        req = urllib.request.Request(
+            api_url,
+            headers={
+                "Accept": "application/vnd.github+json",
+                "User-Agent": "kodeploy",
+            },
+        )
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = json.load(resp)
+    except (urllib.error.URLError, TimeoutError, ValueError):
+        return []
+    out = []
+    for c in data:
+        try:
+            out.append({
+                "sha": c["sha"][:7],
+                "message": c["commit"]["message"].split("\n", 1)[0],
+                "author": c["commit"]["author"].get("name", "unknown"),
+                "date": c["commit"]["author"].get("date"),
+                "url": c["html_url"],
+            })
+        except (KeyError, TypeError):
+            continue
+    return out
+
+
+# Build row 생성 + 백그라운드 빌드 태스크 등록.
+# user 객체로 받음 — _resolve_app_name이 user.app_name을 읽고/쓰기 위해.
 async def start_build(
     db: Session,
     repo_url: str,
     runtime: str,
+    user: User,
     name: str | None = None,
     branch: str = "main",
     port: int = 80,
-    user_id: uuid.UUID | None = None,
     use_db: bool = False,
     build_mode: str = "dockerfile",
     dockerfile_path: str = "Dockerfile",
@@ -136,11 +195,8 @@ async def start_build(
 ) -> Build:
     repo_url = _normalize_repo_url(repo_url)
     build_id = uuid.uuid4().hex[:8]
-    if user_id is None:
-        user_id = uuid.UUID("00000000-0000-0000-0000-000000000001")
-    app_name = _resolve_app_name(name, repo_url, user_id, db)
-    user_hex = user_id.hex[:8] if user_id else "anonymous"
-    image = f"ghcr.io/{config.GHCR_USER}/{user_hex}/{app_name}:{build_id}"
+    app_name = _resolve_app_name(name, repo_url, user, db)
+    image = f"ghcr.io/{config.GHCR_USER}/{user.id.hex[:8]}/{app_name}:{build_id}"
 
     build = Build(
         build_id=build_id,
@@ -150,7 +206,7 @@ async def start_build(
         app_name=app_name,
         port=port,
         runtime=runtime,
-        user_id=user_id,
+        user_id=user.id,
         use_db=use_db,
         build_mode=build_mode,
         dockerfile_path=dockerfile_path,

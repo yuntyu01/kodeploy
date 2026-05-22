@@ -32,6 +32,7 @@ BUILD_TIMEOUT_SECONDS = int(os.getenv("BUILD_TIMEOUT_SECONDS", "600"))  # 운영
 
 # --- CORS ---
 # 쉼표로 구분된 허용 origin 목록. 환경별 다름 (dev=localhost, 운영=Cloudflare Pages 도메인).
+# Cookie 인증 쓰니까 allow_credentials=True와 함께 와일드카드(*) 금지 — 명시적 origin만.
 ALLOWED_ORIGINS = [
     o.strip()
     for o in os.getenv(
@@ -40,3 +41,30 @@ ALLOWED_ORIGINS = [
     ).split(",")
     if o.strip()
 ]
+
+# --- Auth / GitHub App ---
+# GitHub App에서 발급 (Settings → Developer settings → GitHub Apps → 해당 App).
+# OAuth App과 client_id/secret 사용법은 같지만, App permissions로 권한이 고정되고
+# user access token이 8시간 만료(+ refresh_token)인 점이 다름.
+# 콜백 URL은 GitHub App settings의 "Callback URL"과 정확히 일치해야 함.
+GITHUB_CLIENT_ID = os.getenv("GITHUB_CLIENT_ID", "")
+GITHUB_CLIENT_SECRET = os.getenv("GITHUB_CLIENT_SECRET", "")
+GITHUB_OAUTH_REDIRECT_URI = os.getenv(
+    "GITHUB_OAUTH_REDIRECT_URI", "http://localhost:8000/auth/github/callback"
+)
+# 로그인 성공 후 사용자를 돌려보낼 web 기본 URL.
+WEB_BASE_URL = os.getenv("WEB_BASE_URL", "http://localhost:5173")
+
+# --- Session cookie ---
+# 쿠키 이름은 고정. 정책(domain/secure/samesite)은 환경별 다름.
+# 로컬 dev: SameSite=Lax / Secure=False / Domain 미지정.
+# 운영(cross-site): SameSite=None / Secure=True / Domain=.kodeploy.com.
+SESSION_COOKIE_NAME = "kd_session"
+SESSION_COOKIE_DOMAIN = os.getenv("SESSION_COOKIE_DOMAIN") or None
+SESSION_COOKIE_SECURE = os.getenv("SESSION_COOKIE_SECURE", "false").lower() == "true"
+SESSION_COOKIE_SAMESITE = os.getenv("SESSION_COOKIE_SAMESITE", "lax").lower()
+SESSION_LIFETIME_DAYS = int(os.getenv("SESSION_LIFETIME_DAYS", "30"))
+
+# OAuth state cookie (callback에서 검증 후 즉시 삭제, 짧은 만료)
+OAUTH_STATE_COOKIE_NAME = "kd_oauth_state"
+OAUTH_STATE_TTL_SECONDS = 600

@@ -3,6 +3,7 @@ const API_BASE = (import.meta.env.VITE_API_BASE || "").replace(/\/$/, "");
 
 async function request(path, options = {}) {
   const res = await fetch(`${API_BASE}${path}`, {
+    credentials: "include",                       // cookie session 첨부
     headers: { "Content-Type": "application/json", ...(options.headers || {}) },
     ...options,
   });
@@ -12,7 +13,9 @@ async function request(path, options = {}) {
       const body = await res.json();
       detail = body.detail || JSON.stringify(body);
     } catch {}
-    throw new Error(`${res.status} ${detail}`);
+    const err = new Error(`${res.status} ${detail}`);
+    err.status = res.status;                      // UI에서 401 분기 가능
+    throw err;
   }
   return res.json();
 }
@@ -55,4 +58,10 @@ export function getBuild(buildId) {
 
 export function listBuilds() {
   return request("/deploy");
+}
+
+// 최근 GitHub 커밋 (public repo만 — backend가 unauthenticated로 호출).
+// 응답: [{sha, message, author, date, url}, ...]
+export function listRecentCommits() {
+  return request("/deploy/commits");
 }

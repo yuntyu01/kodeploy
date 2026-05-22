@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { GitBranch } from "lucide-react";
 import { createDeploy, RUNTIMES } from "../api/deploy.js";
+import { useAuth } from "../contexts/AuthContext.jsx";
 
 const RUNTIME_META = {
   python: { name: "Python", tag: "FastAPI · uvicorn" },
@@ -16,6 +17,9 @@ const DEFAULT_PORTS = {
 
 export default function DeployForm({ onRequestGuide }) {
   const navigate = useNavigate();
+  const { user, openLogin, refresh } = useAuth();
+  // 1유저=1앱 — user.app_name이 있으면 첫 배포 끝난 상태. 이름 입력란 숨기고 그 이름 재사용.
+  const isFirstDeploy = !user?.app_name;
   const [repoUrl, setRepoUrl] = useState("");
   const [name, setName] = useState("");
   const [branch, setBranch] = useState("main");
@@ -45,12 +49,18 @@ export default function DeployForm({ onRequestGuide }) {
   const handleSubmit = async (e) => {
     e?.preventDefault?.();
     if (disabled) return;
+    // 미로그인이면 API 호출 전에 LoginModal 띄움 (API도 401로 막지만 UX 단축)
+    if (!user) {
+      openLogin?.();
+      return;
+    }
     setError(null);
     setSubmitting(true);
     try {
-      const build = await createDeploy({
+      await createDeploy({
         repoUrl: repoUrl.trim(),
-        name: name.trim() || undefined,
+        // 첫 배포: 사용자가 입력한 이름 또는 자동 생성(서버 측). 두 번째부터는 user.app_name 재사용되니 보냄 의미 없음.
+        name: isFirstDeploy ? name.trim() || undefined : undefined,
         branch: branch.trim() || "main",
         port: Number(port) || 80,
         runtime,
@@ -60,8 +70,15 @@ export default function DeployForm({ onRequestGuide }) {
           buildMode === "dockerfile" ? dockerfilePath.trim() || "Dockerfile" : "Dockerfile",
         projectPath: buildMode === "auto" ? projectPath.trim().replace(/^\/+|\/+$/g, "") : "",
       });
-      navigate(`/builds/${build.build_id}`);
+      // 첫 배포면 user.app_name이 백엔드에 박혔으니 AuthContext 갱신 — Dashboard에서 즉시 반영
+      if (isFirstDeploy) await refresh();
+      navigate("/dashboard");
     } catch (err) {
+      if (err.status === 401) {
+        openLogin?.();
+        setSubmitting(false);
+        return;
+      }
       setError(err.message || "배포 요청 실패");
       setSubmitting(false);
     }
@@ -316,7 +333,7 @@ export default function DeployForm({ onRequestGuide }) {
         )}
       </div>
 
-      {/* Domain */}
+      {/* Domain — 첫 배포에만 표시. 두 번째부터는 user.app_name fix되어 변경 불가 (안내만). */}
       <div className="mb-6">
         <div
           className="text-[10.5px] tracking-[0.08em] text-fg-3 mb-2"
@@ -324,21 +341,41 @@ export default function DeployForm({ onRequestGuide }) {
         >
           도메인
         </div>
-        <div className="flex items-center gap-2">
-          <input
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="비워두면 자동으로 채워져요"
-            className="bg-transparent outline-none text-fg-1 text-[14px] rounded-md px-3 py-2 w-1/2 placeholder:text-fg-3"
+        {isFirstDeploy ? (
+          <div className="flex items-center gap-2">
+            <input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="비워두면 자동으로 채워져요"
+              className="bg-transparent outline-none text-fg-1 text-[14px] rounded-md px-3 py-2 w-1/2 placeholder:text-fg-3"
+              style={{
+                border: "1px solid rgba(255,255,255,0.09)",
+                background: "rgba(255,255,255,0.02)",
+                fontWeight: 510,
+              }}
+              disabled={submitting}
+            />
+            <span className="text-[14px] text-fg-3 shrink-0" style={{ fontWeight: 510 }}>.kodeploy.com</span>
+          </div>
+        ) : (
+          <div
+            className="flex items-center gap-2 px-3 py-2 rounded-md"
             style={{
-              border: "1px solid rgba(255,255,255,0.09)",
+              border: "1px solid rgba(255,255,255,0.06)",
               background: "rgba(255,255,255,0.02)",
-              fontWeight: 510,
             }}
-            disabled={submitting}
-          />
-          <span className="text-[14px] text-fg-3 shrink-0" style={{ fontWeight: 510 }}>.kodeploy.com</span>
-        </div>
+          >
+            <span className="text-[14px] text-fg-1" style={{ fontWeight: 510 }}>
+              {user.app_name}
+            </span>
+            <span className="text-[14px] text-fg-3" style={{ fontWeight: 510 }}>
+              .kodeploy.com
+            </span>
+            <span className="ml-auto text-[10.5px] text-fg-4" style={{ fontWeight: 510 }}>
+              앱 이름은 변경 불가
+            </span>
+          </div>
+        )}
       </div>
 
       {/* Deploy button */}
