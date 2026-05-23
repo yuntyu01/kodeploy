@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 
 from app import config
 from app.auth.model import User
-from app.deploy import crud, manifests, runtimes
+from app.deploy import crud, env as env_module, manifests, runtimes
 from app.deploy.model import Build
 from app.shared import k8s
 from app.shared.db import SessionLocal
@@ -137,6 +137,148 @@ def list_builds(db: Session, user_id: uuid.UUID | None = None) -> list[Build]:
     return crud.list_builds(db, user_id=user_id)
 
 
+# env_change row의 status를 Pod 결과에 따라 갱신.
+# - 빌드 row는 영구 기록(안 건드림). 이 함수는 특정 env_change row(build_id로 식별)에만 적용.
+# - ready 되면 "running", 5분 타임아웃이면 "failed"로.
+async def watch_env_change_rollout(
+    user_id: uuid.UUID, app_name: str, tenant_id: str, event_build_id: str,
+) -> None:
+    deadline = time.time() + ROLLOUT_TIMEOUT_SECONDS
+    apps = k8s.apps_v1()
+    while time.time() < deadline:
+        try:
+            dep = apps.read_namespaced_deployment_status(
+                name=app_name, namespace=tenant_id,
+            )
+        except ApiException:
+            await asyncio.sleep(5)
+            continue
+        ready = dep.status.ready_replicas or 0
+        desired = dep.spec.replicas or 1
+        observed = dep.status.observed_generation or 0
+        current = dep.metadata.generation or 0
+        if ready >= desired and observed >= current:
+            _update_event_status(user_id, event_build_id, "running")
+            return
+        await asyncio.sleep(5)
+    _update_event_status(
+        user_id, event_build_id, "failed", error="Pod 시작 실패 (타임아웃)",
+    )
+
+
+def _update_event_status(
+    user_id: uuid.UUID, build_id: str, status: str, error: str | None = None,
+) -> None:
+    db = SessionLocal()
+    try:
+        row = (
+            db.query(Build)
+            .filter_by(build_id=build_id, user_id=user_id)
+            .first()
+        )
+        if row:
+            row.status = status
+            if error is not None:
+                row.error = error
+            db.commit()
+    finally:
+        db.close()
+
+
+# 현재 user 앱의 Pod 상태 — 빌드와 무관한 실시간 표시용.
+# build.status는 그 빌드 시점의 영구 기록이고, 이 함수는 "지금 살아있나"만 본다.
+#
+# 분류:
+#   "running"  — Pod Running + Ready 조건 True
+#   "pending"  — 스케줄링/이미지 pull/부팅 중 또는 Running but not ready
+#   "crashing" — CrashLoopBackOff / ImagePullBackOff / Failed phase / restart 폭주
+#   "missing"  — Deployment 없음 또는 Pod 0 (첫 배포 전 또는 삭제 후)
+def get_app_status(user: User) -> str:
+    if not user.app_name:
+        return "missing"
+    tenant_id = f"tenant-{user.id.hex[:8]}"
+    core = k8s.core_v1()
+    try:
+        pods = core.list_namespaced_pod(
+            namespace=tenant_id, label_selector=f"app={user.app_name}",
+        )
+    except ApiException as e:
+        if e.status == 404:
+            return "missing"
+        raise
+    if not pods.items:
+        return "missing"
+
+    # rolling update 직후엔 옛/새 Pod 둘 다 있을 수 있음 — 가장 최근 시작한 거 기준.
+    pod = max(
+        pods.items,
+        key=lambda p: p.status.start_time.timestamp() if p.status.start_time else 0,
+    )
+
+    # 우선순위: "지금 Ready 상태인가"가 가장 강한 신호. restart_count는 누적이라
+    # 과거에 여러 번 crash해서 4+여도 현재 살아있으면 running으로 봐야 함.
+    phase = pod.status.phase
+    if phase == "Running":
+        conditions = pod.status.conditions or []
+        ready = any(c.type == "Ready" and c.status == "True" for c in conditions)
+        if ready:
+            return "running"
+        # Running but not ready — 헬스체크 통과 못함. 이유 분석.
+        for cs in pod.status.container_statuses or []:
+            if cs.state and cs.state.waiting:
+                reason = cs.state.waiting.reason or ""
+                if reason in (
+                    "CrashLoopBackOff",
+                    "ImagePullBackOff",
+                    "ErrImagePull",
+                    "CreateContainerError",
+                    "CreateContainerConfigError",
+                ):
+                    return "crashing"
+        return "pending"
+
+    if phase == "Failed":
+        return "crashing"
+
+    # Pending phase — 시작 전이지만 명백한 오류면 crashing
+    for cs in pod.status.container_statuses or []:
+        if cs.state and cs.state.waiting:
+            reason = cs.state.waiting.reason or ""
+            if reason in (
+                "CrashLoopBackOff",
+                "ImagePullBackOff",
+                "ErrImagePull",
+                "CreateContainerError",
+                "CreateContainerConfigError",
+            ):
+                return "crashing"
+    return "pending"
+
+
+# 앱 완전 삭제 — tenant namespace 통째로 삭제하면 K8s가 cascade로
+# 안의 모든 자원(Deployment/Service/HTTPRoute/STS/PVC/Secret/ResourceQuota) 자동 정리.
+# 같은 user_id로 재배포하면 같은 tenant_id 쓰는데, ns가 terminating이면 _ensure_tenant_ns가
+# 사라질 때까지 잠시 대기 후 새 create. GHCR 이미지는 보존 (별도 정리).
+def delete_app(db: Session, user: User) -> None:
+    if not user.app_name:
+        raise ValueError("삭제할 앱이 없습니다")
+
+    tenant_id = f"tenant-{user.id.hex[:8]}"
+
+    # ns 삭제는 비동기 — terminating 상태로 들어가고 finalizer 정리 끝나면 사라짐.
+    # 사용자에겐 즉시 응답하고 다음 배포 시점에 대기.
+    try:
+        k8s.core_v1().delete_namespace(name=tenant_id)
+    except ApiException as e:
+        if e.status != 404:
+            raise
+
+    # DB: builds 히스토리 + user.app_name 리셋. 다음 배포는 첫 배포 흐름으로 진입.
+    db.query(Build).filter(Build.user_id == user.id).delete()
+    user.app_name = None
+    db.commit()
+
+
 # 최근 커밋 조회 — public repo 한정 (unauthenticated GitHub API, IP당 60req/h).
 # private repo 지원은 App installation token 도입 시 분기 추가.
 # 실패는 빈 리스트로 swallow — UI에서 "없음" 표시되면 충분.
@@ -166,9 +308,12 @@ def fetch_recent_commits(
     out = []
     for c in data:
         try:
+            full_msg = c["commit"]["message"]
+            title, _, body = full_msg.partition("\n")
             out.append({
                 "sha": c["sha"][:7],
-                "message": c["commit"]["message"].split("\n", 1)[0],
+                "message": title.strip(),
+                "body": body.strip(),  # 빈 문자열 가능 — UI에서 "(본문 없음)" 처리
                 "author": c["commit"]["author"].get("name", "unknown"),
                 "date": c["commit"]["author"].get("date"),
                 "url": c["html_url"],
@@ -189,9 +334,11 @@ async def start_build(
     branch: str = "main",
     port: int = 80,
     use_db: bool = False,
+    db_type: str = "none",
     build_mode: str = "dockerfile",
     dockerfile_path: str = "Dockerfile",
     project_path: str = "",
+    env_vars: dict[str, str] | None = None,
 ) -> Build:
     repo_url = _normalize_repo_url(repo_url)
     build_id = uuid.uuid4().hex[:8]
@@ -208,13 +355,14 @@ async def start_build(
         runtime=runtime,
         user_id=user.id,
         use_db=use_db,
+        db_type=db_type,
         build_mode=build_mode,
         dockerfile_path=dockerfile_path,
         project_path=project_path.strip("/"),  # 앞뒤 슬래시 정리 — manifest에서 ${PROJECT_PATH:+/$PROJECT_PATH}로 결합
     )
     build = crud.create_build(db, build)
 
-    asyncio.create_task(_run_build(build_id))
+    asyncio.create_task(_run_build(build_id, env_vars or {}))
     return build
 
 
@@ -224,7 +372,7 @@ def _build_job_name(build_id: str, user_id_str: str) -> str:
 
 
 # 백그라운드 빌드 코루틴 (Job 생성 → 폴링 → 성공 시 배포 / 실패 시 로그 저장)
-async def _run_build(build_id: str) -> None:
+async def _run_build(build_id: str, initial_env: dict[str, str] | None = None) -> None:
     db = SessionLocal()
     try:
         build = crud.get_build(db, build_id)
@@ -315,11 +463,19 @@ async def _run_build(build_id: str) -> None:
             db.commit()
             _ensure_tenant_ns(build)
 
-            # mysql 토글 — PVC/Secret은 보존 (데이터·비번 유지)
-            if build.use_db:
-                _ensure_mysql(build)
-            else:
-                _teardown_mysql(build)
+            # 사용자가 폼에서 보낸 환경변수 — ns 만든 직후, Deployment apply 전.
+            # Deployment는 아직 없을 수 있어서 set_env 안의 annotation patch는 404 swallow.
+            # Pod이 새로 만들어질 때 Secret 자연 mount.
+            if initial_env:
+                try:
+                    env_module.set_env(build.tenant_id, build.app_name, initial_env)
+                except ValueError as e:
+                    build.error = f"환경변수 검증 실패: {e}"
+                    db.commit()
+
+            # DB 토글 — 선택된 db (mysql/postgres) 프로비저닝 + 다른 db 정리.
+            # PVC/Secret은 보존 — 같은 db로 다시 토글 시 데이터 자연 복원.
+            _apply_db(build, build.db_type or "none")
 
             _apply_deployment(build)
 
@@ -436,14 +592,29 @@ def _ensure_tenant_ns(build: Build) -> None:
     core = k8s.core_v1()
     ns = build.tenant_id
 
+    # 직전 delete_app으로 ns가 terminating 중일 수 있음 — 사라질 때까지 잠시 대기.
+    # 60초 안에 안 끝나면 그대로 진행해서 create_namespace의 에러로 표면화.
+    deadline = time.time() + 60
+    while time.time() < deadline:
+        try:
+            existing = core.read_namespace(name=ns)
+        except ApiException as e:
+            if e.status == 404:
+                break  # 사라짐 — 새로 만들면 됨
+            raise
+        if existing.status.phase != "Terminating":
+            break  # Active — 재사용
+        time.sleep(2)
+
     secret = core.read_namespaced_secret(
         name=config.GHCR_AUTH_SECRET_NAME,
         namespace=config.BUILD_NAMESPACE,
     )
     dockerconfigjson_b64 = secret.data[".dockerconfigjson"]
 
-    # use_db True면 mysql 자원도 quota에 합산 — 재배포 시마다 현재 상태 반영
-    components = [build.runtime] + (["mysql"] if build.use_db else [])
+    # 선택된 db도 quota에 합산 — 재배포 시마다 현재 상태 반영
+    db_type = build.db_type or "none"
+    components = [build.runtime] + ([db_type] if db_type in ("mysql", "postgres") else [])
     quota = runtimes.compute_quota(components)
     docs = manifests.tenant(
         tenant_id=ns,
@@ -476,15 +647,21 @@ def _ensure_tenant_ns(build: Build) -> None:
                 raise
 
 
-# use_db=True: 같은 ns에 mysql Secret/Service/StatefulSet 프로비저닝 (모두 409 skip).
-# 재배포 시 다시 호출돼도 안전 — 첫 호출의 비번이 영구 유지되고,
+# 선택된 db (mysql / postgres) 같은 ns에 프로비저닝. 409(이미 존재)는 skip.
+# 재배포 시 다시 호출돼도 안전 — 첫 호출의 비번 + PVC가 영구 유지되고,
 # 옛 PVC가 남아있으면 새 StatefulSet이 자동 재바인딩해서 데이터 자연 복원.
-def _ensure_mysql(build: Build) -> None:
+def _ensure_one_db(build: Build, db_type: str) -> None:
+    if db_type not in ("mysql", "postgres"):
+        return
     apps = k8s.apps_v1()
     core = k8s.core_v1()
     ns = build.tenant_id
 
-    docs = manifests.mysql(tenant_id=ns, user_id=build.user_id_str)
+    docs = (
+        manifests.mysql(tenant_id=ns, user_id=build.user_id_str)
+        if db_type == "mysql"
+        else manifests.postgres(tenant_id=ns, user_id=build.user_id_str)
+    )
     for doc in docs:
         kind = doc["kind"]
         try:
@@ -499,23 +676,30 @@ def _ensure_mysql(build: Build) -> None:
                 raise
 
 
-# use_db=False: StatefulSet + Service만 삭제. PVC/Secret은 의도적으로 보존.
-# 다시 use_db=True로 켜면 새 StatefulSet이 옛 PVC + 옛 Secret에 자동 바인딩 → 복원.
-# 데이터 진짜 삭제는 별도 명시 액션으로 분리 (현재 미구현).
-def _teardown_mysql(build: Build) -> None:
+# 특정 db의 StatefulSet + Service만 삭제. PVC/Secret은 의도적으로 보존.
+# 다시 그 db로 토글하면 새 StatefulSet이 옛 PVC + 옛 Secret에 자동 바인딩 → 복원.
+def _teardown_one_db(build: Build, db_type: str) -> None:
     apps = k8s.apps_v1()
     core = k8s.core_v1()
     ns = build.tenant_id
-
     for delete_call in (
-        lambda: apps.delete_namespaced_stateful_set(name="mysql", namespace=ns),
-        lambda: core.delete_namespaced_service(name="mysql", namespace=ns),
+        lambda: apps.delete_namespaced_stateful_set(name=db_type, namespace=ns),
+        lambda: core.delete_namespaced_service(name=db_type, namespace=ns),
     ):
         try:
             delete_call()
         except ApiException as e:
             if e.status != 404:
                 raise
+
+
+# db_type 적용 — 선택된 db 프로비저닝 + 다른 db (있다면) 정리.
+def _apply_db(build: Build, db_type: str) -> None:
+    for candidate in ("mysql", "postgres"):
+        if candidate == db_type:
+            _ensure_one_db(build, candidate)
+        else:
+            _teardown_one_db(build, candidate)
 
 
 def _apply_deployment(build: Build) -> None:

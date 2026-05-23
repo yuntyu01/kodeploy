@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { GitBranch } from "lucide-react";
-import { createDeploy, RUNTIMES } from "../api/deploy.js";
+import { Eye, EyeOff, GitBranch, Plus, Trash2 } from "lucide-react";
+import { createDeploy, getEnvVars, RUNTIMES } from "../api/deploy.js";
 import { useAuth } from "../contexts/AuthContext.jsx";
 
 const RUNTIME_META = {
@@ -27,10 +27,96 @@ export default function DeployForm({ onRequestGuide }) {
   const [buildMode, setBuildMode] = useState("auto");
   const [dockerfilePath, setDockerfilePath] = useState("Dockerfile");
   const [projectPath, setProjectPath] = useState("");
-  const [useDb, setUseDb] = useState(false);
+  const [dbType, setDbType] = useState("none");
   const [runtime, setRuntime] = useState(RUNTIMES[0]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState(null);
+  // 환경변수 row 편집 — 활동 패널 EnvBody와 동일 UI.
+  // 재배포 시점에 기존 env 받아와 채움. 첫 배포면 빈 row 하나.
+  const [envRows, setEnvRows] = useState([
+    { key: "", value: "", visible: true },
+  ]);
+  // repo + branch 유효성 — GitHub API branches/{br} 호출 결과.
+  // state: "idle" | "checking" | "ok" | "notfound" | "invalid" | "error"
+  const [repoCheck, setRepoCheck] = useState({ state: "idle" });
+
+  // 마운트 시 기존 env fetch (user.app_name 있을 때만 — 첫 배포는 fetch 불필요)
+  useEffect(() => {
+    if (!user?.app_name) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const data = await getEnvVars();
+        if (cancelled) return;
+        const entries = Object.entries(data.env || {});
+        if (entries.length) {
+          setEnvRows(
+            entries.map(([k, v]) => ({ key: k, value: v, visible: false })),
+          );
+        }
+      } catch {
+        // 401 등 — 빈 row 그대로
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.app_name]);
+
+  // repo URL + branch 입력 시 디바운스 500ms 후 GitHub API로 유효성 확인.
+  // unauthenticated 호출이라 private repo는 항상 notfound로 떨어짐 (사용자에게 안내).
+  useEffect(() => {
+    const url = repoUrl.trim();
+    if (!url) {
+      setRepoCheck({ state: "idle" });
+      return;
+    }
+    const m = url.match(/github\.com[/:]([^/]+)\/([^/]+?)(?:\.git)?\/?$/);
+    if (!m) {
+      setRepoCheck({ state: "invalid" });
+      return;
+    }
+    const [, owner, repo] = m;
+    const br = branch.trim() || "main";
+    setRepoCheck({ state: "checking" });
+    const timer = setTimeout(async () => {
+      try {
+        const res = await fetch(
+          `https://api.github.com/repos/${owner}/${repo}/branches/${encodeURIComponent(br)}`,
+          { headers: { Accept: "application/vnd.github+json" } },
+        );
+        if (res.status === 200) {
+          setRepoCheck({ state: "ok" });
+        } else if (res.status === 404) {
+          setRepoCheck({ state: "notfound" });
+        } else {
+          setRepoCheck({ state: "error", code: res.status });
+        }
+      } catch {
+        setRepoCheck({ state: "error" });
+      }
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [repoUrl, branch]);
+
+  const addEnvRow = () =>
+    setEnvRows((r) => [...r, { key: "", value: "", visible: true }]);
+  const removeEnvRow = (i) =>
+    setEnvRows((r) =>
+      r.length === 1
+        ? [{ key: "", value: "", visible: true }]
+        : r.filter((_, idx) => idx !== i),
+    );
+  const updateEnvRow = (i, field, val) =>
+    setEnvRows((r) =>
+      r.map((row, idx) => (idx === i ? { ...row, [field]: val } : row)),
+    );
+  const toggleEnvVisible = (i) =>
+    setEnvRows((r) =>
+      r.map((row, idx) =>
+        idx === i ? { ...row, visible: !row.visible } : row,
+      ),
+    );
 
   // Dockerfile 모드 + 해당 runtime 변경 시 우측 가이드 패널 자동 표시.
   // auto 모드면 패널 닫기. X 버튼으로 닫아도 buildMode/runtime이 안 바뀌면 다시 안 열림.
@@ -56,6 +142,13 @@ export default function DeployForm({ onRequestGuide }) {
     }
     setError(null);
     setSubmitting(true);
+    // 환경변수 row → dict (빈 KEY는 무시, 같은 KEY 중복이면 뒤 row가 이김)
+    const envDict = {};
+    for (const { key, value } of envRows) {
+      const k = key.trim();
+      if (!k) continue;
+      envDict[k] = value;
+    }
     try {
       await createDeploy({
         repoUrl: repoUrl.trim(),
@@ -64,11 +157,12 @@ export default function DeployForm({ onRequestGuide }) {
         branch: branch.trim() || "main",
         port: Number(port) || 80,
         runtime,
-        useDb,
+        dbType,
         buildMode,
         dockerfilePath:
           buildMode === "dockerfile" ? dockerfilePath.trim() || "Dockerfile" : "Dockerfile",
         projectPath: buildMode === "auto" ? projectPath.trim().replace(/^\/+|\/+$/g, "") : "",
+        env: envDict,
       });
       // 첫 배포면 user.app_name이 백엔드에 박혔으니 AuthContext 갱신 — Dashboard에서 즉시 반영
       if (isFirstDeploy) await refresh();
@@ -147,6 +241,33 @@ export default function DeployForm({ onRequestGuide }) {
         </div>
       </div>
 
+      {/* repo + branch 유효성 — GitHub API로 확인 (디바운스 500ms) */}
+      {repoCheck.state !== "idle" && (
+        <div className="-mt-3 mb-5 text-[11px]" style={{ fontWeight: 450 }}>
+          {repoCheck.state === "checking" && (
+            <span className="text-fg-4">저장소 확인 중…</span>
+          )}
+          {repoCheck.state === "ok" && (
+            <span style={{ color: "#818be0" }}>✓ 저장소와 브랜치 확인됨</span>
+          )}
+          {repoCheck.state === "invalid" && (
+            <span style={{ color: "#a13c3c", fontWeight: 510 }}>
+              GitHub URL 형식이 올바르지 않아요
+            </span>
+          )}
+          {repoCheck.state === "notfound" && (
+            <span style={{ color: "#a13c3c", fontWeight: 510 }}>
+              저장소 또는 브랜치를 찾을 수 없어요 (private이면 표시 안 됨)
+            </span>
+          )}
+          {repoCheck.state === "error" && (
+            <span className="text-fg-4">
+              확인 실패{repoCheck.code ? ` (${repoCheck.code})` : ""}
+            </span>
+          )}
+        </div>
+      )}
+
       {/* Runtime */}
       <div className="mb-5">
         <div
@@ -180,7 +301,7 @@ export default function DeployForm({ onRequestGuide }) {
         </div>
       </div>
 
-      {/* DB */}
+      {/* DB — 한 앱에 한 DB만 (mysql/postgres 동시 사용 X) */}
       <div className="mb-5">
         <div
           className="text-[10.5px] tracking-[0.08em] text-fg-3 mb-2.5"
@@ -190,15 +311,16 @@ export default function DeployForm({ onRequestGuide }) {
         </div>
         <div className="flex gap-1.5">
           {[
-            { id: false, name: "사용 안 함" },
-            { id: true, name: "MySQL 8.4" },
+            { id: "none", name: "사용 안 함" },
+            { id: "mysql", name: "MySQL 8.4" },
+            { id: "postgres", name: "PostgreSQL 16" },
           ].map((d) => {
-            const active = useDb === d.id;
+            const active = dbType === d.id;
             return (
               <button
-                key={String(d.id)}
+                key={d.id}
                 type="button"
-                onClick={() => setUseDb(d.id)}
+                onClick={() => setDbType(d.id)}
                 className="flex-1 h-10 rounded-lg text-[13px] transition-colors flex items-center justify-center"
                 style={{
                   background: active ? "rgba(129,139,224,0.12)" : "rgba(255,255,255,0.03)",
@@ -378,11 +500,96 @@ export default function DeployForm({ onRequestGuide }) {
         )}
       </div>
 
+      {/* Env vars (선택) — 첫 배포면 Secret 새로 생성, 재배포면 위젯의 현재 env로 채워짐 + replace */}
+      <div className="mb-6">
+        <div
+          className="text-[10.5px] tracking-[0.08em] text-fg-3 mb-2.5"
+          style={{ fontWeight: 590 }}
+        >
+          환경변수 (선택)
+        </div>
+        <div className="flex flex-col gap-1.5">
+          {envRows.map((row, i) => (
+            <div key={i} className="flex items-center gap-1.5">
+              <input
+                value={row.key}
+                onChange={(e) =>
+                  updateEnvRow(i, "key", e.target.value.toUpperCase())
+                }
+                placeholder="KEY"
+                spellCheck={false}
+                autoCapitalize="characters"
+                className="flex-1 min-w-0 px-2.5 py-1.5 rounded-md bg-transparent outline-none text-[12.5px] text-fg-1 placeholder:text-fg-4"
+                style={{
+                  border: "1px solid rgba(255,255,255,0.09)",
+                  fontWeight: 510,
+                }}
+                disabled={submitting}
+              />
+              <input
+                value={
+                  row.visible
+                    ? row.value
+                    : "•".repeat(Math.min(row.value.length, 12))
+                }
+                onChange={(e) =>
+                  row.visible && updateEnvRow(i, "value", e.target.value)
+                }
+                onFocus={() => !row.visible && toggleEnvVisible(i)}
+                readOnly={!row.visible}
+                placeholder="value"
+                spellCheck={false}
+                className="flex-1 min-w-0 px-2.5 py-1.5 rounded-md bg-transparent outline-none text-[12.5px] text-fg-1 placeholder:text-fg-4"
+                style={{
+                  border: "1px solid rgba(255,255,255,0.09)",
+                  fontWeight: 510,
+                }}
+                disabled={submitting}
+              />
+              <button
+                type="button"
+                onClick={() => toggleEnvVisible(i)}
+                className="w-7 h-7 rounded-md text-fg-4 hover:text-fg-1 hover:bg-white/[0.04] flex items-center justify-center shrink-0"
+                title={row.visible ? "숨기기" : "보기"}
+              >
+                {row.visible ? (
+                  <EyeOff size={12} strokeWidth={1.8} />
+                ) : (
+                  <Eye size={12} strokeWidth={1.8} />
+                )}
+              </button>
+              <button
+                type="button"
+                onClick={() => removeEnvRow(i)}
+                className="w-7 h-7 rounded-md text-fg-4 hover:text-red-300 hover:bg-white/[0.04] flex items-center justify-center shrink-0"
+                title="삭제"
+              >
+                <Trash2 size={12} strokeWidth={1.8} />
+              </button>
+            </div>
+          ))}
+        </div>
+        <button
+          type="button"
+          onClick={addEnvRow}
+          className="mt-3 flex items-center gap-1 px-2 py-1 rounded-md text-[11.5px] text-fg-3 hover:text-fg-1 hover:bg-white/[0.04]"
+          style={{ fontWeight: 510 }}
+        >
+          <Plus size={11} strokeWidth={2} /> 변수 추가
+        </button>
+        <p
+          className="text-[11px] text-fg-4 mt-2"
+          style={{ fontWeight: 450, lineHeight: 1.55 }}
+        >
+          빈 KEY row는 무시돼요. 빈 값으로 두면 환경변수 변경 없이 빌드만 트리거.
+        </p>
+      </div>
+
       {/* Deploy button */}
       <button
         type="submit"
         disabled={disabled}
-        className="w-full py-3 rounded-lg text-[14px] text-white transition-colors disabled:opacity-40"
+        className="w-full py-3 rounded-md text-[14px] text-white transition-colors disabled:opacity-40"
         style={{ background: "#6672d5", fontWeight: 510 }}
         onMouseEnter={(e) =>
           !disabled && (e.currentTarget.style.background = "#828fff")

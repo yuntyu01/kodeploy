@@ -22,6 +22,12 @@ _COLUMN_MIGRATIONS = [
     "ALTER TABLE builds ADD COLUMN project_path VARCHAR(200) NOT NULL DEFAULT ''",
     # 1유저=1앱 — 첫 배포 시 결정되는 앱 이름 (서브도메인이라 unique).
     "ALTER TABLE users ADD COLUMN app_name VARCHAR(50) NULL UNIQUE",
+    # build row의 종류 — "build"(일반 빌드) | "env_change"(환경변수 변경 이벤트).
+    "ALTER TABLE builds ADD COLUMN kind VARCHAR(20) NOT NULL DEFAULT 'build'",
+    # DB 종류 — "none" | "mysql" | "postgres". use_db는 deprecated이지만 호환 위해 유지.
+    "ALTER TABLE builds ADD COLUMN db_type VARCHAR(20) NOT NULL DEFAULT 'none'",
+    # 옛 row 호환: use_db=True였던 row는 mysql로 (idempotent — db_type='none'인 것만 갱신)
+    "UPDATE builds SET db_type = 'mysql' WHERE use_db = 1 AND db_type = 'none'",
 ]
 
 
