@@ -16,15 +16,16 @@ rules:
     resources: ["deployments", "deployments/status", "statefulsets"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
   - apiGroups: [""]                                      # core API 그룹
-    resources: ["namespaces"]                            # 테넌트 ns 프로비저닝용
-    verbs: ["get", "create"]
+    resources: ["namespaces"]                            # 테넌트 ns 프로비저닝/삭제
+    verbs: ["get", "create", "delete"]
   - apiGroups: [""]
     resources: ["services", "pods", "pods/log",          # services=앱 Svc / pods=BuildKit Pod / pods/log=빌드 로그
-                "secrets", "resourcequotas"]              # secrets=ghcr-auth 복사 / resourcequotas=테넌트 자원 cap
+                "secrets", "resourcequotas",              # secrets=ghcr-auth 복사 / resourcequotas=테넌트 자원 cap
+                "persistentvolumeclaims"]                 # pvc=앱 삭제 시 stateful 데이터 정리
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
   - apiGroups: ["gateway.networking.k8s.io"]             # 유저 앱 서브도메인 라우팅용
     resources: ["httproutes"]
-    verbs: ["get", "create"]
+    verbs: ["get", "list", "create", "delete"]            # delete=앱 삭제 시 라우트 정리
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding                                 # SA를 ClusterRole에 연결 
