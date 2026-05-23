@@ -6,9 +6,10 @@
 
 # 컴포넌트별 리소스 단일 진실원 (CPU: m, Memory: Mi)
 RUNTIME_RESOURCES: dict[str, dict[str, int]] = {
-    "python": {"req_cpu": 50,  "lim_cpu": 300, "req_mem": 200, "lim_mem": 600},
-    "java":   {"req_cpu": 150, "lim_cpu": 500, "req_mem": 700, "lim_mem": 1024},
-    "mysql":  {"req_cpu": 50,  "lim_cpu": 200, "req_mem": 300, "lim_mem": 500},
+    "python":   {"req_cpu": 50,  "lim_cpu": 300, "req_mem": 200, "lim_mem": 600},
+    "java":     {"req_cpu": 150, "lim_cpu": 500, "req_mem": 700, "lim_mem": 1024},
+    "mysql":    {"req_cpu": 50,  "lim_cpu": 200, "req_mem": 300, "lim_mem": 500},
+    "postgres": {"req_cpu": 50,  "lim_cpu": 200, "req_mem": 250, "lim_mem": 500},
 }
 
 # 사용자가 선택 가능한 런타임 목록 (UI dropdown 등). mysql 같은 의존성은 제외.

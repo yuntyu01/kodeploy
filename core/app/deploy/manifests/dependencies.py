@@ -28,3 +28,26 @@ def mysql(
         req_mem=res["req_mem"],
         lim_mem=res["lim_mem"],
     )
+
+
+# postgres 의존성 한 묶음 — Secret + Service + StatefulSet.
+# mysql과 동일 컨벤션: DB_HOST=postgres, port 5432. envFrom으로 앱에 주입.
+def postgres(
+    tenant_id: str,
+    user_id: str,
+    database: str = "app",
+    username: str = "app",
+) -> list[dict]:
+    res = get_resources("postgres")
+    return render_all(
+        "dependencies/postgres.yaml.j2",
+        tenant_id=tenant_id,
+        user_id=user_id,
+        database=database,
+        username=username,
+        password=secrets.token_urlsafe(24),
+        req_cpu=res["req_cpu"],
+        lim_cpu=res["lim_cpu"],
+        req_mem=res["req_mem"],
+        lim_mem=res["lim_mem"],
+    )
