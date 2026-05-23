@@ -37,7 +37,7 @@ const PANEL_TYPES = [
     icon: Activity,
     label: "모니터링",
     sub: "CPU · 메모리 · 요청량",
-    color: "#10b981",
+    color: "#047857",
     ready: false,
   },
 ];

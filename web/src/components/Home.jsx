@@ -33,7 +33,7 @@ const FEATURES = [
     title: "HTTPS 도메인 자동",
     body:
       "your-app.kodeploy.com 서브도메인 + TLS 인증서가 배포 직후 자동 활성화. 추가 설정 0.",
-    color: "#10b981",
+    color: "#047857",
   },
   {
     icon: Shield,
@@ -189,7 +189,7 @@ export default function Home() {
           <div className="mt-10 flex items-center justify-center gap-3 flex-wrap">
             <button
               onClick={handleStart}
-              className="flex items-center gap-2 px-5 py-3 rounded-lg text-[14px] text-white transition-all"
+              className="flex items-center gap-2 px-5 py-3 rounded-md text-[14px] text-white transition-all"
               style={{
                 background:
                   "linear-gradient(135deg, #6672d5 0%, #7d6dd5 100%)",
@@ -215,7 +215,7 @@ export default function Home() {
             </button>
             <Link
               to="/guide"
-              className="px-5 py-3 rounded-lg text-[14px] text-fg-2 hover:text-fg-1 transition-colors no-underline"
+              className="px-5 py-3 rounded-md text-[14px] text-fg-2 hover:text-fg-1 transition-colors no-underline"
               style={{
                 fontWeight: 510,
                 background: "rgba(255,255,255,0.02)",
@@ -268,7 +268,7 @@ export default function Home() {
               </span>
             </div>
             <div className="p-5 text-[12.5px] leading-relaxed">
-              <Line prompt="$" color="#10b981">
+              <Line prompt="$" color="#047857">
                 <span className="text-fg-2">kodeploy deploy</span>{" "}
                 <span className="text-[#818be0]">github.com/me/api</span>
               </Line>
@@ -282,7 +282,7 @@ export default function Home() {
               <Line>
                 <span className="text-fg-3">→ deploying to K8s</span>
               </Line>
-              <Line prompt="✓" color="#10b981">
+              <Line prompt="✓" color="#047857">
                 <span className="text-fg-1">https://api.kodeploy.com</span>{" "}
                 <span className="text-fg-4">· 47s</span>
               </Line>
@@ -463,7 +463,7 @@ export default function Home() {
           </p>
           <button
             onClick={handleStart}
-            className="inline-flex items-center gap-2 px-6 py-3 rounded-lg text-[14px] text-white transition-all"
+            className="inline-flex items-center gap-2 px-6 py-3 rounded-md text-[14px] text-white transition-all"
             style={{
               background: "linear-gradient(135deg, #6672d5 0%, #7d6dd5 100%)",
               fontWeight: 510,

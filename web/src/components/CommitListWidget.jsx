@@ -1,31 +1,27 @@
-// 우측 하단 floating 위젯 — 커밋 + 빌드 통합 (탭 2개).
+// 우측 하단 floating 위젯 — 커밋 · 빌드 · 환경변수 통합 (탭 3개).
 //
 // - 미로그인 또는 랜딩("/")에선 숨김
 // - 커밋 탭: 최신 build의 repo+branch에서 최근 커밋 N개 폴링 (30s)
 // - 빌드 탭: 본인 빌드 목록 폴링 (active 2.5s / 안정 8s)
+// - 환경변수 탭: {app_name}-env Secret 1회 fetch (마운트 + 저장 후) — 값은 마스킹
 // - 빌드 row 클릭 → /dashboard?build=<id> 로 navigate → Dashboard가 그 빌드를 pin.
 //   URL query라 새로고침/공유에도 살아남음.
 // - 커밋 row 클릭 → GitHub 페이지 새 창.
-// - top-2 미리보기 → "자세히 보기" 클릭 시 CommitListPanel(전체) 오픈.
+// - top-2 미리보기 → "자세히 보기" 클릭 시 CommitListPanel(커밋·빌드) 또는 EnvPanel(환경변수) 오픈.
 // - 위젯 어디든 누르고 드래그하면 위치 이동 (5px threshold) — 일반 클릭은 영향 X.
 // - 위치는 우하단 기준(right/bottom)으로 저장 — 미니마이즈/확장 토글 시 우하단이 고정됨.
 // - localStorage 저장이라 새로고침/페이지 전환에도 유지.
-import { useEffect, useRef, useState } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
-import {
-  ChevronUp,
-  GitCommit,
-  GitCommitHorizontal,
-  Minus,
-} from "lucide-react";
-import { listBuilds, listRecentCommits } from "../api/deploy.js";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useLocation } from "react-router-dom";
+import { Minus } from "lucide-react";
+import { getEnvVars, listBuilds, listRecentCommits } from "../api/deploy.js";
 import { relativeTime } from "../lib/format.js";
 import { useAuth } from "../contexts/AuthContext.jsx";
 import CommitListPanel from "./CommitListPanel.jsx";
 import StatusBadge from "./StatusBadge.jsx";
 
 const VISIBLE_COUNT = 2;
-const COMMIT_POLL = 30000;                              // 커밋은 자주 안 바뀜
+const COMMIT_POLL = 60000;                              // 커밋은 자주 안 바뀜 + GitHub unauthenticated 60/h 한도 고려
 const ACTIVE = new Set(["queued", "building", "built", "deploying"]);
 const POS_STORAGE_KEY = "kd_widget_pos";
 const EDGE_MARGIN = 4;                                  // 화면 가장자리 최소 여백
@@ -47,12 +43,14 @@ function loadPos() {
 
 export default function CommitListWidget() {
   const location = useLocation();
-  const navigate = useNavigate();
   const { user } = useAuth();
   const [commits, setCommits] = useState([]);
   const [builds, setBuilds] = useState([]);
+  // env: {KEY: value} dict. 폴링 안 함 — 자주 안 바뀌고 사용자가 바꾸면 직접 refresh.
+  const [envVars, setEnvVars] = useState({});
   const [tab, setTab] = useState("commits");
   const [minimized, setMinimized] = useState(false);
+  // 자세히 보기 패널 — 한 패널 안에서 탭으로 커밋/빌드/환경변수 전환.
   const [showPanel, setShowPanel] = useState(false);
   // null = default 우하단. drag로 5px 이상 움직이면 {right, bottom} 박힘.
   const [pos, setPos] = useState(loadPos);
@@ -62,9 +60,19 @@ export default function CommitListWidget() {
   const pressRef = useRef(null);
   // drag 직후 발생할 click 한 번만 막기 위한 플래그
   const suppressClickRef = useRef(false);
+  // 토글 직전 박스 bounding rect — 좌상단 corner를 그대로 유지하기 위한 ref.
+  const prevRectRef = useRef(null);
+
+  const toggleMinimize = (next) => {
+    if (rootRef.current) {
+      prevRectRef.current = rootRef.current.getBoundingClientRect();
+    }
+    setMinimized(next);
+  };
 
   const isHome = location.pathname === "/";
-  const hidden = isHome || !user;
+  // 첫 배포 전엔 위젯에 보여줄 게 없으니 숨김 (커밋·빌드 anchor도 없고 환경변수도 미존재)
+  const hidden = isHome || !user || !user.app_name;
 
   // 커밋 폴링 — 30s 고정
   useEffect(() => {
@@ -117,6 +125,26 @@ export default function CommitListWidget() {
       if (timer) clearTimeout(timer);
     };
   }, [hidden, user?.id]);
+
+  // 환경변수 1회 fetch — 첫 배포 전이면 빈 dict. 저장 후엔 EnvPanel onSaved가 직접 setEnvVars 호출.
+  useEffect(() => {
+    if (hidden || !user?.app_name) {
+      setEnvVars({});
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const data = await getEnvVars();
+        if (!cancelled) setEnvVars(data.env || {});
+      } catch {
+        // 백그라운드 — 위젯에 빨간 에러 X
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [hidden, user?.id, user?.app_name]);
 
   // 드래그 — 글로벌 mousemove/mouseup 리스너 한 번만 등록.
   // pressRef가 채워진 상태에서 5px 통과하면 dragging=true → 그때부터 setPos.
@@ -174,6 +202,49 @@ export default function CommitListWidget() {
     }
   }, [pos]);
 
+  // 최소화/펼침 토글 시 알약이 위치한 화면 사분면 판별 → 그 corner를 박스의 같은 corner로.
+  // 우하단 알약 → 박스 우하단 corner = 알약 우하단 (박스가 좌/상으로 펼침).
+  // 좌상단 알약 → 박스 좌상단 corner = 알약 좌상단 (박스가 우/하로 펼침).
+  // cycle 후 알약은 원래 위치 그대로.
+  useLayoutEffect(() => {
+    if (!rootRef.current) return;
+    const rect = rootRef.current.getBoundingClientRect();
+    const w = rect.width;
+    const h = rect.height;
+
+    let targetRight;
+    let targetBottom;
+    if (prevRectRef.current) {
+      const prev = prevRectRef.current;
+      const cx = prev.left + prev.width / 2;
+      const cy = prev.top + prev.height / 2;
+      if (cx >= window.innerWidth / 2) {
+        targetRight = window.innerWidth - prev.right;
+      } else {
+        targetRight = window.innerWidth - prev.left - w;
+      }
+      if (cy >= window.innerHeight / 2) {
+        targetBottom = window.innerHeight - prev.bottom;
+      } else {
+        targetBottom = window.innerHeight - prev.top - h;
+      }
+      prevRectRef.current = null;
+    } else {
+      targetRight = pos ? pos.right : 16;
+      targetBottom = pos ? pos.bottom : 24;
+    }
+
+    const maxRight = Math.max(EDGE_MARGIN, window.innerWidth - w - EDGE_MARGIN);
+    const maxBottom = Math.max(EDGE_MARGIN, window.innerHeight - h - EDGE_MARGIN);
+    const right = Math.min(maxRight, Math.max(EDGE_MARGIN, targetRight));
+    const bottom = Math.min(maxBottom, Math.max(EDGE_MARGIN, targetBottom));
+
+    if (right !== (pos?.right ?? -1) || bottom !== (pos?.bottom ?? -1)) {
+      setPos({ right, bottom });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [minimized]);
+
   // 윈도우 리사이즈 시 위젯이 화면 밖으로 나가면 clamp (우하단 기준)
   useEffect(() => {
     if (!pos) return;
@@ -229,13 +300,14 @@ export default function CommitListWidget() {
     ? { right: pos.right, bottom: pos.bottom }
     : { right: 16, bottom: 24 };
 
-  const items = tab === "commits" ? commits : builds;
+  // tab별 보여줄 items. env는 dict라 entries로 변환.
+  const envEntries = Object.entries(envVars);
+  const items =
+    tab === "commits" ? commits : tab === "builds" ? builds : envEntries;
   const visible = items.slice(0, VISIBLE_COUNT);
   const hiddenCount = Math.max(0, items.length - VISIBLE_COUNT);
-  const minimizedLabel =
-    tab === "commits"
-      ? `최근 커밋 · ${commits.length}`
-      : `빌드 기록 · ${builds.length}`;
+  // 모든 탭 카운트 한 줄: 커밋 · 빌드 · 환경변수
+  const minimizedLabel = `${commits.length} · ${builds.length} · ${envEntries.length}`;
 
   if (minimized) {
     return (
@@ -248,8 +320,8 @@ export default function CommitListWidget() {
           onClickCapture={onWidgetClickCapture}
         >
           <button
-            onClick={() => setMinimized(false)}
-            className="flex items-center gap-2.5 pl-4 pr-5 py-2.5 rounded-full"
+            onClick={() => toggleMinimize(false)}
+            className="flex items-center pl-4 pr-4 py-2.5 rounded-2xl"
             style={{
               background: "#6672d5",
               boxShadow:
@@ -259,14 +331,15 @@ export default function CommitListWidget() {
             <span className="text-[13px] text-white" style={{ fontWeight: 510 }}>
               {minimizedLabel}
             </span>
-            <ChevronUp size={13} strokeWidth={2} className="text-white/60" />
           </button>
         </div>
         {showPanel && (
           <CommitListPanel
             commits={commits}
             builds={builds}
+            envVars={envVars}
             initialTab={tab}
+            onEnvSaved={(fresh) => setEnvVars(fresh)}
             onClose={() => setShowPanel(false)}
           />
         )}
@@ -292,7 +365,7 @@ export default function CommitListWidget() {
               "0 8px 32px rgba(0,0,0,0.5), 0 2px 8px rgba(0,0,0,0.3)",
           }}
         >
-          {/* Tab header — 커밋 / 빌드 */}
+          {/* Tab header — 커밋 / 빌드 / 환경변수 */}
           <div
             className="flex items-center px-1.5 pt-1 shrink-0"
             style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}
@@ -301,20 +374,24 @@ export default function CommitListWidget() {
               <WidgetTab
                 active={tab === "commits"}
                 onClick={() => setTab("commits")}
-                icon={GitCommit}
                 label="커밋"
                 count={commits.length}
               />
               <WidgetTab
                 active={tab === "builds"}
                 onClick={() => setTab("builds")}
-                icon={GitCommitHorizontal}
                 label="빌드"
                 count={builds.length}
               />
+              <WidgetTab
+                active={tab === "env"}
+                onClick={() => setTab("env")}
+                label="환경변수"
+                count={envEntries.length}
+              />
             </div>
             <button
-              onClick={() => setMinimized(true)}
+              onClick={() => toggleMinimize(true)}
               className="w-6 h-6 rounded-md text-fg-4 flex items-center justify-center shrink-0"
               title="최소화"
             >
@@ -322,78 +399,138 @@ export default function CommitListWidget() {
             </button>
           </div>
 
-          {/* List (top 2) */}
+          {/* List (top 2) — 박스 높이는 row 개수에 자연스럽게 대응 */}
           {visible.length === 0 ? (
             <div className="px-4 py-5 text-center text-[11.5px] text-fg-4">
               {tab === "commits"
                 ? "불러올 커밋이 없어요."
-                : "아직 빌드가 없어요."}
+                : tab === "builds"
+                ? "아직 빌드가 없어요."
+                : "아직 환경변수가 없어요."}
             </div>
           ) : tab === "commits" ? (
             <div className="px-3 py-1 flex flex-col gap-0.5 overflow-auto scroll-thin">
               {visible.map((c) => (
-                <a
+                <button
                   key={c.sha}
-                  href={c.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="w-full text-left px-2.5 py-1.5 rounded-md no-underline block"
+                  onClick={() => setShowPanel(true)}
+                  className="w-full text-left px-2.5 py-1.5 rounded-md"
                 >
-                  <div className="flex items-baseline gap-1.5 min-w-0">
+                  <div
+                    className="text-[12px] text-fg-1 truncate"
+                    style={{ fontWeight: 450 }}
+                  >
+                    {c.message}
+                  </div>
+                  <div className="mt-0.5 flex items-center gap-1.5 text-[10px] text-fg-4 min-w-0">
                     <span
-                      className="text-[10.5px] shrink-0 font-mono"
+                      className="shrink-0"
                       style={{ fontWeight: 510, color: "#818be0" }}
                     >
                       {c.sha}
                     </span>
-                    <span
-                      className="text-[12px] text-fg-1 min-w-0 truncate"
-                      style={{ fontWeight: 450 }}
-                    >
-                      {c.message}
-                    </span>
-                  </div>
-                  <div className="text-[10px] text-fg-4 mt-0.5 tabular-nums">
-                    {relativeTime(c.date, { compact: true })}
-                  </div>
-                </a>
-              ))}
-            </div>
-          ) : (
-            <div className="px-3 py-1 flex flex-col gap-0.5 overflow-auto scroll-thin">
-              {visible.map((b) => (
-                <button
-                  key={b.build_id}
-                  onClick={() =>
-                    navigate(`/dashboard?build=${b.build_id}`)
-                  }
-                  className="w-full text-left px-2.5 py-1.5 rounded-md"
-                >
-                  <div className="flex items-center gap-2 min-w-0">
-                    <span
-                      className="text-[10.5px] shrink-0"
-                      style={{ fontWeight: 510, color: "#818be0" }}
-                    >
-                      {b.build_id}
-                    </span>
-                    <span className="text-[10px] text-fg-4 shrink-0 tabular-nums">
-                      {relativeTime(b.created_at, { compact: true })}
-                    </span>
-                    <span className="ml-auto">
-                      <StatusBadge status={b.status} />
+                    <span className="shrink-0">·</span>
+                    <span className="truncate">{c.author}</span>
+                    <span className="shrink-0">·</span>
+                    <span className="shrink-0 tabular-nums">
+                      {relativeTime(c.date, { compact: true })}
                     </span>
                   </div>
                 </button>
               ))}
             </div>
+          ) : tab === "builds" ? (
+            <div className="px-3 py-1 flex flex-col gap-0.5 overflow-auto scroll-thin">
+              {(() => {
+                // #N은 kind="build"만 카운트 — env_change는 번호 안 매김.
+                const totalBuilds = builds.filter(
+                  (b) => (b.kind || "build") === "build",
+                ).length;
+                let buildIdx = totalBuilds;
+                return visible.map((b) => {
+                  const kind = b.kind || "build";
+                  const isEnvChange = kind === "env_change";
+                  const number = isEnvChange ? null : buildIdx--;
+                  return (
+                    <button
+                      key={b.build_id}
+                      onClick={() => setShowPanel(true)}
+                      className="w-full h-7 px-2.5 rounded-md flex items-center gap-2 text-left"
+                    >
+                      {isEnvChange ? (
+                        <>
+                          <span
+                            className="text-[11px] text-fg-2 truncate"
+                            style={{ fontWeight: 510 }}
+                          >
+                            환경변수 변경
+                          </span>
+                          <span className="text-[10px] text-fg-4 shrink-0 tabular-nums">
+                            {relativeTime(b.created_at, { compact: true })}
+                          </span>
+                          <span className="ml-auto">
+                            <StatusBadge status={b.status} kind="env" />
+                          </span>
+                        </>
+                      ) : (
+                        <>
+                          <span
+                            className="text-[10.5px] text-fg-3 shrink-0 tabular-nums"
+                            style={{ fontWeight: 590 }}
+                          >
+                            #{number}
+                          </span>
+                          <span
+                            className="text-[10.5px] shrink-0"
+                            style={{ fontWeight: 510, color: "#818be0" }}
+                          >
+                            {b.build_id}
+                          </span>
+                          <span className="text-[10px] text-fg-4 shrink-0 tabular-nums">
+                            {relativeTime(b.created_at, { compact: true })}
+                          </span>
+                          <span className="ml-auto">
+                            <StatusBadge status={b.status} />
+                          </span>
+                        </>
+                      )}
+                    </button>
+                  );
+                });
+              })()}
+            </div>
+          ) : (
+            // env 탭 — 값은 항상 마스킹. 평문/편집은 자세히 보기 패널에서.
+            // row 디자인은 커밋/빌드와 일관 (보라 액센트 식별자 + 회색 보조 정보).
+            <div className="px-3 py-1 flex flex-col gap-0.5 overflow-auto scroll-thin">
+              {visible.map(([key, value]) => (
+                <button
+                  key={key}
+                  onClick={() => setShowPanel(true)}
+                  className="w-full h-7 px-2.5 rounded-md flex items-center gap-2 text-left"
+                >
+                  <span
+                    className="text-[10.5px] shrink-0 truncate max-w-[120px]"
+                    style={{ fontWeight: 510, color: "#818be0" }}
+                  >
+                    {key}
+                  </span>
+                  <span
+                    className="text-[10px] text-fg-4 shrink-0"
+                    style={{ fontWeight: 450 }}
+                  >
+                    {"•".repeat(Math.min(value.length, 12))}
+                  </span>
+                </button>
+              ))}
+            </div>
           )}
 
-          {/* Footer — 자세히 보기 + 업데이트(재배포) */}
-          {/* 업데이트는 첫 배포 끝난 사용자(user.app_name 있음)에게만. */}
-          <div className="px-3 pb-2 pt-0.5 shrink-0 flex gap-1.5">
+          {/* Footer — 자세히 보기. 업데이트는 Dashboard 헤더에 있어서 위젯에선 중복 제거. */}
+          <div className="px-3 pb-2 pt-0.5 shrink-0">
             <button
               onClick={() => setShowPanel(true)}
-              className="flex-1 py-2 rounded-lg text-[12px] text-fg-2 flex items-center justify-center gap-1.5"
+              className="w-full py-2 rounded-md text-[12px] text-fg-2 flex items-center justify-center gap-1.5"
               style={{
                 fontWeight: 510,
                 border: "1px solid rgba(255,255,255,0.09)",
@@ -404,16 +541,6 @@ export default function CommitListWidget() {
                 <span className="text-fg-4">· +{hiddenCount}</span>
               )}
             </button>
-            {user.app_name && (
-              <button
-                onClick={() => navigate("/deploy")}
-                className="shrink-0 px-3 py-2 rounded-lg text-[12px] text-white"
-                style={{ fontWeight: 510, background: "#6672d5" }}
-                title="새 커밋/변경 반영해 재배포"
-              >
-                업데이트
-              </button>
-            )}
           </div>
         </div>
       </div>
@@ -422,7 +549,9 @@ export default function CommitListWidget() {
         <CommitListPanel
           commits={commits}
           builds={builds}
+          envVars={envVars}
           initialTab={tab}
+          onEnvSaved={(fresh) => setEnvVars(fresh)}
           onClose={() => setShowPanel(false)}
         />
       )}
@@ -431,14 +560,13 @@ export default function CommitListWidget() {
 }
 
 // 위젯 상단 작은 탭 버튼 — 보라 액센트 underline (탭 자체는 hover 색 변화 없음)
-function WidgetTab({ active, onClick, icon: Icon, label, count }) {
+function WidgetTab({ active, onClick, label, count }) {
   return (
     <button
       onClick={onClick}
       className="relative flex items-center gap-1.5 px-2.5 h-7 text-[11.5px] shrink-0"
       style={{ color: active ? "#dde0e4" : "#8a8f98", fontWeight: 510 }}
     >
-      <Icon size={11} strokeWidth={1.8} />
       <span>{label}</span>
       <span className="text-fg-4 text-[10.5px] tabular-nums">{count}</span>
       {active && (

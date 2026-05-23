@@ -1,19 +1,33 @@
-// 우측 fixed panel — 활동(커밋 + 빌드) 전체 리스트. CommitListWidget "자세히 보기"에서 오픈.
-// 탭 두 개 — 위젯에서 활성이던 탭을 initialTab으로 받아 같은 맥락 유지.
-// 커밋 row: GitHub commit 페이지 새 창. 빌드 row: /dashboard?build=<id>로 navigate 후 패널 닫음.
+// 활동 패널 — 커밋 / 빌드 / 환경변수 통합 (우측 fixed 슬라이드인).
+// CommitListWidget "자세히 보기"에서 오픈. 위젯에서 활성이던 탭을 initialTab으로 받아 같은 맥락 유지.
+//
+// 데이터는 위젯이 들고 있고 props로 전달. 환경변수 저장 시 onEnvSaved 콜백으로 위젯 state 동기화.
+// 커밋 row: GitHub 새 창. 빌드 row: /dashboard?build=<id>로 navigate 후 닫음.
+// 환경변수: 키-값 row 편집 + 저장 시 Pod 자동 재시작.
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
-import { ExternalLink, GitCommit, GitCommitHorizontal, X } from "lucide-react";
+import { createPortal } from "react-dom";
+import {
+  Check,
+  Copy,
+  ExternalLink,
+  Eye,
+  EyeOff,
+  Plus,
+  Trash2,
+  X,
+} from "lucide-react";
+import { setEnvVars } from "../api/deploy.js";
 import { formatFull, relativeTime, repoSlug } from "../lib/format.js";
 import StatusBadge from "./StatusBadge.jsx";
 
 export default function CommitListPanel({
   commits,
   builds,
+  envVars,
   initialTab = "commits",
+  onEnvSaved,
   onClose,
 }) {
-  const navigate = useNavigate();
   const [tab, setTab] = useState(initialTab);
 
   useEffect(() => {
@@ -22,15 +36,12 @@ export default function CommitListPanel({
     return () => document.removeEventListener("keydown", onKey);
   }, [onClose]);
 
-  const openBuild = (buildId) => {
-    navigate(`/dashboard?build=${buildId}`);
-    onClose();
-  };
+  const envCount = Object.keys(envVars || {}).length;
 
   return (
     <div
       className="fixed top-0 right-0 bottom-0 z-40 flex kd-fade-in"
-      style={{ width: 380, maxWidth: "90vw" }}
+      style={{ width: 380, maxWidth: "94vw" }}
     >
       <div
         className="h-full flex-1 min-w-0 flex flex-col"
@@ -53,12 +64,13 @@ export default function CommitListPanel({
               활동
             </h2>
             <p className="text-[12px] text-fg-3 mt-0.5">
-              커밋 {commits.length} · 빌드 {builds.length}
+              커밋 {commits.length} · 빌드 {builds.length} · 환경변수 {envCount}
             </p>
           </div>
           <button
             onClick={onClose}
             className="w-8 h-8 rounded-md text-fg-4 hover:text-fg-1 hover:bg-white/[0.04] transition-colors flex items-center justify-center"
+            aria-label="닫기"
           >
             <X size={14} strokeWidth={1.8} />
           </button>
@@ -72,147 +84,45 @@ export default function CommitListPanel({
           <PanelTab
             active={tab === "commits"}
             onClick={() => setTab("commits")}
-            icon={GitCommit}
             label="커밋"
             count={commits.length}
           />
           <PanelTab
             active={tab === "builds"}
             onClick={() => setTab("builds")}
-            icon={GitCommitHorizontal}
             label="빌드"
             count={builds.length}
           />
+          <PanelTab
+            active={tab === "env"}
+            onClick={() => setTab("env")}
+            label="환경변수"
+            count={envCount}
+          />
         </div>
 
-        {/* Body */}
-        <div className="flex-1 min-h-0 overflow-auto scroll-thin px-5 py-5">
-          {tab === "commits" ? (
-            commits.length === 0 ? (
-              <div className="py-10 text-center text-[12px] text-fg-4">
-                불러올 커밋이 없어요.
-              </div>
-            ) : (
-              <div className="flex flex-col gap-1">
-                {commits.map((c) => (
-                  <a
-                    key={c.sha}
-                    href={c.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="px-3 py-2.5 rounded-md transition-colors no-underline block"
-                    onMouseEnter={(e) =>
-                      (e.currentTarget.style.background =
-                        "rgba(255,255,255,0.03)")
-                    }
-                    onMouseLeave={(e) =>
-                      (e.currentTarget.style.background = "transparent")
-                    }
-                  >
-                    <div className="flex items-baseline gap-2 min-w-0">
-                      <span
-                        className="text-[11px] shrink-0 font-mono"
-                        style={{ fontWeight: 510, color: "#818be0" }}
-                      >
-                        {c.sha}
-                      </span>
-                      <span
-                        className="text-[12.5px] text-fg-1 min-w-0 flex-1 truncate"
-                        style={{ fontWeight: 510 }}
-                      >
-                        {c.message}
-                      </span>
-                      <ExternalLink
-                        size={11}
-                        strokeWidth={1.8}
-                        className="text-fg-4 shrink-0"
-                      />
-                    </div>
-                    <div className="mt-1 flex items-center gap-2 text-[11px] text-fg-4">
-                      <span>{c.author}</span>
-                      <span>·</span>
-                      <span
-                        className="tabular-nums"
-                        title={formatFull(c.date)}
-                      >
-                        {relativeTime(c.date)}
-                      </span>
-                    </div>
-                  </a>
-                ))}
-              </div>
-            )
-          ) : builds.length === 0 ? (
-            <div className="py-10 text-center text-[12px] text-fg-4">
-              아직 빌드가 없어요.
-            </div>
-          ) : (
-            <div className="flex flex-col gap-1">
-              {builds.map((b) => (
-                <button
-                  key={b.build_id}
-                  onClick={() => openBuild(b.build_id)}
-                  className="px-3 py-2.5 rounded-md transition-colors text-left"
-                  onMouseEnter={(e) =>
-                    (e.currentTarget.style.background =
-                      "rgba(255,255,255,0.03)")
-                  }
-                  onMouseLeave={(e) =>
-                    (e.currentTarget.style.background = "transparent")
-                  }
-                >
-                  <div className="flex items-center gap-2 min-w-0">
-                    <span
-                      className="text-[11px] shrink-0"
-                      style={{ fontWeight: 510, color: "#818be0" }}
-                    >
-                      {b.build_id}
-                    </span>
-                    <span
-                      className="text-[12.5px] text-fg-1 min-w-0 flex-1 truncate"
-                      style={{ fontWeight: 510 }}
-                    >
-                      {b.app_name}
-                    </span>
-                    <StatusBadge status={b.status} />
-                  </div>
-                  <div className="mt-1 flex items-center gap-2 text-[11px] text-fg-4">
-                    <span>{repoSlug(b.repo_url)}</span>
-                    <span>·</span>
-                    <span
-                      className="tabular-nums"
-                      title={formatFull(b.created_at)}
-                    >
-                      {relativeTime(b.created_at)}
-                    </span>
-                    {b.error && (
-                      <span
-                        className="ml-auto truncate"
-                        style={{ color: "#fca5a5" }}
-                        title={b.error}
-                      >
-                        {b.error}
-                      </span>
-                    )}
-                  </div>
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
+        {/* Body — 탭별 분기 (sub-component) */}
+        {tab === "commits" ? (
+          <CommitsBody commits={commits} />
+        ) : tab === "builds" ? (
+          <BuildsBody builds={builds} />
+        ) : (
+          <EnvBody envVars={envVars || {}} onSaved={onEnvSaved} />
+        )}
       </div>
     </div>
   );
 }
 
-function PanelTab({ active, onClick, icon: Icon, label, count }) {
+// --- Sub-components ---------------------------------------------------------
+
+function PanelTab({ active, onClick, label, count }) {
   return (
     <button
       onClick={onClick}
       className="relative flex items-center gap-1.5 px-3 py-2 text-[12.5px] transition-colors"
       style={{ color: active ? "#dde0e4" : "#8a8f98", fontWeight: 510 }}
     >
-      <Icon size={12} strokeWidth={1.8} />
       <span>{label}</span>
       <span className="text-fg-4 text-[11px] tabular-nums">{count}</span>
       {active && (
@@ -222,5 +132,645 @@ function PanelTab({ active, onClick, icon: Icon, label, count }) {
         />
       )}
     </button>
+  );
+}
+
+function CommitsBody({ commits }) {
+  // 커밋 row 클릭 시 좌측 박스로 본문 표시 — GitHub 새 창 대신.
+  const [detail, setDetail] = useState(null);
+
+  if (commits.length === 0) {
+    return (
+      <div className="flex-1 min-h-0 overflow-auto scroll-thin py-10 text-center text-[12px] text-fg-4">
+        불러올 커밋이 없어요.
+      </div>
+    );
+  }
+  return (
+    <>
+      <div className="flex-1 min-h-0 overflow-auto scroll-thin px-5 py-5">
+        <div className="flex flex-col gap-1">
+          {commits.map((c) => {
+            const isOpen = detail?.sha === c.sha;
+            return (
+              <button
+                key={c.sha}
+                onClick={() => setDetail(c)}
+                className="px-3 py-2.5 rounded-md transition-colors text-left"
+                style={{
+                  background: isOpen ? "rgba(129,139,224,0.08)" : "transparent",
+                }}
+                onMouseEnter={(e) =>
+                  !isOpen &&
+                  (e.currentTarget.style.background = "rgba(255,255,255,0.03)")
+                }
+                onMouseLeave={(e) =>
+                  !isOpen && (e.currentTarget.style.background = "transparent")
+                }
+              >
+                <div
+                  className="text-[12.5px] text-fg-1 truncate"
+                  style={{ fontWeight: 510 }}
+                >
+                  {c.message}
+                </div>
+                <div className="mt-1 flex items-center gap-2 text-[11px] text-fg-4">
+                  <span style={{ fontWeight: 510, color: "#818be0" }}>
+                    {c.sha}
+                  </span>
+                  <span>·</span>
+                  <span>{c.author}</span>
+                  <span>·</span>
+                  <span className="tabular-nums" title={formatFull(c.date)}>
+                    {relativeTime(c.date)}
+                  </span>
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+      {detail && (
+        <CommitDetailPanel commit={detail} onClose={() => setDetail(null)} />
+      )}
+    </>
+  );
+}
+
+// 좌측 박스 — 커밋 title + body 표시. BuildLogsPanel과 동일 구조/위치.
+// portal로 body에 직접 렌더해서 활동 패널 stacking context 밖으로 빠짐.
+function CommitDetailPanel({ commit, onClose }) {
+  useEffect(() => {
+    const onKey = (e) => e.key === "Escape" && onClose();
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  return createPortal(
+    <>
+      <div
+        className="fixed inset-0 kd-fade-in"
+        style={{ background: "rgba(0,0,0,0.6)", zIndex: 35 }}
+        onClick={onClose}
+      />
+      <div
+        className="fixed kd-fade-in"
+        style={{
+          zIndex: 45,
+          // 상하좌우 56px 패딩으로 통일. 우측은 활동 패널(380px) + 56px gap = 436.
+          top: 56,
+          bottom: 56,
+          left: 56,
+          right: 436,
+        }}
+      >
+        <div
+          className="h-full w-full flex flex-col rounded-xl overflow-hidden"
+          style={{
+            background: "#0c0d0e",
+            border: "1px solid rgba(255,255,255,0.09)",
+            boxShadow: "0 12px 40px rgba(0,0,0,0.55)",
+          }}
+        >
+          <div
+            className="flex items-center px-5 py-4 shrink-0 gap-2"
+            style={{ borderBottom: "1px solid rgba(255,255,255,0.09)" }}
+          >
+            <div className="flex-1 min-w-0">
+              <h2
+                className="text-[16px] text-fg-1"
+                style={{ fontWeight: 590, letterSpacing: -0.3 }}
+              >
+                커밋
+              </h2>
+              <p className="text-[12px] text-fg-3 mt-0.5 truncate">
+                <span style={{ color: "#818be0" }}>{commit.sha}</span>
+                {" · "}
+                {commit.author}
+                {" · "}
+                <span title={formatFull(commit.date)}>
+                  {relativeTime(commit.date)}
+                </span>
+              </p>
+            </div>
+            <a
+              href={commit.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="w-8 h-8 rounded-md text-fg-4 hover:text-fg-1 hover:bg-white/[0.04] transition-colors flex items-center justify-center shrink-0"
+              title="GitHub에서 보기"
+            >
+              <ExternalLink size={13} strokeWidth={1.8} />
+            </a>
+            <button
+              onClick={onClose}
+              className="w-8 h-8 rounded-md text-fg-4 hover:text-fg-1 hover:bg-white/[0.04] transition-colors flex items-center justify-center shrink-0"
+              aria-label="닫기"
+            >
+              <X size={14} strokeWidth={1.8} />
+            </button>
+          </div>
+          <div className="flex-1 min-h-0 overflow-auto scroll-thin px-5 py-5">
+            <h3
+              className="text-[14px] text-fg-1 mb-3"
+              style={{ fontWeight: 510, lineHeight: 1.5 }}
+            >
+              {commit.message}
+            </h3>
+            {commit.body ? (
+              <pre
+                className="text-[12px] font-sans text-fg-2 whitespace-pre-wrap break-all"
+                style={{ lineHeight: 1.6 }}
+              >
+                {commit.body}
+              </pre>
+            ) : (
+              <p
+                className="text-[12px] text-fg-4"
+                style={{ fontWeight: 450, fontStyle: "italic" }}
+              >
+                (본문 없음)
+              </p>
+            )}
+          </div>
+        </div>
+      </div>
+    </>,
+    document.body,
+  );
+}
+
+function BuildsBody({ builds }) {
+  // row 펼침 (build_id 또는 null) + 좌측 BuildLogsPanel state ({build, mode}).
+  // 활동 패널은 우측 z-40, BuildLogsPanel은 좌측 z-40 — 동시 표시 가능.
+  const [expanded, setExpanded] = useState(null);
+  const [logsView, setLogsView] = useState(null);
+
+  if (builds.length === 0) {
+    return (
+      <div className="flex-1 min-h-0 overflow-auto scroll-thin py-10 text-center text-[12px] text-fg-4">
+        아직 빌드가 없어요.
+      </div>
+    );
+  }
+
+  return (
+    <>
+      <div className="flex-1 min-h-0 overflow-auto scroll-thin px-5 py-5">
+        <div className="flex flex-col gap-1">
+          {(() => {
+            // #N은 kind="build"만 카운트. 역순으로 매겨서 가장 최신이 가장 큰 번호.
+            const totalBuilds = builds.filter((b) => (b.kind || "build") === "build").length;
+            let buildIdx = totalBuilds;
+            return builds.map((b, i) => {
+              const isOpen = expanded === b.build_id;
+              const kind = b.kind || "build";
+              const isEnvChange = kind === "env_change";
+              const number = isEnvChange ? null : buildIdx--;
+              return (
+                <div key={b.build_id}>
+                <button
+                  onClick={() => setExpanded(isOpen ? null : b.build_id)}
+                  className="w-full text-left px-3 py-2.5 rounded-md transition-colors"
+                  style={{
+                    background: isOpen ? "rgba(129,139,224,0.08)" : "transparent",
+                  }}
+                  onMouseEnter={(e) =>
+                    !isOpen &&
+                    (e.currentTarget.style.background = "rgba(255,255,255,0.03)")
+                  }
+                  onMouseLeave={(e) =>
+                    !isOpen && (e.currentTarget.style.background = "transparent")
+                  }
+                >
+                  {isEnvChange ? (
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <span
+                        className="text-[12px] text-fg-2 truncate"
+                        style={{ fontWeight: 510 }}
+                      >
+                        환경변수 변경
+                      </span>
+                      <span
+                        className="text-[11px] text-fg-4 shrink-0 tabular-nums"
+                        title={formatFull(b.created_at)}
+                      >
+                        {relativeTime(b.created_at)}
+                      </span>
+                      <span className="ml-auto">
+                        <StatusBadge status={b.status} kind="env" />
+                      </span>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <span
+                        className="text-[11.5px] text-fg-3 shrink-0 tabular-nums"
+                        style={{ fontWeight: 590 }}
+                      >
+                        #{number}
+                      </span>
+                      <span
+                        className="text-[11.5px] shrink-0"
+                        style={{ fontWeight: 510, color: "#818be0" }}
+                      >
+                        {b.build_id}
+                      </span>
+                      <span
+                        className="text-[11px] text-fg-4 shrink-0 tabular-nums"
+                        title={formatFull(b.created_at)}
+                      >
+                        {relativeTime(b.created_at)}
+                      </span>
+                      <span className="ml-auto">
+                        <StatusBadge status={b.status} />
+                      </span>
+                    </div>
+                  )}
+                </button>
+                {isOpen && isEnvChange && (
+                  <div
+                    className="mt-1.5 mb-2 kd-fade-in flex flex-col gap-2.5 px-4 py-3 rounded-md"
+                    style={{
+                      background: "rgba(255,255,255,0.02)",
+                      border: "1px solid rgba(255,255,255,0.05)",
+                    }}
+                  >
+                    <Row
+                      label="변경"
+                      value={b.analysis || "(상세 없음)"}
+                    />
+                    <Row label="시간" value={formatFull(b.created_at)} />
+                  </div>
+                )}
+                {isOpen && !isEnvChange && (
+                  <div
+                    className="mt-1.5 mb-2 kd-fade-in flex flex-col gap-2.5 px-4 py-3 rounded-md"
+                    style={{
+                      background: "rgba(255,255,255,0.02)",
+                      border: "1px solid rgba(255,255,255,0.05)",
+                    }}
+                  >
+                    <div className="flex items-start gap-3">
+                      <span
+                        className="text-[10.5px] uppercase tracking-[0.08em] text-fg-4 shrink-0 w-14 pt-0.5"
+                        style={{ fontWeight: 590 }}
+                      >
+                        저장소
+                      </span>
+                      <a
+                        href={b.repo_url.replace(/\.git$/, "")}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex-1 min-w-0 text-[12px] inline-flex items-center gap-1.5 hover:underline break-all"
+                        style={{ color: "#818be0" }}
+                      >
+                        {repoSlug(b.repo_url)}
+                        <ExternalLink
+                          size={10}
+                          strokeWidth={1.8}
+                          className="shrink-0"
+                        />
+                      </a>
+                    </div>
+                    <Row label="브랜치" value={b.branch} />
+                    <Row label="런타임" value={b.runtime} />
+                    <Row label="생성" value={formatFull(b.created_at)} />
+                    {b.error && (
+                      <Row label="에러" value={b.error} color="#fca5a5" />
+                    )}
+                    <div className="mt-1 flex gap-2">
+                      <button
+                        onClick={() => setLogsView({ build: b, mode: "logs" })}
+                        className="px-3 py-1.5 rounded-md text-[11.5px] text-fg-2 hover:text-fg-1 hover:bg-white/[0.04] transition-colors"
+                        style={{
+                          fontWeight: 510,
+                          border: "1px solid rgba(255,255,255,0.09)",
+                        }}
+                      >
+                        빌드 로그 보기
+                      </button>
+                      <button
+                        onClick={() =>
+                          setLogsView({ build: b, mode: "dockerfile" })
+                        }
+                        disabled={!b.dockerfile_content}
+                        className="px-3 py-1.5 rounded-md text-[11.5px] text-fg-2 hover:text-fg-1 hover:bg-white/[0.04] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                        style={{
+                          fontWeight: 510,
+                          border: "1px solid rgba(255,255,255,0.09)",
+                        }}
+                        title={
+                          !b.dockerfile_content
+                            ? "Dockerfile 정보 없음 (public repo 아닐 수 있음)"
+                            : undefined
+                        }
+                      >
+                        Dockerfile 보기
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+            });
+          })()}
+        </div>
+      </div>
+      {logsView && (
+        <BuildLogsPanel
+          build={logsView.build}
+          mode={logsView.mode}
+          onClose={() => setLogsView(null)}
+        />
+      )}
+    </>
+  );
+}
+
+// 펼친 row 안의 라벨-값. 옛 BuildListPanel의 Row 패턴.
+function Row({ label, value, mono, small, color }) {
+  return (
+    <div className="flex items-start gap-3">
+      <span
+        className="text-[10.5px] uppercase tracking-[0.08em] text-fg-4 shrink-0 w-14 pt-0.5"
+        style={{ fontWeight: 590 }}
+      >
+        {label}
+      </span>
+      <span
+        className={`flex-1 min-w-0 ${
+          small ? "text-[11px]" : "text-[12px]"
+        } ${mono ? "font-mono" : ""} break-all`}
+        style={{ color: color || "#d0d6e0" }}
+      >
+        {value}
+      </span>
+    </div>
+  );
+}
+
+// 박스 형태 — 활동 패널(우측 width 460) 옆 좌측 영역의 가운데에 떠 있음.
+// left = (좌측 영역 폭 - 박스 폭) / 2 = (100vw - 460 - 520) / 2 = 50vw - 490px.
+function BuildLogsPanel({ build, mode, onClose }) {
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    const onKey = (e) => e.key === "Escape" && onClose();
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  const title = mode === "logs" ? "빌드 로그" : "Dockerfile";
+  const content =
+    mode === "logs"
+      ? build.logs || "(로그 없음)"
+      : build.dockerfile_content || "(Dockerfile 정보 없음)";
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(content);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // 권한 거부 등 — 조용히 무시 (HTTPS 아닌 환경에서 clipboard API 차단됨)
+    }
+  };
+
+  // body에 portal로 렌더 — 활동 패널의 stacking context에서 빠져나와야
+  // backdrop(z-35) 위에 활동 패널(z-40)이 정상적으로 떠 있음.
+  return createPortal(
+    <>
+      {/* 백드롭 — 활동 패널(z-40)보다 뒤(z-35). 활동 패널은 그 위에 떠서 잘 보임. */}
+      <div
+        className="fixed inset-0 kd-fade-in"
+        style={{ background: "rgba(0,0,0,0.6)", zIndex: 35 }}
+        onClick={onClose}
+      />
+      <div
+        className="fixed kd-fade-in"
+        style={{
+          zIndex: 45,
+          // 상하좌우 56px 패딩으로 통일. 우측은 활동 패널(380px) + 56px gap = 436.
+          top: 56,
+          bottom: 56,
+          left: 56,
+          right: 436,
+        }}
+      >
+      <div
+        className="h-full w-full flex flex-col rounded-xl overflow-hidden"
+        style={{
+          background: "#0c0d0e",
+          border: "1px solid rgba(255,255,255,0.09)",
+          boxShadow: "0 12px 40px rgba(0,0,0,0.55)",
+        }}
+      >
+        <div
+          className="flex items-center px-5 py-4 shrink-0 gap-2"
+          style={{ borderBottom: "1px solid rgba(255,255,255,0.09)" }}
+        >
+          <div className="flex-1 min-w-0">
+            <h2
+              className="text-[16px] text-fg-1"
+              style={{ fontWeight: 590, letterSpacing: -0.3 }}
+            >
+              {title}
+            </h2>
+            <p className="text-[12px] text-fg-3 mt-0.5 truncate">
+              <span style={{ color: "#818be0" }}>{build.build_id}</span>
+              {" · "}
+              {repoSlug(build.repo_url)} · {build.branch}
+              {mode === "dockerfile" && build.build_mode === "auto" && (
+                <span className="text-fg-4 ml-1.5">(nixpacks 자동 생성)</span>
+              )}
+            </p>
+          </div>
+          <button
+            onClick={handleCopy}
+            className="w-8 h-8 rounded-md text-fg-4 hover:text-fg-1 hover:bg-white/[0.04] transition-colors flex items-center justify-center shrink-0"
+            title={copied ? "복사됨" : "복사"}
+            aria-label="복사"
+          >
+            {copied ? (
+              <Check size={14} strokeWidth={2} style={{ color: "#818be0" }} />
+            ) : (
+              <Copy size={13} strokeWidth={1.8} />
+            )}
+          </button>
+          <button
+            onClick={onClose}
+            className="w-8 h-8 rounded-md text-fg-4 hover:text-fg-1 hover:bg-white/[0.04] transition-colors flex items-center justify-center shrink-0"
+            aria-label="닫기"
+          >
+            <X size={14} strokeWidth={1.8} />
+          </button>
+        </div>
+        <div className="flex-1 min-h-0 overflow-auto scroll-thin">
+          <pre
+            className="text-[11.5px] font-sans text-fg-2 whitespace-pre-wrap break-all px-5 py-4"
+            style={{ lineHeight: 1.55 }}
+          >
+            {content}
+          </pre>
+        </div>
+      </div>
+    </div>
+    </>,
+    document.body,
+  );
+}
+
+// 환경변수 편집 본문. 값은 기본 마스킹, row Eye 토글로 평문 표시.
+// 저장 직후 onSaved(env)로 위젯 state 동기화 → 위젯 미리보기 즉시 갱신.
+function EnvBody({ envVars, onSaved }) {
+  const [rows, setRows] = useState(() => {
+    const entries = Object.entries(envVars);
+    return entries.length
+      ? entries.map(([k, v]) => ({ key: k, value: v, visible: false }))
+      : [{ key: "", value: "", visible: true }];
+  });
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState(null);
+  const [savedAt, setSavedAt] = useState(null);
+
+  const addRow = () =>
+    setRows((r) => [...r, { key: "", value: "", visible: true }]);
+  const removeRow = (i) =>
+    setRows((r) =>
+      r.length === 1
+        ? [{ key: "", value: "", visible: true }]
+        : r.filter((_, idx) => idx !== i),
+    );
+  const updateRow = (i, field, val) =>
+    setRows((r) => r.map((row, idx) => (idx === i ? { ...row, [field]: val } : row)));
+  const toggleVisible = (i) =>
+    setRows((r) =>
+      r.map((row, idx) => (idx === i ? { ...row, visible: !row.visible } : row)),
+    );
+
+  const handleSave = async () => {
+    setError(null);
+    setSavedAt(null);
+    const env = {};
+    for (const { key, value } of rows) {
+      const k = key.trim();
+      if (!k) continue;
+      env[k] = value;
+    }
+    setSaving(true);
+    try {
+      const data = await setEnvVars(env);
+      setSavedAt(Date.now());
+      onSaved?.(data.env || env);
+    } catch (err) {
+      setError(err.message || "저장 실패");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="flex-1 min-h-0 flex flex-col">
+      {/* Editable rows */}
+      <div className="flex-1 min-h-0 overflow-auto scroll-thin px-5 py-5">
+        <div className="flex flex-col gap-1.5">
+          {rows.map((row, i) => (
+            <div key={i} className="flex items-center gap-1.5">
+              <input
+                value={row.key}
+                onChange={(e) => updateRow(i, "key", e.target.value.toUpperCase())}
+                placeholder="KEY"
+                spellCheck={false}
+                autoCapitalize="characters"
+                className="flex-1 min-w-0 px-2.5 py-1.5 rounded-md bg-transparent outline-none text-[12.5px] text-fg-1 placeholder:text-fg-4"
+                style={{ border: "1px solid rgba(255,255,255,0.09)", fontWeight: 510 }}
+              />
+              <input
+                // visible=false면 점으로 가리고 readOnly. focus 하면 자동 visible 전환.
+                value={row.visible ? row.value : "•".repeat(Math.min(row.value.length, 12))}
+                onChange={(e) =>
+                  row.visible && updateRow(i, "value", e.target.value)
+                }
+                onFocus={() => !row.visible && toggleVisible(i)}
+                readOnly={!row.visible}
+                placeholder="value"
+                spellCheck={false}
+                className="flex-1 min-w-0 px-2.5 py-1.5 rounded-md bg-transparent outline-none text-[12.5px] text-fg-1 placeholder:text-fg-4"
+                style={{ border: "1px solid rgba(255,255,255,0.09)", fontWeight: 510 }}
+              />
+              <button
+                onClick={() => toggleVisible(i)}
+                className="w-7 h-7 rounded-md text-fg-4 hover:text-fg-1 hover:bg-white/[0.04] flex items-center justify-center shrink-0"
+                title={row.visible ? "숨기기" : "보기"}
+              >
+                {row.visible ? (
+                  <EyeOff size={12} strokeWidth={1.8} />
+                ) : (
+                  <Eye size={12} strokeWidth={1.8} />
+                )}
+              </button>
+              <button
+                onClick={() => removeRow(i)}
+                className="w-7 h-7 rounded-md text-fg-4 hover:text-red-300 hover:bg-white/[0.04] flex items-center justify-center shrink-0"
+                title="삭제"
+              >
+                <Trash2 size={12} strokeWidth={1.8} />
+              </button>
+            </div>
+          ))}
+        </div>
+
+        <button
+          onClick={addRow}
+          className="mt-3 flex items-center gap-1 px-2 py-1 rounded-md text-[11.5px] text-fg-3 hover:text-fg-1 hover:bg-white/[0.04]"
+          style={{ fontWeight: 510 }}
+        >
+          <Plus size={11} strokeWidth={2} /> 변수 추가
+        </button>
+
+        <p
+          className="text-[11px] text-fg-4 mt-5"
+          style={{ fontWeight: 450, lineHeight: 1.55 }}
+        >
+          KEY는 영문 대문자 / 숫자 / _ 만 허용. 최대 50개, value 4KB 이내.
+          빈 KEY row는 저장 시 무시돼요.
+        </p>
+      </div>
+
+      {/* Footer — 상태 메시지(좌) · 저장 버튼(우) */}
+      <div
+        className="shrink-0 px-5 py-3 flex items-center gap-3"
+        style={{ borderTop: "1px solid rgba(255,255,255,0.09)" }}
+      >
+        {savedAt && (
+          <span
+            className="text-[11.5px]"
+            style={{ color: "#047857", fontWeight: 510 }}
+          >
+            저장됨
+          </span>
+        )}
+        {error && (
+          <span
+            className="text-[11.5px] truncate"
+            style={{ color: "#fca5a5", fontWeight: 510 }}
+          >
+            {error}
+          </span>
+        )}
+        <button
+          onClick={handleSave}
+          disabled={saving}
+          className="ml-auto px-4 py-2 rounded-md text-[12.5px] text-white transition-colors disabled:opacity-40"
+          style={{ background: "#6672d5", fontWeight: 510 }}
+          onMouseEnter={(e) =>
+            !saving && (e.currentTarget.style.background = "#828fff")
+          }
+          onMouseLeave={(e) => (e.currentTarget.style.background = "#6672d5")}
+        >
+          {saving ? "저장 중…" : "저장"}
+        </button>
+      </div>
+    </div>
   );
 }
