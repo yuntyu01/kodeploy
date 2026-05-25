@@ -1,7 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Eye, EyeOff, GitBranch, Plus, Trash2 } from "lucide-react";
-import { createDeploy, getEnvVars, RUNTIMES } from "../api/deploy.js";
+import { createDeploy, getEnvVars, listBuilds, RUNTIMES } from "../api/deploy.js";
 import { useAuth } from "../contexts/AuthContext.jsx";
 
 const RUNTIME_META = {
@@ -40,22 +40,41 @@ export default function DeployForm({ onRequestGuide }) {
   // state: "idle" | "checking" | "ok" | "notfound" | "invalid" | "error"
   const [repoCheck, setRepoCheck] = useState({ state: "idle" });
 
-  // 마운트 시 기존 env fetch (user.app_name 있을 때만 — 첫 배포는 fetch 불필요)
+  // 재배포 시 기존 세팅 복원 — 최신 빌드 + 환경변수를 폼에 채움
   useEffect(() => {
-    if (!user?.app_name) return;
+    if (!user?.app_name) {
+      restoredRef.current = true;
+      return;
+    }
     let cancelled = false;
     (async () => {
       try {
-        const data = await getEnvVars();
+        const [builds, envData] = await Promise.all([listBuilds(), getEnvVars()]);
         if (cancelled) return;
-        const entries = Object.entries(data.env || {});
+        const latest = builds.find((b) => b.kind !== "env_change");
+        if (latest) {
+          setRepoUrl(latest.repo_url.replace(/\.git$/, ""));
+          setBranch(latest.branch || "main");
+          setRuntime(RUNTIMES.includes(latest.runtime) ? latest.runtime : RUNTIMES[0]);
+          setDbType(latest.db_type || "none");
+          setBuildMode(latest.build_mode || "auto");
+          if (latest.build_mode === "dockerfile") {
+            setDockerfilePath(latest.dockerfile_path || "Dockerfile");
+          }
+          if (latest.build_mode === "auto" && latest.project_path) {
+            setProjectPath(latest.project_path);
+          }
+          setPort(latest.port || DEFAULT_PORTS[latest.runtime] || 80);
+          restoredRef.current = true;
+        }
+        const entries = Object.entries(envData.env || {});
         if (entries.length) {
           setEnvRows(
             entries.map(([k, v]) => ({ key: k, value: v, visible: false })),
           );
         }
       } catch {
-        // 401 등 — 빈 row 그대로
+        // 401 등 — 기본값 그대로
       }
     })();
     return () => {
@@ -124,8 +143,10 @@ export default function DeployForm({ onRequestGuide }) {
     onRequestGuide?.(buildMode === "dockerfile" ? runtime : null);
   }, [buildMode, runtime, onRequestGuide]);
 
-  // runtime 변경 시 default 포트 자동 적용 (사용자 수정 후에도 reset됨 — MVP 단순화).
+  // runtime 변경 시 default 포트 자동 적용. 초기 복원 중에는 skip.
+  const restoredRef = useRef(false);
   useEffect(() => {
+    if (!restoredRef.current) return;
     const def = DEFAULT_PORTS[runtime];
     if (def) setPort(def);
   }, [runtime]);

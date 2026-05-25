@@ -54,8 +54,11 @@ class StatusResponse(BaseModel):
     app_name: str
     runtime: str
     build_mode: str
+    port: int = 80
     db_type: str = "none"                                # "none" | "mysql" | "postgres"
     kind: str = "build"                                  # "build" | "env_change". 옛 row는 기본 "build".
+    dockerfile_path: str = "Dockerfile"
+    project_path: str = ""
     dockerfile_content: str | None = None                # 실제 빌드에 쓰인 Dockerfile. UI에서 코드 블록으로 표시.
     error: str | None = None
     analysis: str | None = None
