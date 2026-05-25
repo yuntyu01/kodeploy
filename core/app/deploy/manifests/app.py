@@ -57,3 +57,13 @@ def httproute(app_name: str, tenant_id: str, user_id: str, port: int) -> list[di
         user_id=user_id,
         port=port,
     )
+
+
+# Calico namespace-scoped NP (per-tenant).
+# ingress: 같은 ns + Envoy Gateway 허용
+# egress: 같은 ns 허용 (나머지는 GlobalNetworkPolicy가 처리)
+def networkpolicy(tenant_id: str) -> dict:
+    return render(
+        "networkpolicy.yaml.j2",
+        tenant_id=tenant_id,
+    )

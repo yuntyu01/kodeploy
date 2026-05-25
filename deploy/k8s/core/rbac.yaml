@@ -23,6 +23,9 @@ rules:
                 "secrets", "resourcequotas",              # secrets=ghcr-auth 복사 / resourcequotas=테넌트 자원 cap
                 "persistentvolumeclaims"]                 # pvc=앱 삭제 시 stateful 데이터 정리
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["projectcalico.org"]                     # Calico NetworkPolicy (per-tenant 격리)
+    resources: ["networkpolicies"]
+    verbs: ["get", "list", "create", "delete"]
   - apiGroups: ["gateway.networking.k8s.io"]             # 유저 앱 서브도메인 라우팅용
     resources: ["httproutes"]
     verbs: ["get", "list", "create", "delete"]            # delete=앱 삭제 시 라우트 정리

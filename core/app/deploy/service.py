@@ -794,3 +794,19 @@ def _apply_deployment(build: Build) -> None:
         except ApiException as e:
             if e.status != 409:
                 raise
+
+    # Calico NetworkPolicy (per-tenant): 같은 ns + Envoy ingress 허용.
+    # GlobalNetworkPolicy(order 200)가 DNS허용 + 사설대역Deny + 인터넷허용 담당.
+    calico_pol = manifests.networkpolicy(tenant_id=build.tenant_id)
+    try:
+        custom.create_namespaced_custom_object(
+            group="projectcalico.org",
+            version="v3",
+            namespace=ns,
+            plural="networkpolicies",
+            body=calico_pol,
+        )
+    except ApiException as e:
+        if e.status != 409:
+            raise
+

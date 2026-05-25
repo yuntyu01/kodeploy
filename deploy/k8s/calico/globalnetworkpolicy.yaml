@@ -1,0 +1,28 @@
+# Calico GlobalNetworkPolicy — 모든 tenant ns 자동 적용 (1회 설치).
+# DNAT 전 평가라 Service ClusterIP도 확실히 차단.
+# order 200: namespace-scoped tenant-rules(order 100)보다 뒤에 평가.
+apiVersion: projectcalico.org/v3
+kind: GlobalNetworkPolicy
+metadata:
+  name: tenant-egress
+spec:
+  order: 200
+  namespaceSelector: has(tenant)
+  types:
+    - Egress
+  egress:
+    - action: Allow
+      protocol: UDP
+      destination:
+        ports: [53]
+    - action: Allow
+      protocol: TCP
+      destination:
+        ports: [53]
+    - action: Deny
+      destination:
+        nets:
+          - 10.0.0.0/8
+          - 172.16.0.0/12
+          - 192.168.0.0/16
+    - action: Allow
