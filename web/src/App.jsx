@@ -3,6 +3,7 @@ import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import CommitListWidget from "./components/CommitListWidget.jsx";
 import Dashboard from "./components/Dashboard.jsx";
 import DeployForm from "./components/DeployForm.jsx";
+import Community from "./components/Community.jsx";
 import Guide from "./components/Guide.jsx";
 import GuidePanel from "./components/GuidePanel.jsx";
 import Home from "./components/Home.jsx";
@@ -62,6 +63,7 @@ export default function App() {
               <Route path="/" element={<Home />} />
               <Route path="/deploy" element={<FormView />} />
               <Route path="/dashboard" element={<Dashboard />} />
+              <Route path="/community" element={<div className="flex-1 overflow-auto scroll-thin"><Community /></div>} />
               <Route path="/guide" element={<GuideView />} />
               <Route path="/guide/:section" element={<GuideView />} />
               {/* 옛 빌드 단위 URL → dashboard로 흡수 (북마크/공유 호환) */}

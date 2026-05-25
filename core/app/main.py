@@ -9,6 +9,8 @@ from sqlalchemy import text
 from app.auth.router import router as auth_router
 # Base.metadata.create_all이 인식하도록 model 모듈 import (side-effect)
 from app.auth import model as _auth_model  # noqa: F401
+from app.community import model as _community_model  # noqa: F401
+from app.community.router import router as community_router
 from app.config import ALLOWED_ORIGINS
 from app.deploy.router import router as deploy_router
 from app.shared.db import Base, engine
@@ -62,6 +64,7 @@ app.add_middleware(
 
 app.include_router(auth_router)
 app.include_router(deploy_router)
+app.include_router(community_router)
 
 
 # K8s liveness/readiness probe 엔드포인트

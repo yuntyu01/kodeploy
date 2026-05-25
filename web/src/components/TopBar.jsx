@@ -5,8 +5,8 @@ import Brand from "./Brand.jsx";
 import { useAuth } from "../contexts/AuthContext.jsx";
 
 const NAV_ITEMS = [
-  { label: "소개", href: "#" },
-  { label: "가이드", to: "/guide" },                  // 내부 라우트 — Link 사용
+  { label: "소통", to: "/community" },
+  { label: "가이드", to: "/guide" },
 ];
 
 // 로그인 사용자만 보이는 추가 nav (대시보드 등) — NAV_ITEMS와 GITHUB_NAV_ITEM 사이에 삽입
@@ -48,7 +48,6 @@ export default function TopBar({ onLogin }) {
         {[
           ...NAV_ITEMS,
           ...(user ? AUTHED_NAV_ITEMS : []),
-          GITHUB_NAV_ITEM,
         ].map((item) => {
           const className =
             "px-3 py-1.5 rounded-md text-[14px] text-fg-2 hover:text-fg-1 hover:bg-white/[0.04] transition-colors flex items-center gap-1.5 no-underline";
