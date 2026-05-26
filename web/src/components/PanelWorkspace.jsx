@@ -1,12 +1,10 @@
-// 재귀 분할 워크스페이스 — 최대 1→4분할.
-// 구조: primary(1차 분할) → slot1/slot2 각각 다시 한 번 분할 가능 → 총 4칸.
-// 각 칸은 독립 Pane(탭 컨테이너). design-reference/LeftPanel.jsx 패턴 그대로,
-// 톤(보라 #818be0)·아이콘(lucide-react)만 KoDeploy 컨벤션으로 이식.
 import { useEffect, useRef, useState } from "react";
 import Pane from "./Pane.jsx";
 
+let _paneKeySeq = 0;
+const genPaneKey = () => `pk-${++_paneKeySeq}`;
+
 export default function PanelWorkspace({ build }) {
-  // null = 분할 없음, "horizontal" = 좌우, "vertical" = 상하
   const [primaryDir, setPrimaryDir] = useState(null);
   const [primaryRatio, setPrimaryRatio] = useState(50);
   const [slot1Dir, setSlot1Dir] = useState(null);
@@ -14,8 +12,13 @@ export default function PanelWorkspace({ build }) {
   const [slot2Dir, setSlot2Dir] = useState(null);
   const [slot2Ratio, setSlot2Ratio] = useState(50);
 
+  const [slot1Keys, setSlot1Keys] = useState(() => ({ a: genPaneKey(), b: genPaneKey() }));
+  const [slot2Keys, setSlot2Keys] = useState(() => ({ a: genPaneKey(), b: genPaneKey() }));
+
+  const [primaryKeys, setPrimaryKeys] = useState(() => ({ a: genPaneKey(), b: genPaneKey() }));
+  const [primaryOrder, setPrimaryOrder] = useState([1, 2]);
+
   const containerRef = useRef(null);
-  // 드래그 중인 divider — { level: "primary"|"slot1"|"slot2", axis: "h"|"v" }
   const draggingRef = useRef(null);
 
   useEffect(() => {
@@ -29,7 +32,6 @@ export default function PanelWorkspace({ build }) {
       } else {
         ratio = ((e.clientY - rect.top) / rect.height) * 100;
       }
-      // 20~80% 범위 — 한 쪽이 너무 좁아져서 UI 부서지는 것 방지
       ratio = Math.min(80, Math.max(20, ratio));
       if (level === "primary") setPrimaryRatio(ratio);
       else if (level === "slot1") setSlot1Ratio(ratio);
@@ -72,121 +74,133 @@ export default function PanelWorkspace({ build }) {
     />
   );
 
-  // 분할 요청 — 아직 primary가 없으면 primary 분할, 있으면 해당 slot 안에서 분할
   const handleSplit = (slot) => (dir) => {
     if (!primaryDir) {
       setPrimaryDir(dir);
       setPrimaryRatio(50);
+      setPrimaryKeys((prev) => ({ a: prev.a, b: genPaneKey() }));
     } else if (slot === 1 && !slot1Dir) {
       setSlot1Dir(dir);
       setSlot1Ratio(50);
+      setSlot1Keys((prev) => ({ a: prev.a, b: genPaneKey() }));
     } else if (slot === 2 && !slot2Dir) {
       setSlot2Dir(dir);
       setSlot2Ratio(50);
+      setSlot2Keys((prev) => ({ a: prev.a, b: genPaneKey() }));
     }
   };
 
-  // 분할 해제 — slot 안 분할이 있으면 그것부터, 없으면 primary까지 해제
-  const handleUnsplit = (slot) => () => {
-    if (slot === 1 && slot1Dir) {
-      setSlot1Dir(null);
-    } else if (slot === 2 && slot2Dir) {
-      setSlot2Dir(null);
-    } else {
-      setPrimaryDir(null);
-      setSlot1Dir(null);
-      setSlot2Dir(null);
-    }
+  const slotDirs = { 1: slot1Dir, 2: slot2Dir };
+  const slotRatios = { 1: slot1Ratio, 2: slot2Ratio };
+  const clearSlot = (n) => {
+    if (n === 1) setSlot1Dir(null);
+    else setSlot2Dir(null);
   };
 
-  // 한 slot 렌더 — 내부 분할이 있으면 두 개의 compact Pane, 없으면 하나
-  const renderSlot = (slotNum, slotDir, slotRatio) => {
+  const closePrimaryA = () => {
+    clearSlot(primaryOrder[0]);
+    setPrimaryKeys((prev) => ({ a: prev.b, b: genPaneKey() }));
+    setPrimaryOrder((prev) => [prev[1], prev[0]]);
+    setPrimaryDir(null);
+  };
+
+  const closePrimaryB = () => {
+    clearSlot(primaryOrder[1]);
+    setPrimaryDir(null);
+  };
+
+  const renderSlot = (slotNum, slotDir, slotRatio, onClosePrimary) => {
     const isSplit = !!slotDir;
-    const compact = !!primaryDir;
-
-    if (!isSplit) {
-      return (
-        <Pane
-          build={build}
-          compact={compact}
-          onSplit={handleSplit(slotNum)}
-          onUnsplit={primaryDir ? handleUnsplit(slotNum) : null}
-        />
-      );
-    }
-
-    const axis = slotDir === "horizontal" ? "h" : "v";
-    const flexDir = slotDir === "horizontal" ? "flex-row" : "flex-col";
+    const splitLevel = !primaryDir ? 0 : isSplit ? 2 : 1;
+    const flexDir = isSplit
+      ? slotDir === "horizontal" ? "flex-row" : "flex-col"
+      : "flex-col";
     const sizeProp = slotDir === "horizontal" ? "width" : "height";
     const level = slotNum === 1 ? "slot1" : "slot2";
+    const keys = slotNum === 1 ? slot1Keys : slot2Keys;
+    const setKeys = slotNum === 1 ? setSlot1Keys : setSlot2Keys;
+    const setDir = slotNum === 1 ? setSlot1Dir : setSlot2Dir;
+
+    const closeA = () => {
+      setKeys((prev) => ({ a: prev.b, b: genPaneKey() }));
+      setDir(null);
+    };
+    const closeB = () => {
+      setDir(null);
+    };
 
     return (
-      <div className={`flex-1 min-h-0 min-w-0 flex ${flexDir}`}>
-        <div
-          className="min-h-0 min-w-0 flex flex-col"
-          style={{ [sizeProp]: `${slotRatio}%`, flexShrink: 0 }}
-        >
+      <div className={`flex-1 min-h-0 min-w-0 flex ${flexDir} overflow-hidden`}>
+        <Pane
+          key={keys.a}
+          build={build}
+          splitLevel={isSplit ? 2 : splitLevel}
+          onSplit={isSplit ? null : handleSplit(slotNum)}
+          onUnsplit={isSplit ? closeA : onClosePrimary}
+          excludeSplitDir={isSplit ? undefined : primaryDir}
+          style={isSplit ? { [sizeProp]: `${slotRatio}%`, flexShrink: 0 } : { flex: 1 }}
+        />
+        {isSplit && (
+          <Divider key="divider" level={level} axis={slotDir === "horizontal" ? "h" : "v"} />
+        )}
+        {isSplit && (
           <Pane
+            key={keys.b}
             build={build}
-            compact={true}
+            splitLevel={2}
             onSplit={null}
-            onUnsplit={handleUnsplit(slotNum)}
+            onUnsplit={closeB}
+            style={{ flex: 1 }}
           />
-        </div>
-        <Divider level={level} axis={axis} />
-        <div className="min-h-0 min-w-0 flex flex-col flex-1">
-          <Pane
-            build={build}
-            compact={true}
-            onSplit={null}
-            onUnsplit={handleUnsplit(slotNum)}
-          />
-        </div>
+        )}
       </div>
     );
   };
 
+  const dir = primaryDir || "horizontal";
+  const sizeProp = dir === "horizontal" ? "width" : "height";
+  const slotA = primaryOrder[0];
+  const slotB = primaryOrder[1];
+
   return (
     <div
       ref={containerRef}
-      className="flex-1 min-h-0 flex flex-col rounded-xl overflow-hidden"
-      style={{
-        background: "rgba(255,255,255,0.02)",
-        border: "1px solid rgba(255,255,255,0.06)",
-      }}
+      className="flex-1 min-h-0 h-full flex flex-col overflow-hidden"
+      style={{ background: "#0c0d0e" }}
     >
-      {!primaryDir && (
-        <Pane
-          build={build}
-          compact={false}
-          onSplit={handleSplit(0)}
-          onUnsplit={null}
-        />
-      )}
-      {primaryDir && (
+      <div
+        className={`flex-1 min-h-0 flex ${
+          dir === "horizontal" ? "flex-row" : "flex-col"
+        }`}
+      >
         <div
-          className={`flex-1 min-h-0 flex ${
-            primaryDir === "horizontal" ? "flex-row" : "flex-col"
-          }`}
+          key={primaryKeys.a}
+          className="min-h-0 min-w-0 flex flex-col overflow-hidden"
+          style={{
+            [sizeProp]: primaryDir ? `${primaryRatio}%` : "100%",
+            flexShrink: 0,
+            background: "#0c0d0e",
+          }}
         >
-          <div
-            className="min-h-0 min-w-0 flex flex-col"
-            style={{
-              [primaryDir === "horizontal" ? "width" : "height"]: `${primaryRatio}%`,
-              flexShrink: 0,
-            }}
-          >
-            {renderSlot(1, slot1Dir, slot1Ratio)}
-          </div>
+          {renderSlot(slotA, slotDirs[slotA], slotRatios[slotA], primaryDir ? closePrimaryA : null)}
+        </div>
+
+        {primaryDir && (
           <Divider
             level="primary"
             axis={primaryDir === "horizontal" ? "h" : "v"}
           />
-          <div className="min-h-0 min-w-0 flex flex-col flex-1">
-            {renderSlot(2, slot2Dir, slot2Ratio)}
+        )}
+        {primaryDir && (
+          <div
+            key={primaryKeys.b}
+            className="min-h-0 min-w-0 flex flex-col flex-1 overflow-hidden"
+            style={{ background: "#0c0d0e" }}
+          >
+            {renderSlot(slotB, slotDirs[slotB], slotRatios[slotB], closePrimaryB)}
           </div>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 }

@@ -12,9 +12,11 @@
 // - 위치는 우하단 기준(right/bottom)으로 저장 — 미니마이즈/확장 토글 시 우하단이 고정됨.
 // - localStorage 저장이라 새로고침/페이지 전환에도 유지.
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { useLocation } from "react-router-dom";
-import { Minus } from "lucide-react";
-import { getEnvVars, listBuilds, listRecentCommits } from "../api/deploy.js";
+import { Link, useLocation } from "react-router-dom";
+import { ExternalLink, Minus, Trash2 } from "lucide-react";
+import { getAppStatus, getEnvVars, listBuilds, listRecentCommits } from "../api/deploy.js";
+import AppStatusBadge from "./AppStatusBadge.jsx";
+import DeleteAppModal from "./DeleteAppModal.jsx";
 import { relativeTime } from "../lib/format.js";
 import { useAuth } from "../contexts/AuthContext.jsx";
 import CommitListPanel from "./CommitListPanel.jsx";
@@ -26,6 +28,18 @@ const ACTIVE = new Set(["queued", "building", "built", "deploying"]);
 const POS_STORAGE_KEY = "kd_widget_pos";
 const EDGE_MARGIN = 4;                                  // 화면 가장자리 최소 여백
 const DRAG_THRESHOLD = 5;                               // px — 이만큼 움직여야 drag로 간주
+
+function formatUptime(isoString) {
+  const diff = Date.now() - new Date(isoString).getTime();
+  const s = Math.floor(diff / 1000);
+  if (s < 60) return `${s}초`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}분`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}시간 ${m % 60}분`;
+  const d = Math.floor(h / 24);
+  return `${d}일 ${h % 24}시간`;
+}
 
 // localStorage에서 저장된 위치 읽기 — 실패 시 null (default 우하단).
 // 위치는 우하단 기준 거리 {right, bottom} — 옛 {x,y} 형식은 자동 폐기.
@@ -46,9 +60,12 @@ export default function CommitListWidget() {
   const { user } = useAuth();
   const [commits, setCommits] = useState([]);
   const [builds, setBuilds] = useState([]);
+  const [appStatus, setAppStatus] = useState(null);
+  const [startedAt, setStartedAt] = useState(null);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
   // env: {KEY: value} dict. 폴링 안 함 — 자주 안 바뀌고 사용자가 바꾸면 직접 refresh.
   const [envVars, setEnvVars] = useState({});
-  const [tab, setTab] = useState("commits");
+  const [tab, setTab] = useState("status");
   const [minimized, setMinimized] = useState(false);
   // 자세히 보기 패널 — 한 패널 안에서 탭으로 커밋/빌드/환경변수 전환.
   const [showPanel, setShowPanel] = useState(false);
@@ -125,6 +142,28 @@ export default function CommitListWidget() {
       if (timer) clearTimeout(timer);
     };
   }, [hidden, user?.id]);
+
+  // 앱 Pod 상태 폴링
+  useEffect(() => {
+    if (hidden) { setAppStatus(null); setStartedAt(null); return; }
+    let cancelled = false;
+    let timer;
+    const tick = async () => {
+      try {
+        const data = await getAppStatus();
+        if (!cancelled) {
+          setAppStatus(data.status);
+          setStartedAt(data.started_at || null);
+        }
+      } catch {}
+      if (!cancelled) {
+        const unstable = appStatus === "pending" || appStatus === "crashing";
+        timer = setTimeout(tick, unstable ? 5000 : 10000);
+      }
+    };
+    tick();
+    return () => { cancelled = true; if (timer) clearTimeout(timer); };
+  }, [hidden, user?.id, user?.app_name]);
 
   // 환경변수 1회 fetch — 첫 배포 전이면 빈 dict. 저장 후엔 EnvPanel onSaved가 직접 setEnvVars 호출.
   useEffect(() => {
@@ -307,7 +346,8 @@ export default function CommitListWidget() {
   const visible = items.slice(0, VISIBLE_COUNT);
   const hiddenCount = Math.max(0, items.length - VISIBLE_COUNT);
   // 모든 탭 카운트 한 줄: 커밋 · 빌드 · 환경변수
-  const minimizedLabel = `${commits.length} · ${builds.length} · ${envEntries.length}`;
+  const statusEmoji = appStatus === "running" ? "●" : appStatus === "crashing" ? "●" : "○";
+  const minimizedLabel = `${statusEmoji} ${commits.length} · ${builds.length} · ${envEntries.length}`;
 
   if (minimized) {
     return (
@@ -343,6 +383,12 @@ export default function CommitListWidget() {
             onClose={() => setShowPanel(false)}
           />
         )}
+        {showDeleteModal && (
+          <DeleteAppModal
+            appName={user.app_name}
+            onClose={() => setShowDeleteModal(false)}
+          />
+        )}
       </>
     );
   }
@@ -365,12 +411,17 @@ export default function CommitListWidget() {
               "0 8px 32px rgba(0,0,0,0.5), 0 2px 8px rgba(0,0,0,0.3)",
           }}
         >
-          {/* Tab header — 커밋 / 빌드 / 환경변수 */}
+          {/* Tab header — 상태 / 커밋 / 빌드 / 환경변수 */}
           <div
             className="flex items-center px-1.5 pt-1 shrink-0"
             style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}
           >
             <div className="flex items-stretch flex-1 min-w-0">
+              <WidgetTab
+                active={tab === "status"}
+                onClick={() => setTab("status")}
+                label="상태"
+              />
               <WidgetTab
                 active={tab === "commits"}
                 onClick={() => setTab("commits")}
@@ -399,8 +450,49 @@ export default function CommitListWidget() {
             </button>
           </div>
 
-          {/* List (top 2) — 박스 높이는 row 개수에 자연스럽게 대응 */}
-          {visible.length === 0 ? (
+          {/* Content */}
+          {tab === "status" ? (
+            <div className="px-3 py-2.5">
+              <div className="flex items-center gap-2 mb-2">
+                <span className="text-[13px] text-fg-1 truncate" style={{ fontWeight: 590 }}>{user.app_name}</span>
+                <AppStatusBadge status={appStatus} />
+              </div>
+              <div className="flex items-center gap-3 mb-3">
+                <a
+                  href={`https://${user.app_name}.kodeploy.com`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 text-[11px] text-fg-3 hover:text-fg-1 no-underline transition-colors"
+                  style={{ fontWeight: 450 }}
+                >
+                  {user.app_name}.kodeploy.com
+                  <ExternalLink size={9} strokeWidth={2} />
+                </a>
+                {startedAt && appStatus === "running" && (
+                  <span className="text-[10px] text-fg-4 tabular-nums" style={{ fontWeight: 450 }}>
+                    {formatUptime(startedAt)}
+                  </span>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                <Link
+                  to="/deploy"
+                  className="flex-1 py-1.5 rounded-md text-[11.5px] text-center text-white no-underline"
+                  style={{ background: "#6672d5", fontWeight: 510 }}
+                >
+                  업데이트
+                </Link>
+                <button
+                  onClick={() => setShowDeleteModal(true)}
+                  className="w-8 h-8 rounded-md flex items-center justify-center text-fg-4 hover:text-red-300 transition-colors shrink-0"
+                  style={{ border: "1px solid rgba(255,255,255,0.09)", background: "transparent", cursor: "pointer" }}
+                  title="앱 삭제"
+                >
+                  <Trash2 size={13} strokeWidth={1.8} />
+                </button>
+              </div>
+            </div>
+          ) : visible.length === 0 ? (
             <div className="px-4 py-5 text-center text-[11.5px] text-fg-4">
               {tab === "commits"
                 ? "불러올 커밋이 없어요."
@@ -526,22 +618,23 @@ export default function CommitListWidget() {
             </div>
           )}
 
-          {/* Footer — 자세히 보기. 업데이트는 Dashboard 헤더에 있어서 위젯에선 중복 제거. */}
-          <div className="px-3 pb-2 pt-0.5 shrink-0">
-            <button
-              onClick={() => setShowPanel(true)}
-              className="w-full py-2 rounded-md text-[12px] text-fg-2 flex items-center justify-center gap-1.5"
-              style={{
-                fontWeight: 510,
-                border: "1px solid rgba(255,255,255,0.09)",
-              }}
-            >
-              <span>자세히 보기</span>
-              {hiddenCount > 0 && (
-                <span className="text-fg-4">· +{hiddenCount}</span>
-              )}
-            </button>
-          </div>
+          {tab !== "status" && (
+            <div className="px-3 pb-2 pt-0.5 shrink-0">
+              <button
+                onClick={() => setShowPanel(true)}
+                className="w-full py-2 rounded-md text-[12px] text-fg-2 flex items-center justify-center gap-1.5"
+                style={{
+                  fontWeight: 510,
+                  border: "1px solid rgba(255,255,255,0.09)",
+                }}
+              >
+                <span>자세히 보기</span>
+                {hiddenCount > 0 && (
+                  <span className="text-fg-4">· +{hiddenCount}</span>
+                )}
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
@@ -553,6 +646,12 @@ export default function CommitListWidget() {
           initialTab={tab}
           onEnvSaved={(fresh) => setEnvVars(fresh)}
           onClose={() => setShowPanel(false)}
+        />
+      )}
+      {showDeleteModal && (
+        <DeleteAppModal
+          appName={user.app_name}
+          onClose={() => setShowDeleteModal(false)}
         />
       )}
     </>
@@ -568,7 +667,7 @@ function WidgetTab({ active, onClick, label, count }) {
       style={{ color: active ? "#dde0e4" : "#8a8f98", fontWeight: 510 }}
     >
       <span>{label}</span>
-      <span className="text-fg-4 text-[10.5px] tabular-nums">{count}</span>
+      {count != null && <span className="text-fg-4 text-[10.5px] tabular-nums">{count}</span>}
       {active && (
         <span
           className="absolute left-1.5 right-1.5 -bottom-px h-[2px] rounded-t-sm"

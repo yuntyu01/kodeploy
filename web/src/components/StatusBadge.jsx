@@ -11,7 +11,7 @@ const STYLES_BUILD = {
   built:     { color: "#b45309", label: "빌드 완료" },
   deploying: { color: "#b45309", label: "배포 중", pulse: true },
   deployed:  { color: "#818be0", label: "배포 완료" },
-  running:   { color: "#047857", label: "실행 중" },
+  running:   { color: "#047857", label: "성공" },
   failed:    { color: "#991b1b", label: "실패" },
 };
 
