@@ -48,3 +48,12 @@
       shell: kubectl wait --for=condition=ready pod -l k8s-app=calico-node -n calico-system --timeout=300s
       environment:
         KUBECONFIG: /etc/kubernetes/admin.conf
+
+    - name: calico-apiserver 1 replica로 축소 (단일 마스터라 HA 불필요, ~280MB 절약)
+      shell: kubectl scale deployment calico-apiserver -n calico-apiserver --replicas=1
+      environment:
+        KUBECONFIG: /etc/kubernetes/admin.conf
+      register: scale_result
+      failed_when:
+        - scale_result.rc != 0
+        - "'NotFound' not in scale_result.stderr"
