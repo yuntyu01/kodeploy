@@ -6,7 +6,7 @@ import uuid
 
 from app.auth.deps import get_current_user
 from app.auth.model import User
-from app.deploy import env, service
+from app.deploy import env, logs, service
 from app.deploy.model import Build
 from app.deploy.schemas import (
     DeployRequest,
@@ -164,7 +164,16 @@ async def env_put(
 # 응답: {"status": "running" | "pending" | "crashing" | "missing"}
 @router.get("/app/status")
 def app_status(user: User = Depends(get_current_user)) -> dict:
-    return {"status": service.get_app_status(user)}
+    return service.get_app_status(user)
+
+
+# 런타임 로그 스냅샷 — 현재 + 이전 인스턴스 로그 JSON. 프론트 30초 폴링.
+@router.get("/app/logs")
+def app_logs(user: User = Depends(get_current_user)):
+    if not user.app_name:
+        raise HTTPException(status_code=400, detail="배포된 앱이 없습니다")
+    tenant_id = f"tenant-{user.id.hex[:8]}"
+    return logs.fetch_app_logs(tenant_id, user.app_name)
 
 
 # 앱 완전 삭제 — K8s 리소스 + PVC + builds + user.app_name 리셋.

@@ -94,3 +94,8 @@ export function deleteApp() {
 export function getAppStatus() {
   return request("/deploy/app/status");
 }
+
+// 런타임 로그 스냅샷 (현재 + 이전 인스턴스)
+export function getAppLogs() {
+  return request("/deploy/app/logs");
+}

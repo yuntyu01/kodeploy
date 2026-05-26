@@ -193,9 +193,9 @@ def _update_event_status(
 #   "pending"  — 스케줄링/이미지 pull/부팅 중 또는 Running but not ready
 #   "crashing" — CrashLoopBackOff / ImagePullBackOff / Failed phase / restart 폭주
 #   "missing"  — Deployment 없음 또는 Pod 0 (첫 배포 전 또는 삭제 후)
-def get_app_status(user: User) -> str:
+def get_app_status(user: User) -> dict:
     if not user.app_name:
-        return "missing"
+        return {"status": "missing", "started_at": None}
     tenant_id = f"tenant-{user.id.hex[:8]}"
     core = k8s.core_v1()
     try:
@@ -204,26 +204,25 @@ def get_app_status(user: User) -> str:
         )
     except ApiException as e:
         if e.status == 404:
-            return "missing"
+            return {"status": "missing", "started_at": None}
         raise
     if not pods.items:
-        return "missing"
+        return {"status": "missing", "started_at": None}
 
-    # rolling update 직후엔 옛/새 Pod 둘 다 있을 수 있음 — 가장 최근 시작한 거 기준.
     pod = max(
         pods.items,
         key=lambda p: p.status.start_time.timestamp() if p.status.start_time else 0,
     )
+    started_at = (
+        pod.status.start_time.isoformat() if pod.status.start_time else None
+    )
 
-    # 우선순위: "지금 Ready 상태인가"가 가장 강한 신호. restart_count는 누적이라
-    # 과거에 여러 번 crash해서 4+여도 현재 살아있으면 running으로 봐야 함.
     phase = pod.status.phase
     if phase == "Running":
         conditions = pod.status.conditions or []
         ready = any(c.type == "Ready" and c.status == "True" for c in conditions)
         if ready:
-            return "running"
-        # Running but not ready — 헬스체크 통과 못함. 이유 분석.
+            return {"status": "running", "started_at": started_at}
         for cs in pod.status.container_statuses or []:
             if cs.state and cs.state.waiting:
                 reason = cs.state.waiting.reason or ""
@@ -234,13 +233,12 @@ def get_app_status(user: User) -> str:
                     "CreateContainerError",
                     "CreateContainerConfigError",
                 ):
-                    return "crashing"
-        return "pending"
+                    return {"status": "crashing", "started_at": started_at}
+        return {"status": "pending", "started_at": started_at}
 
     if phase == "Failed":
-        return "crashing"
+        return {"status": "crashing", "started_at": started_at}
 
-    # Pending phase — 시작 전이지만 명백한 오류면 crashing
     for cs in pod.status.container_statuses or []:
         if cs.state and cs.state.waiting:
             reason = cs.state.waiting.reason or ""
@@ -251,8 +249,8 @@ def get_app_status(user: User) -> str:
                 "CreateContainerError",
                 "CreateContainerConfigError",
             ):
-                return "crashing"
-    return "pending"
+                return {"status": "crashing", "started_at": started_at}
+    return {"status": "pending", "started_at": started_at}
 
 
 # 앱 완전 삭제 — tenant namespace 통째로 삭제하면 K8s가 cascade로
@@ -521,12 +519,18 @@ async def _wait_for_rollout(app_name: str, namespace: str) -> bool:
     deadline = time.time() + ROLLOUT_TIMEOUT_SECONDS
     apps = k8s.apps_v1()
     while time.time() < deadline:
-        dep = apps.read_namespaced_deployment_status(
-            name=app_name, namespace=namespace
-        )
+        try:
+            dep = apps.read_namespaced_deployment_status(
+                name=app_name, namespace=namespace
+            )
+        except ApiException:
+            await asyncio.sleep(5)
+            continue
         ready = dep.status.ready_replicas or 0
         desired = dep.spec.replicas or 1
-        if ready >= desired:
+        observed = dep.status.observed_generation or 0
+        current = dep.metadata.generation or 0
+        if ready >= desired and observed >= current:
             return True
         await asyncio.sleep(5)
     return False
