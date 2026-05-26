@@ -19,9 +19,9 @@ rules:
     resources: ["namespaces"]                            # 테넌트 ns 프로비저닝/삭제
     verbs: ["get", "create", "delete"]
   - apiGroups: [""]
-    resources: ["services", "pods", "pods/log",          # services=앱 Svc / pods=BuildKit Pod / pods/log=빌드 로그
-                "secrets", "resourcequotas",              # secrets=ghcr-auth 복사 / resourcequotas=테넌트 자원 cap
-                "persistentvolumeclaims"]                 # pvc=앱 삭제 시 stateful 데이터 정리
+    resources: ["services", "pods", "pods/log", "pods/exec",  # pods/exec=터미널 WebSocket
+                "secrets", "resourcequotas",
+                "persistentvolumeclaims"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
   - apiGroups: ["projectcalico.org"]                     # Calico NetworkPolicy (per-tenant 격리)
     resources: ["networkpolicies"]
