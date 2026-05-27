@@ -33,6 +33,7 @@ def _to_status(build: Build) -> StatusResponse:
         build_mode=build.build_mode,
         port=build.port,
         db_type=build.db_type or "none",
+        use_redis=build.use_redis or False,
         kind=build.kind or "build",
         dockerfile_path=build.dockerfile_path or "Dockerfile",
         project_path=build.project_path or "",
@@ -52,11 +53,6 @@ async def create_deploy(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> DeployResponse:
-    # db_type 우선 — req.db_type이 명시면 그것. 옛 frontend 호환 위해 use_db=True + db_type="none"이면 mysql로 추정.
-    db_type = req.db_type
-    if db_type == "none" and req.use_db:
-        db_type = "mysql"
-
     try:
         build = await service.start_build(
             db,
@@ -66,8 +62,8 @@ async def create_deploy(
             name=req.name,
             branch=req.branch,
             port=req.port,
-            use_db=db_type != "none",
-            db_type=db_type,
+            db_type=req.db_type,
+            use_redis=req.use_redis,
             build_mode=req.build_mode,
             dockerfile_path=req.dockerfile_path,
             project_path=req.project_path,
@@ -143,8 +139,8 @@ async def env_put(
         port=latest.port if latest else 80,
         runtime=latest.runtime if latest else "",
         user_id=user.id,
-        use_db=latest.use_db if latest else False,
         db_type=latest.db_type if latest else "none",
+        use_redis=latest.use_redis if latest else False,
         kind="env_change",
         status="applied",
         analysis=", ".join(entries),  # "KEY (추가), KEY2 (수정), KEY3 (삭제)"

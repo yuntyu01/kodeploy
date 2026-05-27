@@ -32,12 +32,17 @@ def _is_admin(user: User) -> bool:
     return user.login == ADMIN_LOGIN
 
 
-def _mask_post(post: Post, user: User | None, comment_count: int) -> PostOut:
+def _resolve_login(db: Session, user_id) -> str:
+    u = db.query(User).filter_by(id=user_id).first()
+    return u.login if u else "unknown"
+
+
+def _mask_post(db: Session, post: Post, user: User | None, comment_count: int) -> PostOut:
     mine = user is not None and post.user_id == user.id
     visible = not post.is_secret or mine or (user is not None and _is_admin(user))
     return PostOut(
         id=post.id,
-        author=_resolve_login(post.user_id),
+        author=_resolve_login(db, post.user_id),
         content=post.content if visible else "비밀글입니다.",
         is_secret=post.is_secret,
         is_mine=mine,
@@ -46,28 +51,18 @@ def _mask_post(post: Post, user: User | None, comment_count: int) -> PostOut:
     )
 
 
-def _mask_comment(comment: Comment, user: User | None) -> CommentOut:
+def _mask_comment(db: Session, comment: Comment, user: User | None) -> CommentOut:
     mine = user is not None and comment.user_id == user.id
     visible = not comment.is_secret or mine or (user is not None and _is_admin(user))
     return CommentOut(
         id=comment.id,
         post_id=comment.post_id,
-        author=_resolve_login(comment.user_id),
+        author=_resolve_login(db, comment.user_id),
         content=comment.content if visible else "비밀 댓글입니다.",
         is_secret=comment.is_secret,
         is_mine=mine,
         created_at=comment.created_at,
     )
-
-
-def _resolve_login(user_id) -> str:
-    from app.shared.db import SessionLocal
-    db = SessionLocal()
-    try:
-        u = db.query(User).filter_by(id=user_id).first()
-        return u.login if u else "unknown"
-    finally:
-        db.close()
 
 
 @router.post("", response_model=PostOut)
@@ -82,7 +77,7 @@ def create_post(
     db.add(post)
     db.commit()
     db.refresh(post)
-    return _mask_post(post, user, 0)
+    return _mask_post(db, post, user, 0)
 
 
 @router.get("", response_model=list[PostOut])
@@ -94,7 +89,7 @@ def list_posts(
     result = []
     for p in posts:
         count = db.query(Comment).filter_by(post_id=p.id).count()
-        result.append(_mask_post(p, user, count))
+        result.append(_mask_post(db, p, user, count))
     return result
 
 
@@ -112,11 +107,11 @@ def get_post(
     comments = db.query(Comment).filter_by(post_id=post_id).order_by(Comment.created_at).all()
     return PostDetail(
         id=post.id,
-        author=_resolve_login(post.user_id),
+        author=_resolve_login(db, post.user_id),
         content=post.content if visible else "비밀글입니다.",
         is_secret=post.is_secret,
         is_mine=mine,
-        comments=[_mask_comment(c, user) for c in comments],
+        comments=[_mask_comment(db, c, user) for c in comments],
         created_at=post.created_at,
     )
 
@@ -142,7 +137,7 @@ def create_comment(
     db.add(comment)
     db.commit()
     db.refresh(comment)
-    return _mask_comment(comment, user)
+    return _mask_comment(db, comment, user)
 
 
 @router.delete("/{post_id}")

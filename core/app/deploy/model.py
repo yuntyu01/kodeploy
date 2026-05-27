@@ -22,8 +22,8 @@ class Build(Base):
     app_name: Mapped[str] = mapped_column(String(50))
     port: Mapped[int] = mapped_column(Integer)
     runtime: Mapped[str] = mapped_column(String(20))     # 유저가 선택한 런타임 (python/java) — 스키마가 검증
-    use_db: Mapped[bool] = mapped_column(Boolean, default=False)  # deprecated — db_type이 진실원. 호환 위해 유지
     db_type: Mapped[str] = mapped_column(String(20), default="none")  # "none" | "mysql" | "postgres"
+    use_redis: Mapped[bool] = mapped_column(Boolean, default=False)
     kind: Mapped[str] = mapped_column(String(20), default="build")  # "build"=일반 빌드 / "env_change"=환경변수 변경 이벤트
     build_mode: Mapped[str] = mapped_column(String(20), default="dockerfile")  # "dockerfile" | "auto"(nixpacks)
     dockerfile_path: Mapped[str] = mapped_column(String(200), default="Dockerfile")  # dockerfile 모드 — BuildKit filename

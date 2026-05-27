@@ -321,6 +321,35 @@ def fetch_recent_commits(
     return out
 
 
+_ACTIVE_STATUSES = {"queued", "building", "built", "deploying"}
+
+
+def _cancel_stale_builds(db: Session, user_id: uuid.UUID) -> None:
+    stale = db.query(Build).filter(
+        Build.user_id == user_id,
+        Build.status.in_(_ACTIVE_STATUSES),
+    ).all()
+    if not stale:
+        return
+    for build in stale:
+        build.status = "cancelled"
+        _cleanup_build_job(build.build_id, build.user_id_str)
+    db.commit()
+
+
+def _cleanup_build_job(build_id: str, user_id_str: str) -> None:
+    job_name = _build_job_name(build_id, user_id_str)
+    try:
+        k8s.batch_v1().delete_namespaced_job(
+            name=job_name,
+            namespace=config.BUILD_NAMESPACE,
+            propagation_policy="Background",
+        )
+    except ApiException as e:
+        if e.status != 404:
+            raise
+
+
 # Build row 생성 + 백그라운드 빌드 태스크 등록.
 # user 객체로 받음 — _resolve_app_name이 user.app_name을 읽고/쓰기 위해.
 async def start_build(
@@ -331,13 +360,14 @@ async def start_build(
     name: str | None = None,
     branch: str = "main",
     port: int = 80,
-    use_db: bool = False,
     db_type: str = "none",
+    use_redis: bool = False,
     build_mode: str = "dockerfile",
     dockerfile_path: str = "Dockerfile",
     project_path: str = "",
     env_vars: dict[str, str] | None = None,
 ) -> Build:
+    _cancel_stale_builds(db, user.id)
     repo_url = _normalize_repo_url(repo_url)
     build_id = uuid.uuid4().hex[:8]
     app_name = _resolve_app_name(name, repo_url, user, db)
@@ -352,8 +382,8 @@ async def start_build(
         port=port,
         runtime=runtime,
         user_id=user.id,
-        use_db=use_db,
         db_type=db_type,
+        use_redis=use_redis,
         build_mode=build_mode,
         dockerfile_path=dockerfile_path,
         project_path=project_path.strip("/"),  # 앞뒤 슬래시 정리 — manifest에서 ${PROJECT_PATH:+/$PROJECT_PATH}로 결합
@@ -376,6 +406,12 @@ async def _run_build(build_id: str, initial_env: dict[str, str] | None = None) -
         build = crud.get_build(db, build_id)
         if not build:
             return
+        if build.status == "cancelled":
+            return
+
+        def _check_cancelled() -> bool:
+            db.refresh(build)
+            return build.status == "cancelled"
 
         try:
             # 빌드 시작 전에 Dockerfile 텍스트를 DB에 보존 (UI 노출 + AI 분석용).
@@ -452,12 +488,10 @@ async def _run_build(build_id: str, initial_env: dict[str, str] | None = None) -
                 db.commit()
                 return
 
-            build.status = "built" # 빌드 과정 완료
-            db.commit()
+            if _check_cancelled():
+                return
 
-            # 추후 이미지 스캔 등 추가 가능
-
-            build.status = "deploying" # 클러스터 배포 시작
+            build.status = "deploying"
             db.commit()
             _ensure_tenant_ns(build)
 
@@ -474,10 +508,13 @@ async def _run_build(build_id: str, initial_env: dict[str, str] | None = None) -
             # DB 토글 — 선택된 db (mysql/postgres) 프로비저닝 + 다른 db 정리.
             # PVC/Secret은 보존 — 같은 db로 다시 토글 시 데이터 자연 복원.
             _apply_db(build, build.db_type or "none")
+            _apply_redis(build)
 
             _apply_deployment(build)
 
             ready = await _wait_for_rollout(build.app_name, build.tenant_id)
+            if _check_cancelled():
+                return
             if ready:
                 build.status = "running"
             else:
@@ -486,9 +523,14 @@ async def _run_build(build_id: str, initial_env: dict[str, str] | None = None) -
             db.commit()
 
         except Exception as e:
-            build.status = "failed"
-            build.error = f"오케스트레이션 에러: {e}"
-            db.commit()
+            db.rollback()
+            db.refresh(build)
+            if build.status != "cancelled":
+                build.status = "failed"
+                build.error = f"오케스트레이션 에러: {e}"
+                db.commit()
+    except Exception:
+        pass
     finally:
         db.close()
 
@@ -588,7 +630,7 @@ def _extract_between(text: str, start: str, end: str) -> str | None:
 
 # 테넌트 ns 프로비저닝 (Namespace + ResourceQuota + ghcr-auth).
 # Namespace/Secret은 idempotent create(409 skip), ResourceQuota는 patch로 갱신 가능.
-# 이유: use_db 토글에 따라 mysql 컴포넌트가 quota에 합산되거나 빠질 수 있어 재배포 시 갱신 필요.
+# 이유: db_type 변경에 따라 mysql/postgres 컴포넌트가 quota에 합산되거나 빠질 수 있어 재배포 시 갱신 필요.
 def _ensure_tenant_ns(build: Build) -> None:
     if build.user_id is None:
         return
@@ -619,6 +661,8 @@ def _ensure_tenant_ns(build: Build) -> None:
     # 선택된 db도 quota에 합산 — 재배포 시마다 현재 상태 반영
     db_type = build.db_type or "none"
     components = [build.runtime] + ([db_type] if db_type in ("mysql", "postgres") else [])
+    if build.use_redis:
+        components.append("redis")
     quota = runtimes.compute_quota(components)
     docs = manifests.tenant(
         tenant_id=ns,
@@ -633,7 +677,7 @@ def _ensure_tenant_ns(build: Build) -> None:
             if kind == "Namespace":
                 core.create_namespace(body=doc)
             elif kind == "ResourceQuota":
-                # 재배포 시 use_db 변경 반영: 있으면 patch, 없으면 create
+                # 재배포 시 db_type 변경 반영: 있으면 patch, 없으면 create
                 try:
                     core.read_namespaced_resource_quota(name=ns, namespace=ns)
                     core.patch_namespaced_resource_quota(
@@ -704,6 +748,37 @@ def _apply_db(build: Build, db_type: str) -> None:
             _ensure_one_db(build, candidate)
         else:
             _teardown_one_db(build, candidate)
+
+
+def _apply_redis(build: Build) -> None:
+    apps = k8s.apps_v1()
+    core = k8s.core_v1()
+    ns = build.tenant_id
+
+    if build.use_redis:
+        docs = manifests.redis(tenant_id=ns, user_id=build.user_id_str)
+        for doc in docs:
+            kind = doc["kind"]
+            try:
+                if kind == "Secret":
+                    core.create_namespaced_secret(namespace=ns, body=doc)
+                elif kind == "Service":
+                    core.create_namespaced_service(namespace=ns, body=doc)
+                elif kind == "Deployment":
+                    apps.create_namespaced_deployment(namespace=ns, body=doc)
+            except ApiException as e:
+                if e.status != 409:
+                    raise
+    else:
+        for delete_call in (
+            lambda: apps.delete_namespaced_deployment(name="redis", namespace=ns),
+            lambda: core.delete_namespaced_service(name="redis", namespace=ns),
+        ):
+            try:
+                delete_call()
+            except ApiException as e:
+                if e.status != 404:
+                    raise
 
 
 def _apply_deployment(build: Build) -> None:

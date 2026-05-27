@@ -10,9 +10,9 @@ const STYLES_BUILD = {
   building:  { color: "#b45309", label: "빌드 중", pulse: true },
   built:     { color: "#b45309", label: "빌드 완료" },
   deploying: { color: "#b45309", label: "배포 중", pulse: true },
-  deployed:  { color: "#818be0", label: "배포 완료" },
   running:   { color: "#047857", label: "성공" },
   failed:    { color: "#991b1b", label: "실패" },
+  cancelled: { color: "#8a8f98", label: "중지" },
 };
 
 // env_change row용 — 같은 status값이지만 의미 다름: "그 변경이 성공/실패했나"

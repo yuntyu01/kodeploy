@@ -11,6 +11,8 @@ metadata:
     managed-by: kodeploy
 spec:
   replicas: {{ replicas | default(1) }}
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app: {{ app_name }}

@@ -165,7 +165,8 @@ export default function CommitListWidget() {
     return () => { cancelled = true; if (timer) clearTimeout(timer); };
   }, [hidden, user?.id, user?.app_name]);
 
-  // 환경변수 1회 fetch — 첫 배포 전이면 빈 dict. 저장 후엔 EnvPanel onSaved가 직접 setEnvVars 호출.
+  // 환경변수 fetch — 마운트 시 + deploying 감지 시 refetch (env Secret이 deploying 초반에 생성됨)
+  const hasDeploying = builds.some((b) => b.status === "deploying");
   useEffect(() => {
     if (hidden || !user?.app_name) {
       setEnvVars({});
@@ -176,14 +177,10 @@ export default function CommitListWidget() {
       try {
         const data = await getEnvVars();
         if (!cancelled) setEnvVars(data.env || {});
-      } catch {
-        // 백그라운드 — 위젯에 빨간 에러 X
-      }
+      } catch {}
     })();
-    return () => {
-      cancelled = true;
-    };
-  }, [hidden, user?.id, user?.app_name]);
+    return () => { cancelled = true; };
+  }, [hidden, user?.id, user?.app_name, hasDeploying]);
 
   // 드래그 — 글로벌 mousemove/mouseup 리스너 한 번만 등록.
   // pressRef가 채워진 상태에서 5px 통과하면 dragging=true → 그때부터 setPos.
