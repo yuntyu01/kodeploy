@@ -13,6 +13,7 @@ import {
   TerminalSquare,
   X,
 } from "lucide-react";
+import MonitoringPanel from "./panels/MonitoringPanel.jsx";
 import RuntimeLogPanel from "./panels/RuntimeLogPanel.jsx";
 import TerminalPanel from "./panels/TerminalPanel.jsx";
 import DbTerminalPanel from "./panels/DbTerminalPanel.jsx";
@@ -39,8 +40,8 @@ const PANEL_TYPES = [
     icon: Activity,
     label: "모니터링",
     sub: "CPU · 메모리 · 요청량",
-    color: "#047857",
-    ready: false,
+    color: "#6dd5a0",
+    ready: true,
   },
 ];
 
@@ -253,6 +254,8 @@ export default function Pane({ build, splitLevel = 0, onSplit, onUnsplit, exclud
                 <RuntimeLogPanel build={build} splitLevel={splitLevel} />
               ) : t.type === "terminal" ? (
                 <TerminalSelector compact={compact} />
+              ) : t.type === "monitoring" ? (
+                <MonitoringPanel />
               ) : null}
             </div>
           );

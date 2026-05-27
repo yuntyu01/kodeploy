@@ -1,0 +1,126 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: vmagent
+  namespace: monitoring
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: vmagent
+rules:
+  - apiGroups: [""]
+    resources: [nodes, nodes/metrics, nodes/proxy, pods, services, endpoints]
+    verbs: ["get", "list", "watch"]
+  - nonResourceURLs: [/metrics, /metrics/cadvisor]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: vmagent
+subjects:
+  - kind: ServiceAccount
+    name: vmagent
+    namespace: monitoring
+roleRef:
+  kind: ClusterRole
+  name: vmagent
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vmagent-config
+  namespace: monitoring
+data:
+  scrape.yaml: |
+    global:
+      scrape_interval: 30s
+
+    scrape_configs:
+      # 노드 메트릭 (kubelet /metrics/cadvisor → CPU/Memory/네트워크)
+      - job_name: kubelet-cadvisor
+        scheme: https
+        tls_config:
+          insecure_skip_verify: true
+        bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+        kubernetes_sd_configs:
+          - role: node
+        relabel_configs:
+          - target_label: __metrics_path__
+            replacement: /metrics/cadvisor
+
+      # kubelet /metrics → kubelet_volume_stats (PVC 사용량)
+      - job_name: kubelet
+        scheme: https
+        tls_config:
+          insecure_skip_verify: true
+        bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+        kubernetes_sd_configs:
+          - role: node
+        relabel_configs:
+          - target_label: __metrics_path__
+            replacement: /metrics
+
+      # kube-state-metrics
+      - job_name: kube-state-metrics
+        static_configs:
+          - targets: ["kube-state-metrics.monitoring.svc:8080"]
+
+      # Envoy Gateway 데이터 플레인 (RPS/latency/error rate)
+      - job_name: envoy-gateway
+        metrics_path: /stats/prometheus
+        kubernetes_sd_configs:
+          - role: pod
+            namespaces:
+              names: ["envoy-gateway-system"]
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_pod_container_port_name]
+            regex: metrics
+            action: keep
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vmagent
+  namespace: monitoring
+  labels:
+    app: vmagent
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: vmagent
+  template:
+    metadata:
+      labels:
+        app: vmagent
+    spec:
+      serviceAccountName: vmagent
+      nodeSelector:
+        kubernetes.io/hostname: worker1
+      containers:
+        - name: vmagent
+          image: victoriametrics/vmagent:v1.117.1
+          args:
+            - -promscrape.config=/config/scrape.yaml
+            - -remoteWrite.url=http://victoriametrics.monitoring.svc:8428/api/v1/write
+          ports:
+            - containerPort: 8429
+              name: http
+          resources:
+            requests:
+              cpu: 20m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
+          volumeMounts:
+            - name: config
+              mountPath: /config
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: vmagent-config

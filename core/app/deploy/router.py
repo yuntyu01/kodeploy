@@ -7,7 +7,7 @@ import uuid
 from app.auth.deps import get_current_user
 from app.auth.model import User
 from app.auth import service as auth_service
-from app.deploy import env, logs, service, terminal
+from app.deploy import env, logs, metrics, service, terminal
 from app.deploy.model import Build
 from app.deploy.schemas import (
     DeployRequest,
@@ -175,6 +175,17 @@ def app_logs(user: User = Depends(get_current_user)):
         raise HTTPException(status_code=400, detail="배포된 앱이 없습니다")
     tenant_id = f"tenant-{user.id.hex[:8]}"
     return logs.fetch_app_logs(tenant_id, user.app_name)
+
+
+@router.get("/app/metrics")
+def app_metrics(
+    range: str = "1h",
+    user: User = Depends(get_current_user),
+):
+    if not user.app_name:
+        raise HTTPException(status_code=400, detail="배포된 앱이 없습니다")
+    tenant_id = f"tenant-{user.id.hex[:8]}"
+    return metrics.fetch_app_metrics(tenant_id, user.app_name, range)
 
 
 # Pod exec WebSocket — xterm.js 프론트와 양방향. cookie로 인증.

@@ -99,3 +99,8 @@ export function getAppStatus() {
 export function getAppLogs() {
   return request("/deploy/app/logs");
 }
+
+// 앱 메트릭 (VictoriaMetrics 프록시) — range: "15m"|"1h"|"6h"|"1d"|"3d"|"7d"|"14d"|"30d"
+export function getAppMetrics(range = "1h") {
+  return request(`/deploy/app/metrics?range=${encodeURIComponent(range)}`);
+}
