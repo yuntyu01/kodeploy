@@ -482,6 +482,8 @@ async def _run_build(build_id: str, initial_env: dict[str, str] | None = None) -
             else:
                 build.logs = _get_job_logs(build.build_id)
 
+            db.commit()
+
             if not success:
                 build.status = "failed"
                 build.error = "빌드 실패"
