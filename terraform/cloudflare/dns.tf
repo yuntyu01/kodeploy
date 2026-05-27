@@ -70,5 +70,5 @@ resource "cloudflare_dns_record" "api" {
   type    = "A"
   proxied = true
   ttl     = 1
-  comment = "OCI NLB (Cloudflare proxy ON, Full)"
+  comment = "OCI NLB (CF proxy ON, API security via Configuration Rule)"
 }
