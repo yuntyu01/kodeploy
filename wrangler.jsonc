@@ -1,0 +1,14 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "kodeploy",
+  "compatibility_date": "2026-05-27",
+  "observability": {
+    "enabled": true
+  },
+  "assets": {
+    "directory": "web/dist"
+  },
+  "compatibility_flags": [
+    "nodejs_compat"
+  ]
+}

@@ -40,21 +40,21 @@ resource "cloudflare_dns_record" "wildcard" {
   comment = "User app subdomains (Cloudflare proxy ON)"
 }
 
-# app.kodeploy.com → Pages (프론트엔드)
-resource "cloudflare_dns_record" "app" {
-  zone_id = var.cloudflare_zone_id
-  name    = "app"
-  content = "kodeploy.yuntyu01.workers.dev"
-  type    = "CNAME"
-  proxied = true
-  ttl     = 1
-  comment = "Cloudflare Pages (frontend)"
-}
-
 # Apex — 리다이렉트 전용 (redirect.tf에서 301 → app.kodeploy.com)
 resource "cloudflare_dns_record" "apex" {
   zone_id = var.cloudflare_zone_id
   name    = "@"
+  content = "192.0.2.1"
+  type    = "A"
+  proxied = true
+  ttl     = 1
+  comment = "Redirect placeholder (→ app.kodeploy.com)"
+}
+
+# www — 리다이렉트 전용 (redirect.tf에서 301 → app.kodeploy.com)
+resource "cloudflare_dns_record" "www" {
+  zone_id = var.cloudflare_zone_id
+  name    = "www"
   content = "192.0.2.1"
   type    = "A"
   proxied = true
