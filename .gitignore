@@ -74,3 +74,8 @@ Thumbs.db
 # ---- Logs ----
 *.log
 retry-provision.log
+
+# wrangler files
+.wrangler
+.dev.vars*
+!.dev.vars.example
