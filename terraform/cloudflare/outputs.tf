@@ -7,8 +7,7 @@
 
 # cloudflared service install 시 사용하는 토큰
 # secret 값을 포함하므로 sensitive
-output "tunnel_token" {
-  description = "cloudflared --token 인자에 사용할 토큰"
-  value       = cloudflare_zero_trust_tunnel_cloudflared.kodeploy.tunnel_token
-  sensitive   = true
+output "tunnel_id" {
+  description = "Cloudflare Tunnel ID"
+  value       = cloudflare_zero_trust_tunnel_cloudflared.kodeploy.id
 }
