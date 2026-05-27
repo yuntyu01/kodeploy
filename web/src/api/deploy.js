@@ -34,6 +34,7 @@ export function createDeploy({
   runtime,
   name,
   dbType = "none",
+  useRedis = false,
   buildMode = "dockerfile",
   dockerfilePath = "Dockerfile",
   projectPath = "",
@@ -46,9 +47,10 @@ export function createDeploy({
       branch,
       port,
       runtime,
-      name: name?.trim() || null,                 // 빈 값이면 서버가 app-<hex8> 자동 생성
-      db_type: dbType,                            // "none" | "mysql" | "postgres"
-      build_mode: buildMode,                      // "dockerfile" | "auto"(nixpacks)
+      name: name?.trim() || null,
+      db_type: dbType,
+      use_redis: useRedis,
+      build_mode: buildMode,
       dockerfile_path: dockerfilePath || "Dockerfile",
       project_path: projectPath || "",            // auto 모드 — 서브디렉토리. 빈 값=repo root
       env,                                        // 첫 배포: Secret 생성. 재배포: replace. 빈 dict면 backend가 무시.

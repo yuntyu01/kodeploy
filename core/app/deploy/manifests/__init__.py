@@ -13,7 +13,7 @@ from app.deploy.manifests.app import (
     service,
 )
 from app.deploy.manifests.build import buildkit_job, nixpacks_buildkit_job
-from app.deploy.manifests.dependencies import mysql, postgres
+from app.deploy.manifests.dependencies import mysql, postgres, redis
 from app.deploy.manifests.tenant import tenant
 
 __all__ = [
@@ -24,6 +24,7 @@ __all__ = [
     "mysql",
     "nixpacks_buildkit_job",
     "postgres",
+    "redis",
     "service",
     "tenant",
 ]

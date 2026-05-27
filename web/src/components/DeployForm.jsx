@@ -28,6 +28,7 @@ export default function DeployForm({ onRequestGuide }) {
   const [dockerfilePath, setDockerfilePath] = useState("Dockerfile");
   const [projectPath, setProjectPath] = useState("");
   const [dbType, setDbType] = useState("none");
+  const [useRedis, setUseRedis] = useState(false);
   const [runtime, setRuntime] = useState(RUNTIMES[0]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState(null);
@@ -57,6 +58,7 @@ export default function DeployForm({ onRequestGuide }) {
           setBranch(latest.branch || "main");
           setRuntime(RUNTIMES.includes(latest.runtime) ? latest.runtime : RUNTIMES[0]);
           setDbType(latest.db_type || "none");
+          setUseRedis(latest.use_redis || false);
           setBuildMode(latest.build_mode || "auto");
           if (latest.build_mode === "dockerfile") {
             setDockerfilePath(latest.dockerfile_path || "Dockerfile");
@@ -179,6 +181,7 @@ export default function DeployForm({ onRequestGuide }) {
         port: Number(port) || 80,
         runtime,
         dbType,
+        useRedis,
         buildMode,
         dockerfilePath:
           buildMode === "dockerfile" ? dockerfilePath.trim() || "Dockerfile" : "Dockerfile",
@@ -352,6 +355,41 @@ export default function DeployForm({ onRequestGuide }) {
                 disabled={submitting}
               >
                 {d.name}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Redis */}
+      <div className="mb-5">
+        <div
+          className="text-[10.5px] tracking-[0.08em] text-fg-3 mb-2.5"
+          style={{ fontWeight: 590 }}
+        >
+          캐시
+        </div>
+        <div className="flex gap-1.5">
+          {[
+            { id: false, name: "사용 안 함" },
+            { id: true, name: "Redis 7" },
+          ].map((r) => {
+            const active = useRedis === r.id;
+            return (
+              <button
+                key={String(r.id)}
+                type="button"
+                onClick={() => setUseRedis(r.id)}
+                className="flex-1 h-10 rounded-lg text-[13px] transition-colors flex items-center justify-center"
+                style={{
+                  background: active ? "rgba(129,139,224,0.12)" : "rgba(255,255,255,0.03)",
+                  border: `1px solid ${active ? "rgba(129,139,224,0.25)" : "rgba(255,255,255,0.06)"}`,
+                  color: active ? "#818be0" : "#8a8f98",
+                  fontWeight: 510,
+                }}
+                disabled={submitting}
+              >
+                {r.name}
               </button>
             );
           })}

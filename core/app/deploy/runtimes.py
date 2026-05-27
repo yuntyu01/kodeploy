@@ -10,6 +10,7 @@ RUNTIME_RESOURCES: dict[str, dict[str, int]] = {
     "java":     {"req_cpu": 150, "lim_cpu": 500, "req_mem": 700, "lim_mem": 1024},
     "mysql":    {"req_cpu": 50,  "lim_cpu": 200, "req_mem": 300, "lim_mem": 500},
     "postgres": {"req_cpu": 50,  "lim_cpu": 200, "req_mem": 250, "lim_mem": 500},
+    "redis":    {"req_cpu": 25,  "lim_cpu": 100, "req_mem": 64,  "lim_mem": 192},
 }
 
 # 사용자가 선택 가능한 런타임 목록 (UI dropdown 등). mysql 같은 의존성은 제외.
@@ -29,6 +30,5 @@ def compute_quota(components: list[str]) -> dict[str, int]:
     for c in components:
         for k, v in get_resources(c).items():
             total[k] += v
-    # OS/kernel 오버헤드 + 백엔드 추후 추가 컴포넌트 여유
     total["lim_mem"] += 100
     return total
