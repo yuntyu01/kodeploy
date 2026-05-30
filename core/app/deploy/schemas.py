@@ -25,6 +25,7 @@ class DeployRequest(BaseModel):
     dockerfile_path: str = "Dockerfile"                  # dockerfile 모드일 때 — "Dockerfile.multi", "subdir/Dockerfile" 등
     project_path: str = ""                               # auto 모드일 때 — 서브디렉토리 (예: "backend"). 빈 값=repo root
     env: dict[str, str] = {}                             # 첫 배포 시 Secret 생성, 재배포면 replace. 빈 dict면 set_env 호출 안 함.
+    init_dump_token: str | None = None                   # /deploy/db/stage-dump가 발급한 토큰. DB Ready 후 자동 복원.
 
 
 # POST /deploy 직후 응답 (build_id 반환)

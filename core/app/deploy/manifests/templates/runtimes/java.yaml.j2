@@ -58,9 +58,11 @@ spec:
             requests:
               cpu: {{ req_cpu }}m                        # 스케줄러 보장값
               memory: {{ req_mem }}Mi
+              ephemeral-storage: {{ req_eph }}Mi         # 노드 로컬 임시 디스크 보장값
             limits:
               cpu: {{ lim_cpu }}m                        # 런타임 상한 (JVM heap이 이 값 기준 75%)
               memory: {{ lim_mem }}Mi
+              ephemeral-storage: {{ lim_eph }}Mi         # 초과 시 이 Pod만 evict — 노드/타 테넌트 보호
           startupProbe:                                  # 부팅 단계 전용. Spring Boot는 느려서 길게
             tcpSocket:
               port: {{ port | default(8080) }}

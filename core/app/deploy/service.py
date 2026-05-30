@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 
 from app import config
 from app.auth.model import User
-from app.deploy import crud, env as env_module, manifests, runtimes
+from app.deploy import crud, env as env_module, manifests, runtimes, snapshots
 from app.deploy.model import Build
 from app.shared import k8s
 from app.shared.db import SessionLocal
@@ -366,6 +366,7 @@ async def start_build(
     dockerfile_path: str = "Dockerfile",
     project_path: str = "",
     env_vars: dict[str, str] | None = None,
+    init_dump_token: str | None = None,
 ) -> Build:
     _cancel_stale_builds(db, user.id)
     repo_url = _normalize_repo_url(repo_url)
@@ -390,7 +391,7 @@ async def start_build(
     )
     build = crud.create_build(db, build)
 
-    asyncio.create_task(_run_build(build_id, env_vars or {}))
+    asyncio.create_task(_run_build(build_id, env_vars or {}, init_dump_token))
     return build
 
 
@@ -400,7 +401,11 @@ def _build_job_name(build_id: str, user_id_str: str) -> str:
 
 
 # 백그라운드 빌드 코루틴 (Job 생성 → 폴링 → 성공 시 배포 / 실패 시 로그 저장)
-async def _run_build(build_id: str, initial_env: dict[str, str] | None = None) -> None:
+async def _run_build(
+    build_id: str,
+    initial_env: dict[str, str] | None = None,
+    init_dump_token: str | None = None,
+) -> None:
     db = SessionLocal()
     try:
         build = crud.get_build(db, build_id)
@@ -512,6 +517,26 @@ async def _run_build(build_id: str, initial_env: dict[str, str] | None = None) -
             _apply_db(build, build.db_type or "none")
             _apply_redis(build)
 
+            # 초기 데이터 자동 복원 — 폼에서 .sql(.gz) 첨부 + DB(mysql/postgres) 선택 시.
+            # 앱이 채워진 DB 위에서 시작하도록 Deployment apply 전에 DB Ready 대기 후 복원.
+            if init_dump_token:
+                if build.db_type in ("mysql", "postgres"):
+                    if await snapshots.wait_db_ready(build.tenant_id, build.db_type):
+                        try:
+                            await snapshots.restore_staged(
+                                build.tenant_id, init_dump_token
+                            )
+                        except snapshots.SnapshotError as e:
+                            build.error = f"초기 데이터 복원 실패: {e}"
+                            db.commit()
+                    else:
+                        snapshots.discard_staged(init_dump_token)
+                        build.error = "초기 데이터 복원 실패: DB 준비 타임아웃"
+                        db.commit()
+                else:
+                    # DB 없는데 토큰만 온 경우 — 임시 파일만 정리.
+                    snapshots.discard_staged(init_dump_token)
+
             _apply_deployment(build)
 
             ready = await _wait_for_rollout(build.app_name, build.tenant_id)
@@ -554,9 +579,7 @@ async def _wait_for_job(job_name: str) -> bool:
     return False
 
 
-# java startupProbe(failureThreshold 30 × period 10s = 5분)와 동일 상한.
-# multi-stage Dockerfile + java -jar 패턴은 보통 1분 안에 부팅, 5분이면 충분 여유.
-ROLLOUT_TIMEOUT_SECONDS = 300
+ROLLOUT_TIMEOUT_SECONDS = 900
 
 
 async def _wait_for_rollout(app_name: str, namespace: str) -> bool:

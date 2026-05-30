@@ -9,14 +9,16 @@ import { createPortal } from "react-dom";
 import {
   Check,
   Copy,
+  Download,
   ExternalLink,
   Eye,
   EyeOff,
   Plus,
   Trash2,
+  Upload,
   X,
 } from "lucide-react";
-import { setEnvVars } from "../api/deploy.js";
+import { dbExportUrl, restoreDb, setEnvVars } from "../api/deploy.js";
 import { formatFull, relativeTime, repoSlug } from "../lib/format.js";
 import StatusBadge from "./StatusBadge.jsx";
 
@@ -99,6 +101,11 @@ export default function CommitListPanel({
             label="환경변수"
             count={envCount}
           />
+          <PanelTab
+            active={tab === "extra"}
+            onClick={() => setTab("extra")}
+            label="부가기능"
+          />
         </div>
 
         {/* Body — 탭별 분기 (sub-component) */}
@@ -106,6 +113,8 @@ export default function CommitListPanel({
           <CommitsBody commits={commits} />
         ) : tab === "builds" ? (
           <BuildsBody builds={builds} />
+        ) : tab === "extra" ? (
+          <ExtraBody />
         ) : (
           <EnvBody envVars={envVars || {}} onSaved={onEnvSaved} />
         )}
@@ -124,7 +133,9 @@ function PanelTab({ active, onClick, label, count }) {
       style={{ color: active ? "#dde0e4" : "#8a8f98", fontWeight: 510 }}
     >
       <span>{label}</span>
-      <span className="text-fg-4 text-[11px] tabular-nums">{count}</span>
+      {count !== undefined && (
+        <span className="text-fg-4 text-[11px] tabular-nums">{count}</span>
+      )}
       {active && (
         <span
           className="absolute left-2 right-2 -bottom-px h-[2px] rounded-t-sm"
@@ -771,6 +782,202 @@ function EnvBody({ envVars, onSaved }) {
           {saving ? "저장 중…" : "저장"}
         </button>
       </div>
+    </div>
+  );
+}
+
+// 부가기능 탭 본문 — 앱 부가 작업 모음. 지금은 DB 스냅샷(내보내기/복원).
+// 내보내기: mysqldump → .sql.gz 다운로드. 복원: 업로드 .sql(.gz) 적재 (파괴적, 2단계 확인).
+function ExtraBody() {
+  const [file, setFile] = useState(null);
+  const [confirming, setConfirming] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState(null); // { kind: "ok" | "err", text }
+
+  const onExport = () => {
+    // GET + cookie 인증 → 앵커 클릭으로 스트림 다운로드 (메모리 안 씀)
+    const a = document.createElement("a");
+    a.href = dbExportUrl();
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  };
+
+  const onPick = (e) => {
+    setFile(e.target.files?.[0] || null);
+    setConfirming(false);
+    setMsg(null);
+  };
+
+  const onRestore = async () => {
+    if (!file) return;
+    if (!confirming) {
+      setConfirming(true);
+      return;
+    }
+    setBusy(true);
+    setMsg(null);
+    try {
+      const res = await restoreDb(file);
+      setMsg({ kind: "ok", text: res.output ? res.output : "복원 완료" });
+    } catch (err) {
+      setMsg({ kind: "err", text: err.message || "복원 실패" });
+    } finally {
+      setBusy(false);
+      setConfirming(false);
+    }
+  };
+
+  return (
+    <div className="flex-1 min-h-0 overflow-auto scroll-thin px-5 py-5 flex flex-col gap-5">
+      {/* DB 스냅샷 */}
+      <section className="flex flex-col gap-3.5">
+        <div className="flex flex-col gap-1">
+          <span className="text-[13px] text-fg-1" style={{ fontWeight: 590, letterSpacing: -0.2 }}>
+            DB 스냅샷
+          </span>
+          <span className="text-[11.5px] text-fg-3" style={{ lineHeight: 1.5 }}>
+            현재 앱의 MySQL을 통째로 백업하거나, 백업 파일로 되돌립니다.
+          </span>
+        </div>
+
+        {/* 내보내기 */}
+        <div
+          className="group flex items-center gap-3.5 px-3.5 py-3 rounded-xl transition-colors"
+          style={{
+            border: "1px solid rgba(255,255,255,0.08)",
+            background: "rgba(255,255,255,0.02)",
+          }}
+        >
+          <div
+            className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0"
+            style={{ background: "rgba(129,139,224,0.12)" }}
+          >
+            <Download size={16} strokeWidth={1.8} style={{ color: "#aab2f0" }} />
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="text-[12.5px] text-fg-1" style={{ fontWeight: 540 }}>
+              내보내기
+            </div>
+            <div className="text-[11px] text-fg-4 mt-0.5">
+              전체 DB를 <span className="text-fg-3">.sql.gz</span>로 다운로드
+            </div>
+          </div>
+          <button
+            onClick={onExport}
+            className="px-3.5 py-1.5 rounded-lg text-[12px] shrink-0 transition-all"
+            style={{ background: "rgba(129,139,224,0.16)", color: "#aab2f0", fontWeight: 540 }}
+            onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(129,139,224,0.26)")}
+            onMouseLeave={(e) => (e.currentTarget.style.background = "rgba(129,139,224,0.16)")}
+          >
+            다운로드
+          </button>
+        </div>
+
+        {/* 복원 */}
+        <div
+          className="flex flex-col gap-3 px-3.5 py-3 rounded-xl"
+          style={{
+            border: "1px solid rgba(224,129,129,0.22)",
+            background: "rgba(224,129,129,0.03)",
+          }}
+        >
+          {/* 내보내기와 동일한 행 레이아웃 — 아이콘 · 텍스트 · 우측 액션 버튼 */}
+          <div className="flex items-center gap-3.5">
+            <div
+              className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0"
+              style={{ background: "rgba(224,129,129,0.12)" }}
+            >
+              <Upload size={16} strokeWidth={1.8} style={{ color: "#e0a0a0" }} />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="text-[12.5px] text-fg-1" style={{ fontWeight: 540 }}>
+                복원
+              </div>
+              <div className="text-[11px] text-fg-4 mt-0.5">
+                <span style={{ color: "#d99" }}>기존 데이터 덮어쓰기</span>
+                {" · "}
+                <span className="text-fg-3">.sql</span>
+                {" · "}
+                <span className="text-fg-3">.sql.gz</span>
+                {" 지원"}
+              </div>
+            </div>
+            {/* 파일 선택 전엔 '파일 선택', 선택 후엔 '복원 실행'이 같은 자리에서 활성화.
+                파일 선택 버튼은 내보내기의 '다운로드'와 동일한 보라 톤/굵기로 통일. */}
+            {!file ? (
+              <label
+                className="px-3.5 py-1.5 rounded-lg text-[12px] cursor-pointer shrink-0 transition-all"
+                style={{ background: "rgba(224,129,129,0.16)", color: "#e0a0a0", fontWeight: 540 }}
+                onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(224,129,129,0.26)")}
+                onMouseLeave={(e) => (e.currentTarget.style.background = "rgba(224,129,129,0.16)")}
+              >
+                파일 선택
+                <input
+                  type="file"
+                  accept=".sql,.gz,.sql.gz,application/sql,application/gzip"
+                  onChange={onPick}
+                  className="hidden"
+                  disabled={busy}
+                />
+              </label>
+            ) : (
+              <button
+                onClick={onRestore}
+                disabled={busy}
+                className="px-3.5 py-1.5 rounded-lg text-[12px] shrink-0 transition-all disabled:opacity-35 disabled:cursor-not-allowed"
+                style={{
+                  background: confirming ? "#8a2f2f" : "rgba(224,129,129,0.16)",
+                  color: confirming ? "#fff" : "#e0a0a0",
+                  fontWeight: 540,
+                }}
+              >
+                {busy
+                  ? "복원 중…"
+                  : confirming
+                    ? "한 번 더 클릭"
+                    : "복원 실행"}
+              </button>
+            )}
+          </div>
+
+          {/* 선택 파일명 + 지원 포맷 — 주변 본문과 동일한 글씨체(sans)로 통일 */}
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-[11px] truncate min-w-0" style={{ color: file ? "#c5cad2" : "#6b7280" }}>
+              {file ? file.name : "선택된 파일 없음"}
+            </span>
+            {file && (
+              <button
+                onClick={() => { setFile(null); setConfirming(false); setMsg(null); }}
+                className="text-[11px] text-fg-4 hover:text-fg-2 transition-colors shrink-0"
+                title="선택 취소"
+              >
+                ✕
+              </button>
+            )}
+          </div>
+
+          {confirming && !busy && (
+            <div className="text-[10.5px]" style={{ color: "#e0a0a0" }}>
+              ⚠ 되돌릴 수 없습니다. 버튼을 한 번 더 누르면 즉시 덮어씁니다.
+            </div>
+          )}
+
+          {msg && (
+            <pre
+              className="text-[11px] p-2.5 rounded-lg whitespace-pre-wrap break-words max-h-40 overflow-auto scroll-thin font-mono"
+              style={{
+                background: "#0a0a0b",
+                border: "1px solid rgba(255,255,255,0.06)",
+                color: msg.kind === "ok" ? "#9ad0a0" : "#e0a0a0",
+                lineHeight: 1.5,
+              }}
+            >
+              {msg.text}
+            </pre>
+          )}
+        </div>
+      </section>
     </div>
   );
 }

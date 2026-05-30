@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Eye, EyeOff, GitBranch, Plus, Trash2 } from "lucide-react";
-import { createDeploy, getEnvVars, listBuilds, RUNTIMES } from "../api/deploy.js";
+import { ChevronDown, Eye, EyeOff, GitBranch, Plus, Trash2 } from "lucide-react";
+import { createDeploy, getEnvVars, listBuilds, RUNTIMES, stageDump } from "../api/deploy.js";
 import { useAuth } from "../contexts/AuthContext.jsx";
 
 const RUNTIME_META = {
@@ -32,6 +32,10 @@ export default function DeployForm({ onRequestGuide }) {
   const [runtime, setRuntime] = useState(RUNTIMES[0]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState(null);
+  // 고급 옵션(캐시·환경변수·초기데이터) 접기/펼치기 — 기본 접힘. 진입장벽 낮추려 핵심만 위에 노출.
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  // 초기 DB 덤프 파일 — mysql 선택 + 첨부 시 배포 후 자동 복원 (stage → token → 자동 restore).
+  const [initDumpFile, setInitDumpFile] = useState(null);
   // 환경변수 row 편집 — 활동 패널 EnvBody와 동일 UI.
   // 재배포 시점에 기존 env 받아와 채움. 첫 배포면 빈 row 하나.
   const [envRows, setEnvRows] = useState([
@@ -173,6 +177,12 @@ export default function DeployForm({ onRequestGuide }) {
       envDict[k] = value;
     }
     try {
+      // 초기 DB 덤프가 있으면 먼저 stage → 토큰 발급 (mysql/postgres 선택 시에만 의미 있음).
+      let initDumpToken = null;
+      if ((dbType === "mysql" || dbType === "postgres") && initDumpFile) {
+        const staged = await stageDump(initDumpFile);
+        initDumpToken = staged.token;
+      }
       await createDeploy({
         repoUrl: repoUrl.trim(),
         // 첫 배포: 사용자가 입력한 이름 또는 자동 생성(서버 측). 두 번째부터는 user.app_name 재사용되니 보냄 의미 없음.
@@ -187,6 +197,7 @@ export default function DeployForm({ onRequestGuide }) {
           buildMode === "dockerfile" ? dockerfilePath.trim() || "Dockerfile" : "Dockerfile",
         projectPath: buildMode === "auto" ? projectPath.trim().replace(/^\/+|\/+$/g, "") : "",
         env: envDict,
+        initDumpToken,
       });
       // 첫 배포면 user.app_name이 백엔드에 박혔으니 AuthContext 갱신 — Dashboard에서 즉시 반영
       if (isFirstDeploy) await refresh();
@@ -361,41 +372,6 @@ export default function DeployForm({ onRequestGuide }) {
         </div>
       </div>
 
-      {/* Redis */}
-      <div className="mb-5">
-        <div
-          className="text-[10.5px] tracking-[0.08em] text-fg-3 mb-2.5"
-          style={{ fontWeight: 590 }}
-        >
-          캐시
-        </div>
-        <div className="flex gap-1.5">
-          {[
-            { id: false, name: "사용 안 함" },
-            { id: true, name: "Redis 7" },
-          ].map((r) => {
-            const active = useRedis === r.id;
-            return (
-              <button
-                key={String(r.id)}
-                type="button"
-                onClick={() => setUseRedis(r.id)}
-                className="flex-1 h-10 rounded-lg text-[13px] transition-colors flex items-center justify-center"
-                style={{
-                  background: active ? "rgba(129,139,224,0.12)" : "rgba(255,255,255,0.03)",
-                  border: `1px solid ${active ? "rgba(129,139,224,0.25)" : "rgba(255,255,255,0.06)"}`,
-                  color: active ? "#818be0" : "#8a8f98",
-                  fontWeight: 510,
-                }}
-                disabled={submitting}
-              >
-                {r.name}
-              </button>
-            );
-          })}
-        </div>
-      </div>
-
       {/* Build mode */}
       <div className="mb-6">
         <div className="flex gap-3">
@@ -559,89 +535,202 @@ export default function DeployForm({ onRequestGuide }) {
         )}
       </div>
 
-      {/* Env vars (선택) — 첫 배포면 Secret 새로 생성, 재배포면 위젯의 현재 env로 채워짐 + replace */}
+      {/* 고급 옵션 — 캐시 · 환경변수. 기본 접힘. 핵심 흐름(repo→runtime→배포)을 방해하지 않도록 맨 아래로. */}
       <div className="mb-6">
-        <div
-          className="text-[10.5px] tracking-[0.08em] text-fg-3 mb-2.5"
-          style={{ fontWeight: 590 }}
-        >
-          환경변수 (선택)
-        </div>
-        <div className="flex flex-col gap-1.5">
-          {envRows.map((row, i) => (
-            <div key={i} className="flex items-center gap-1.5">
-              <input
-                value={row.key}
-                onChange={(e) =>
-                  updateEnvRow(i, "key", e.target.value.toUpperCase())
-                }
-                placeholder="KEY"
-                spellCheck={false}
-                autoCapitalize="characters"
-                className="flex-1 min-w-0 px-2.5 py-1.5 rounded-md bg-transparent outline-none text-[12.5px] text-fg-1 placeholder:text-fg-4"
-                style={{
-                  border: "1px solid rgba(255,255,255,0.09)",
-                  fontWeight: 510,
-                }}
-                disabled={submitting}
-              />
-              <input
-                value={
-                  row.visible
-                    ? row.value
-                    : "•".repeat(Math.min(row.value.length, 12))
-                }
-                onChange={(e) =>
-                  row.visible && updateEnvRow(i, "value", e.target.value)
-                }
-                onFocus={() => !row.visible && toggleEnvVisible(i)}
-                readOnly={!row.visible}
-                placeholder="value"
-                spellCheck={false}
-                className="flex-1 min-w-0 px-2.5 py-1.5 rounded-md bg-transparent outline-none text-[12.5px] text-fg-1 placeholder:text-fg-4"
-                style={{
-                  border: "1px solid rgba(255,255,255,0.09)",
-                  fontWeight: 510,
-                }}
-                disabled={submitting}
-              />
-              <button
-                type="button"
-                onClick={() => toggleEnvVisible(i)}
-                className="w-7 h-7 rounded-md text-fg-4 hover:text-fg-1 hover:bg-white/[0.04] flex items-center justify-center shrink-0"
-                title={row.visible ? "숨기기" : "보기"}
-              >
-                {row.visible ? (
-                  <EyeOff size={12} strokeWidth={1.8} />
-                ) : (
-                  <Eye size={12} strokeWidth={1.8} />
-                )}
-              </button>
-              <button
-                type="button"
-                onClick={() => removeEnvRow(i)}
-                className="w-7 h-7 rounded-md text-fg-4 hover:text-red-300 hover:bg-white/[0.04] flex items-center justify-center shrink-0"
-                title="삭제"
-              >
-                <Trash2 size={12} strokeWidth={1.8} />
-              </button>
-            </div>
-          ))}
-        </div>
         <button
           type="button"
-          onClick={addEnvRow}
-          className="mt-3 flex items-center gap-1 px-2 py-1 rounded-md text-[11.5px] text-fg-3 hover:text-fg-1 hover:bg-white/[0.04]"
-          style={{ fontWeight: 510 }}
+          onClick={() => setShowAdvanced((v) => !v)}
+          className="w-full flex items-center gap-2 py-2 text-fg-3 hover:text-fg-1 transition-colors"
         >
-          <Plus size={11} strokeWidth={2} /> 변수 추가
+          <ChevronDown
+            size={14}
+            strokeWidth={2}
+            className="transition-transform"
+            style={{ transform: showAdvanced ? "rotate(0deg)" : "rotate(-90deg)" }}
+          />
+          <span className="text-[12px]" style={{ fontWeight: 540 }}>
+            고급 옵션
+          </span>
+          <span className="text-[11px] text-fg-4" style={{ fontWeight: 450 }}>
+            캐시 · 환경변수
+          </span>
         </button>
-        <p
-          className="text-[11px] text-fg-4 mt-2"
-          style={{ fontWeight: 450, lineHeight: 1.55 }}
-        >
-          빈 KEY row는 무시돼요. 빈 값으로 두면 환경변수 변경 없이 빌드만 트리거.
-        </p>
+
+        {showAdvanced && (
+          <div
+            className="mt-3 flex flex-col gap-6 px-4 py-4 rounded-xl"
+            style={{
+              border: "1px solid rgba(255,255,255,0.07)",
+              background: "rgba(255,255,255,0.015)",
+            }}
+          >
+            {/* 캐시 */}
+            <div>
+              <div
+                className="text-[10.5px] tracking-[0.08em] text-fg-3 mb-2.5"
+                style={{ fontWeight: 590 }}
+              >
+                캐시
+              </div>
+              <div className="flex gap-1.5">
+                {[
+                  { id: false, name: "사용 안 함" },
+                  { id: true, name: "Redis 7" },
+                ].map((r) => {
+                  const active = useRedis === r.id;
+                  return (
+                    <button
+                      key={String(r.id)}
+                      type="button"
+                      onClick={() => setUseRedis(r.id)}
+                      className="flex-1 h-10 rounded-lg text-[13px] transition-colors flex items-center justify-center"
+                      style={{
+                        background: active ? "rgba(129,139,224,0.12)" : "rgba(255,255,255,0.03)",
+                        border: `1px solid ${active ? "rgba(129,139,224,0.25)" : "rgba(255,255,255,0.06)"}`,
+                        color: active ? "#818be0" : "#8a8f98",
+                        fontWeight: 510,
+                      }}
+                      disabled={submitting}
+                    >
+                      {r.name}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* 환경변수 */}
+            <div>
+              <div
+                className="text-[10.5px] tracking-[0.08em] text-fg-3 mb-2.5"
+                style={{ fontWeight: 590 }}
+              >
+                환경변수 (선택)
+              </div>
+              <div className="flex flex-col gap-1.5">
+                {envRows.map((row, i) => (
+                  <div key={i} className="flex items-center gap-1.5">
+                    <input
+                      value={row.key}
+                      onChange={(e) =>
+                        updateEnvRow(i, "key", e.target.value.toUpperCase())
+                      }
+                      placeholder="KEY"
+                      spellCheck={false}
+                      autoCapitalize="characters"
+                      className="flex-1 min-w-0 px-2.5 py-1.5 rounded-md bg-transparent outline-none text-[12.5px] text-fg-1 placeholder:text-fg-4"
+                      style={{
+                        border: "1px solid rgba(255,255,255,0.09)",
+                        fontWeight: 510,
+                      }}
+                      disabled={submitting}
+                    />
+                    <input
+                      value={
+                        row.visible
+                          ? row.value
+                          : "•".repeat(Math.min(row.value.length, 12))
+                      }
+                      onChange={(e) =>
+                        row.visible && updateEnvRow(i, "value", e.target.value)
+                      }
+                      onFocus={() => !row.visible && toggleEnvVisible(i)}
+                      readOnly={!row.visible}
+                      placeholder="value"
+                      spellCheck={false}
+                      className="flex-1 min-w-0 px-2.5 py-1.5 rounded-md bg-transparent outline-none text-[12.5px] text-fg-1 placeholder:text-fg-4"
+                      style={{
+                        border: "1px solid rgba(255,255,255,0.09)",
+                        fontWeight: 510,
+                      }}
+                      disabled={submitting}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => toggleEnvVisible(i)}
+                      className="w-7 h-7 rounded-md text-fg-4 hover:text-fg-1 hover:bg-white/[0.04] flex items-center justify-center shrink-0"
+                      title={row.visible ? "숨기기" : "보기"}
+                    >
+                      {row.visible ? (
+                        <EyeOff size={12} strokeWidth={1.8} />
+                      ) : (
+                        <Eye size={12} strokeWidth={1.8} />
+                      )}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => removeEnvRow(i)}
+                      className="w-7 h-7 rounded-md text-fg-4 hover:text-red-300 hover:bg-white/[0.04] flex items-center justify-center shrink-0"
+                      title="삭제"
+                    >
+                      <Trash2 size={12} strokeWidth={1.8} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+              <button
+                type="button"
+                onClick={addEnvRow}
+                className="mt-3 flex items-center gap-1 px-2 py-1 rounded-md text-[11.5px] text-fg-3 hover:text-fg-1 hover:bg-white/[0.04]"
+                style={{ fontWeight: 510 }}
+              >
+                <Plus size={11} strokeWidth={2} /> 변수 추가
+              </button>
+              <p
+                className="text-[11px] text-fg-4 mt-2"
+                style={{ fontWeight: 450, lineHeight: 1.55 }}
+              >
+                빈 KEY row는 무시돼요. 빈 값으로 두면 환경변수 변경 없이 빌드만 트리거.
+              </p>
+            </div>
+
+            {/* 초기 데이터 — DB(mysql/postgres) 선택 시에만. 배포 후 DB Ready되면 자동 복원 (마이그레이션용). */}
+            {(dbType === "mysql" || dbType === "postgres") && (
+              <div>
+                <div
+                  className="text-[10.5px] tracking-[0.08em] text-fg-3 mb-2.5"
+                  style={{ fontWeight: 590 }}
+                >
+                  초기 데이터 (선택)
+                </div>
+                <div className="flex items-center gap-2.5">
+                  <label
+                    className="px-3 py-1.5 rounded-lg text-[12px] cursor-pointer shrink-0 transition-colors"
+                    style={{ background: "rgba(255,255,255,0.05)", color: "#dde0e4", fontWeight: 510, border: "1px solid rgba(255,255,255,0.08)" }}
+                  >
+                    파일 선택
+                    <input
+                      type="file"
+                      accept=".sql,.gz,.sql.gz,application/sql,application/gzip"
+                      onChange={(e) => setInitDumpFile(e.target.files?.[0] || null)}
+                      className="hidden"
+                      disabled={submitting}
+                    />
+                  </label>
+                  <span className="text-[11px] truncate min-w-0" style={{ color: initDumpFile ? "#c5cad2" : "#6b7280" }}>
+                    {initDumpFile ? initDumpFile.name : "선택된 파일 없음"}
+                  </span>
+                  {initDumpFile && (
+                    <button
+                      type="button"
+                      onClick={() => setInitDumpFile(null)}
+                      className="text-[11px] text-fg-4 hover:text-fg-2 transition-colors shrink-0"
+                      title="선택 취소"
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
+                <p
+                  className="text-[11px] text-fg-4 mt-2"
+                  style={{ fontWeight: 450, lineHeight: 1.55 }}
+                >
+                  .sql · .sql.gz 덤프를 올리면 배포 후 MySQL에 자동 복원돼요. 기존 데이터를 덮어씁니다.
+                </p>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Deploy button */}

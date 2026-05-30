@@ -15,6 +15,8 @@ def tenant(
     lim_mem: int,
     dockerconfigjson_b64: str,
 ) -> list[dict]:
+    # compute_quota()는 정확히 이 4개 quota 키만 반환 — 호출 측 **quota splat이
+    # 컨트랙트 검사를 받음. 키가 늘거나 이름이 바뀌면 silent no-op이 아니라 TypeError로 터진다.
     return render_all(
         "tenant.yaml.j2",
         tenant_id=tenant_id,

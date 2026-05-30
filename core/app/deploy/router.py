@@ -1,13 +1,15 @@
-from fastapi import APIRouter, Depends, HTTPException, WebSocket
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, WebSocket
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 import asyncio
 import uuid
+from datetime import datetime, timezone
 
 from app.auth.deps import get_current_user
 from app.auth.model import User
 from app.auth import service as auth_service
-from app.deploy import env, logs, metrics, service, terminal
+from app.deploy import env, logs, metrics, service, snapshots, terminal
 from app.deploy.model import Build
 from app.deploy.schemas import (
     DeployRequest,
@@ -68,6 +70,7 @@ async def create_deploy(
             dockerfile_path=req.dockerfile_path,
             project_path=req.project_path,
             env_vars=req.env,
+            init_dump_token=req.init_dump_token,
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -260,6 +263,67 @@ def list_recent_commits(
         return []
     latest = builds[0]
     return service.fetch_recent_commits(latest.repo_url, latest.branch)
+
+
+# DB 스냅샷 추출 — 현재 앱 MySQL을 mysqldump → .sql.gz 다운로드 스트림.
+# /{build_id} GET 핸들러보다 위에 등록해야 "db"가 build_id로 잡히지 않음.
+@router.get("/db/export")
+async def db_export(user: User = Depends(get_current_user)):
+    if not user.app_name:
+        raise HTTPException(status_code=400, detail="배포된 앱이 없습니다")
+    tenant_id = f"tenant-{user.id.hex[:8]}"
+    try:
+        await snapshots.ensure_db(tenant_id)             # 스트리밍 시작 전 검증
+    except snapshots.SnapshotError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    ts = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    filename = f"{user.app_name}-{ts}.sql.gz"
+    return StreamingResponse(
+        snapshots.export_stream(tenant_id),
+        media_type="application/gzip",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+# 초기 데이터 stage — 첫 배포 시 함께 올릴 .sql(.gz)을 임시 보관하고 토큰 반환.
+# 배포 요청(POST /deploy)의 init_dump_token에 이 값을 넣으면 mysql Ready 후 자동 복원.
+@router.post("/db/stage-dump")
+async def db_stage_dump(
+    file: UploadFile = File(...),
+    user: User = Depends(get_current_user),
+) -> dict:
+    async def _chunks():
+        while True:
+            data = await file.read(256 * 1024)
+            if not data:
+                break
+            yield data
+
+    token = await snapshots.stage_dump(_chunks())
+    return {"token": token}
+
+
+# DB 스냅샷 복원 — 업로드한 .sql(.gz)을 현재 앱 MySQL에 적재. 파괴적(기존 데이터 덮어씀).
+@router.post("/db/restore")
+async def db_restore(
+    file: UploadFile = File(...),
+    user: User = Depends(get_current_user),
+):
+    if not user.app_name:
+        raise HTTPException(status_code=400, detail="배포된 앱이 없습니다")
+    tenant_id = f"tenant-{user.id.hex[:8]}"
+
+    async def _chunks():
+        while True:
+            data = await file.read(256 * 1024)
+            if not data:
+                break
+            yield data
+
+    try:
+        return await snapshots.restore(tenant_id, _chunks())
+    except snapshots.SnapshotError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 # build_id 단건 상태 조회 — 본인 빌드만 (다른 user의 build_id는 404로 마스킹)

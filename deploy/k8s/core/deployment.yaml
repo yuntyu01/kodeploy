@@ -25,9 +25,11 @@ spec:
             requests:                                    # 스케줄러 보장값 — 가벼운 FastAPI 백엔드
               cpu: 100m                                  # 0.1 vCPU
               memory: 256Mi
+              ephemeral-storage: 256Mi                   # 스냅샷 stage용 /tmp 보장값
             limits:                                      # 런타임 상한 (초과 시 throttle / OOMKill)
               cpu: 500m
               memory: 512Mi
+              ephemeral-storage: 2Gi                     # 초과 시 core evict — 거대 덤프가 노드 디스크 잠식 방지(최후 안전판)
           envFrom:
             - configMapRef:
                 name: kodeploy-core-env                  # 환경변수 묶음 일괄 주입

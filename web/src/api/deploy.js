@@ -39,6 +39,7 @@ export function createDeploy({
   dockerfilePath = "Dockerfile",
   projectPath = "",
   env = {},
+  initDumpToken = null,
 }) {
   return request("/deploy", {
     method: "POST",
@@ -54,8 +55,31 @@ export function createDeploy({
       dockerfile_path: dockerfilePath || "Dockerfile",
       project_path: projectPath || "",            // auto 모드 — 서브디렉토리. 빈 값=repo root
       env,                                        // 첫 배포: Secret 생성. 재배포: replace. 빈 dict면 backend가 무시.
+      init_dump_token: initDumpToken,             // 초기 DB .sql(.gz) stage 토큰. mysql Ready 후 자동 복원.
     }),
   });
+}
+
+// 초기 DB 덤프를 배포 전에 임시 업로드 → 토큰 반환. createDeploy의 initDumpToken으로 전달.
+export async function stageDump(file) {
+  const form = new FormData();
+  form.append("file", file);
+  const res = await fetch(`${API_BASE}/deploy/db/stage-dump`, {
+    method: "POST",
+    credentials: "include",
+    body: form,
+  });
+  if (!res.ok) {
+    let detail = res.statusText;
+    try {
+      const body = await res.json();
+      detail = body.detail || JSON.stringify(body);
+    } catch {}
+    const err = new Error(`${res.status} ${detail}`);
+    err.status = res.status;
+    throw err;
+  }
+  return res.json(); // { token }
 }
 
 export function getBuild(buildId) {
@@ -105,4 +129,32 @@ export function getAppLogs() {
 // 앱 메트릭 (VictoriaMetrics 프록시) — range: "15m"|"1h"|"6h"|"1d"|"3d"|"7d"|"14d"|"30d"
 export function getAppMetrics(range = "1h") {
   return request(`/deploy/app/metrics?range=${encodeURIComponent(range)}`);
+}
+
+// DB 스냅샷 다운로드 URL — 현재 앱 MySQL을 mysqldump → .sql.gz (cookie 인증).
+// 앵커/창 이동으로 직접 다운로드(스트림 → 디스크, 메모리 안 씀).
+export function dbExportUrl() {
+  return `${API_BASE}/deploy/db/export`;
+}
+
+// 업로드한 .sql(.gz)을 현재 앱 MySQL에 적재 (파괴적 — 기존 데이터 덮어씀). multipart 전송.
+export async function restoreDb(file) {
+  const form = new FormData();
+  form.append("file", file);
+  const res = await fetch(`${API_BASE}/deploy/db/restore`, {
+    method: "POST",
+    credentials: "include",
+    body: form, // Content-Type은 브라우저가 boundary 포함해 자동 설정
+  });
+  if (!res.ok) {
+    let detail = res.statusText;
+    try {
+      const body = await res.json();
+      detail = body.detail || JSON.stringify(body);
+    } catch {}
+    const err = new Error(`${res.status} ${detail}`);
+    err.status = res.status;
+    throw err;
+  }
+  return res.json();
 }
