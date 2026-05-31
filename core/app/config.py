@@ -30,6 +30,21 @@ GHCR_USER = os.getenv("GHCR_USER", "")
 BUILDKIT_IMAGE = "moby/buildkit:rootless"           # rootless: privileged 권한 없이 빌드 가능. 거의 안 바뀌는 시스템 도구
 BUILD_TIMEOUT_SECONDS = int(os.getenv("BUILD_TIMEOUT_SECONDS", "600"))  # 운영 튜닝 가능
 
+# --- Cloudflare R2 (오브젝트 스토리지, 레벨2 = 앱당 버킷 + bucket-scoped 토큰) ---
+# 시크릿이라 env 주입. 비어 있으면 storage 토글 비활성(r2.is_configured()=False).
+CF_API_TOKEN = os.getenv("CF_API_TOKEN", "")        # 버킷 생성/삭제 + 토큰 발급 권한 가진 CF 토큰
+CF_ACCOUNT_ID = os.getenv("CF_ACCOUNT_ID", "")
+# R2 S3 API endpoint — account 단위 고정 형식. 명시 override 없으면 account id에서 파생.
+R2_S3_ENDPOINT = os.getenv("R2_S3_ENDPOINT") or (
+    f"https://{CF_ACCOUNT_ID}.r2.cloudflarestorage.com" if CF_ACCOUNT_ID else ""
+)
+# R2 권한그룹 id 목록(쉼표 구분). 비우면 r2.py가 /tokens/permission_groups에서 이름으로 자동 탐색.
+CF_R2_PERMISSION_GROUP_IDS = [
+    g.strip()
+    for g in os.getenv("CF_R2_PERMISSION_GROUP_IDS", "").split(",")
+    if g.strip()
+]
+
 # --- CORS ---
 # 쉼표로 구분된 허용 origin 목록. 환경별 다름 (dev=localhost, 운영=Cloudflare Pages 도메인).
 # Cookie 인증 쓰니까 allow_credentials=True와 함께 와일드카드(*) 금지 — 명시적 origin만.

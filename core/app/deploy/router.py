@@ -36,6 +36,7 @@ def _to_status(build: Build) -> StatusResponse:
         port=build.port,
         db_type=build.db_type or "none",
         use_redis=build.use_redis or False,
+        use_storage=build.use_storage or False,
         kind=build.kind or "build",
         dockerfile_path=build.dockerfile_path or "Dockerfile",
         project_path=build.project_path or "",
@@ -66,6 +67,7 @@ async def create_deploy(
             port=req.port,
             db_type=req.db_type,
             use_redis=req.use_redis,
+            use_storage=req.use_storage,
             build_mode=req.build_mode,
             dockerfile_path=req.dockerfile_path,
             project_path=req.project_path,
@@ -144,6 +146,7 @@ async def env_put(
         user_id=user.id,
         db_type=latest.db_type if latest else "none",
         use_redis=latest.use_redis if latest else False,
+        use_storage=latest.use_storage if latest else False,
         kind="env_change",
         status="applied",
         analysis=", ".join(entries),  # "KEY (추가), KEY2 (수정), KEY3 (삭제)"

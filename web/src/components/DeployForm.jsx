@@ -29,6 +29,7 @@ export default function DeployForm({ onRequestGuide }) {
   const [projectPath, setProjectPath] = useState("");
   const [dbType, setDbType] = useState("none");
   const [useRedis, setUseRedis] = useState(false);
+  const [useStorage, setUseStorage] = useState(false);
   const [runtime, setRuntime] = useState(RUNTIMES[0]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState(null);
@@ -63,6 +64,7 @@ export default function DeployForm({ onRequestGuide }) {
           setRuntime(RUNTIMES.includes(latest.runtime) ? latest.runtime : RUNTIMES[0]);
           setDbType(latest.db_type || "none");
           setUseRedis(latest.use_redis || false);
+          setUseStorage(latest.use_storage || false);
           setBuildMode(latest.build_mode || "auto");
           if (latest.build_mode === "dockerfile") {
             setDockerfilePath(latest.dockerfile_path || "Dockerfile");
@@ -192,6 +194,7 @@ export default function DeployForm({ onRequestGuide }) {
         runtime,
         dbType,
         useRedis,
+        useStorage,
         buildMode,
         dockerfilePath:
           buildMode === "dockerfile" ? dockerfilePath.trim() || "Dockerfile" : "Dockerfile",
@@ -593,6 +596,41 @@ export default function DeployForm({ onRequestGuide }) {
                       disabled={submitting}
                     >
                       {r.name}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* 오브젝트 스토리지 — R2 앱당 버킷. 켜면 S3 호환 자격증명이 앱에 자동 주입됨. */}
+            <div>
+              <div
+                className="text-[10.5px] tracking-[0.08em] text-fg-3 mb-2.5"
+                style={{ fontWeight: 590 }}
+              >
+                오브젝트 스토리지
+              </div>
+              <div className="flex gap-1.5">
+                {[
+                  { id: false, name: "사용 안 함" },
+                  { id: true, name: "R2 (S3 호환)" },
+                ].map((s) => {
+                  const active = useStorage === s.id;
+                  return (
+                    <button
+                      key={String(s.id)}
+                      type="button"
+                      onClick={() => setUseStorage(s.id)}
+                      className="flex-1 h-10 rounded-lg text-[13px] transition-colors flex items-center justify-center"
+                      style={{
+                        background: active ? "rgba(129,139,224,0.12)" : "rgba(255,255,255,0.03)",
+                        border: `1px solid ${active ? "rgba(129,139,224,0.25)" : "rgba(255,255,255,0.06)"}`,
+                        color: active ? "#818be0" : "#8a8f98",
+                        fontWeight: 510,
+                      }}
+                      disabled={submitting}
+                    >
+                      {s.name}
                     </button>
                   );
                 })}

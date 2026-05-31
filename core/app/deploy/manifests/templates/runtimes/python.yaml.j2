@@ -51,6 +51,9 @@ spec:
             - secretRef:
                 name: postgres-secret                    # db_type=postgres일 때 자동 주입 (mysql과 동일 키, DB_HOST만 다름)
                 optional: true                           # 둘 다 있으면 envFrom 순서상 postgres가 우선 (한 번에 하나 정책)
+            - secretRef:
+                name: r2-secret                          # use_storage=true일 때 자동 주입 (S3_*/AWS_* 자격증명)
+                optional: true                           # storage 미사용이면 Secret 없음 — optional이라 안전
           env:                                           # 플랫폼 주입값 — envFrom과 충돌 시 이쪽이 이김
             - name: PYTHONUNBUFFERED
               value: "1"                                 # stdout 즉시 flush (kubectl logs 실시간 반영)

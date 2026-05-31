@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 
 from app import config
 from app.auth.model import User
-from app.deploy import crud, env as env_module, manifests, runtimes, snapshots
+from app.deploy import crud, env as env_module, manifests, r2, runtimes, snapshots
 from app.deploy.model import Build
 from app.shared import k8s
 from app.shared.db import SessionLocal
@@ -263,6 +263,14 @@ def delete_app(db: Session, user: User) -> None:
 
     tenant_id = f"tenant-{user.id.hex[:8]}"
 
+    # R2는 외부(CF) 리소스라 ns 삭제로 정리 안 됨 — ns 지우기 전에 토큰 id를 읽어둔다.
+    app_name = user.app_name
+    r2_token_id = None
+    try:
+        r2_token_id = _read_r2_token_id(tenant_id)
+    except ApiException:
+        pass  # 정리 정보 조회 실패가 앱 삭제를 막지 않게
+
     # ns 삭제는 비동기 — terminating 상태로 들어가고 finalizer 정리 끝나면 사라짐.
     # 사용자에겐 즉시 응답하고 다음 배포 시점에 대기.
     try:
@@ -270,6 +278,16 @@ def delete_app(db: Session, user: User) -> None:
     except ApiException as e:
         if e.status != 404:
             raise
+
+    # R2 토큰 revoke + 버킷 삭제 (앱 완전 삭제이므로 데이터도 정리). best-effort.
+    if r2_token_id or app_name:
+        try:
+            r2.deprovision(
+                r2_token_id,
+                bucket=r2.bucket_name(app_name) if app_name else None,
+            )
+        except r2.R2Error:
+            pass  # 외부 정리 실패가 DB/응답을 막지 않게 — orphan은 sweeper(백로그)
 
     # DB: builds 히스토리 + user.app_name 리셋. 다음 배포는 첫 배포 흐름으로 진입.
     db.query(Build).filter(Build.user_id == user.id).delete()
@@ -362,12 +380,16 @@ async def start_build(
     port: int = 80,
     db_type: str = "none",
     use_redis: bool = False,
+    use_storage: bool = False,
     build_mode: str = "dockerfile",
     dockerfile_path: str = "Dockerfile",
     project_path: str = "",
     env_vars: dict[str, str] | None = None,
     init_dump_token: str | None = None,
 ) -> Build:
+    # storage 토글은 R2 설정이 갖춰졌을 때만 — 빌드 시작 전에 친절히 거절.
+    if use_storage and not r2.is_configured():
+        raise ValueError("오브젝트 스토리지(R2)가 서버에 설정되지 않았습니다")
     _cancel_stale_builds(db, user.id)
     repo_url = _normalize_repo_url(repo_url)
     build_id = uuid.uuid4().hex[:8]
@@ -385,6 +407,7 @@ async def start_build(
         user_id=user.id,
         db_type=db_type,
         use_redis=use_redis,
+        use_storage=use_storage,
         build_mode=build_mode,
         dockerfile_path=dockerfile_path,
         project_path=project_path.strip("/"),  # 앞뒤 슬래시 정리 — manifest에서 ${PROJECT_PATH:+/$PROJECT_PATH}로 결합
@@ -516,6 +539,7 @@ async def _run_build(
             # PVC/Secret은 보존 — 같은 db로 다시 토글 시 데이터 자연 복원.
             _apply_db(build, build.db_type or "none")
             _apply_redis(build)
+            _apply_storage(build)
 
             # 초기 데이터 자동 복원 — 폼에서 .sql(.gz) 첨부 + DB(mysql/postgres) 선택 시.
             # 앱이 채워진 DB 위에서 시작하도록 Deployment apply 전에 DB Ready 대기 후 복원.
@@ -804,6 +828,62 @@ def _apply_redis(build: Build) -> None:
             except ApiException as e:
                 if e.status != 404:
                     raise
+
+
+# 현재 ns의 r2-secret 주석에서 R2 토큰 id 조회 (없으면 None). 정리/회전 시 사용.
+def _read_r2_token_id(ns: str) -> str | None:
+    try:
+        secret = k8s.core_v1().read_namespaced_secret(name="r2-secret", namespace=ns)
+    except ApiException as e:
+        if e.status == 404:
+            return None
+        raise
+    annotations = (secret.metadata.annotations or {}) if secret.metadata else {}
+    return annotations.get("kodeploy.com/r2-token-id")
+
+
+# R2 스토리지 토글 — mysql/redis와 같은 철학이되 외부(CF) 리소스라 흐름이 다르다.
+# ON  : CF API로 버킷(idempotent) + 새 bucket-scoped 토큰 발급 → r2-secret 생성/교체.
+#       재배포마다 토큰을 새로 발급하고 옛 토큰은 revoke (자격증명 회전).
+# OFF : r2-secret 삭제 + 토큰 revoke. 버킷(데이터)은 보존 (mysql PVC 보존과 동일 정책).
+def _apply_storage(build: Build) -> None:
+    if build.user_id is None:
+        return
+    core = k8s.core_v1()
+    ns = build.tenant_id
+    old_token_id = _read_r2_token_id(ns)
+
+    if build.use_storage:
+        # CF API로 버킷+토큰 프로비저닝 (실패 시 R2Error → 배포 실패로 표면화).
+        env_vars, token_id = r2.provision(build.app_name)
+        docs = manifests.storage(
+            tenant_id=ns,
+            user_id=build.user_id_str,
+            env=env_vars,
+            token_id=token_id,
+        )
+        for doc in docs:  # Secret 1개
+            try:
+                core.read_namespaced_secret(name="r2-secret", namespace=ns)
+                core.replace_namespaced_secret(
+                    name="r2-secret", namespace=ns, body=doc
+                )
+            except ApiException as e:
+                if e.status != 404:
+                    raise
+                core.create_namespaced_secret(namespace=ns, body=doc)
+        # 자격증명 회전 — 옛 토큰이 새 것과 다르면 revoke (버킷은 그대로).
+        if old_token_id and old_token_id != token_id:
+            r2.deprovision(old_token_id, bucket=None)
+    else:
+        # 토글 off — Secret 제거 + 토큰 revoke. 버킷(데이터)은 보존.
+        try:
+            core.delete_namespaced_secret(name="r2-secret", namespace=ns)
+        except ApiException as e:
+            if e.status != 404:
+                raise
+        if old_token_id:
+            r2.deprovision(old_token_id, bucket=None)
 
 
 def _apply_deployment(build: Build) -> None:

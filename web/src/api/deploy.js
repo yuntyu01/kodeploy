@@ -35,6 +35,7 @@ export function createDeploy({
   name,
   dbType = "none",
   useRedis = false,
+  useStorage = false,
   buildMode = "dockerfile",
   dockerfilePath = "Dockerfile",
   projectPath = "",
@@ -51,6 +52,7 @@ export function createDeploy({
       name: name?.trim() || null,
       db_type: dbType,
       use_redis: useRedis,
+      use_storage: useStorage,                    // R2 오브젝트 스토리지(앱당 버킷) 토글
       build_mode: buildMode,
       dockerfile_path: dockerfilePath || "Dockerfile",
       project_path: projectPath || "",            // auto 모드 — 서브디렉토리. 빈 값=repo root

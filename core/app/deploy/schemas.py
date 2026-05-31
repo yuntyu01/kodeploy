@@ -21,6 +21,7 @@ class DeployRequest(BaseModel):
     name: str | None = None                              # K8s 리소스 이름 + 서브도메인. None이면 서버가 app-<hex8> 자동 생성
     db_type: DbType = "none"                             # "none" | "mysql" | "postgres"
     use_redis: bool = False
+    use_storage: bool = False                            # R2 오브젝트 스토리지(앱당 버킷 + S3 자격증명 주입)
     build_mode: BuildMode = "dockerfile"                 # "dockerfile"=유저 Dockerfile / "auto"=nixpacks 자동 생성
     dockerfile_path: str = "Dockerfile"                  # dockerfile 모드일 때 — "Dockerfile.multi", "subdir/Dockerfile" 등
     project_path: str = ""                               # auto 모드일 때 — 서브디렉토리 (예: "backend"). 빈 값=repo root
@@ -58,6 +59,7 @@ class StatusResponse(BaseModel):
     port: int = 80
     db_type: str = "none"                                # "none" | "mysql" | "postgres"
     use_redis: bool = False
+    use_storage: bool = False                            # R2 오브젝트 스토리지 토글
     kind: str = "build"                                  # "build" | "env_change". 옛 row는 기본 "build".
     dockerfile_path: str = "Dockerfile"
     project_path: str = ""
