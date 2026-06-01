@@ -38,6 +38,13 @@ class DeployResponse(BaseModel):
     runtime: str
 
 
+# POST /deploy/app/db/query 입력 — DB 콘솔에서 실행할 단발 SQL.
+# offset: SELECT/WITH 쿼리의 페이지네이션 시작 위치(다음 500개 보기). 그 외 쿼리는 무시.
+class DbQueryRequest(BaseModel):
+    sql: str
+    offset: int = 0
+
+
 # GET/PUT /deploy/env 입출력 — 전체 dict를 통째로 다룸 (부분 patch 안 함).
 class EnvVarsRequest(BaseModel):
     env: dict[str, str]

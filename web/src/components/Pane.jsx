@@ -16,7 +16,7 @@ import {
 import MonitoringPanel from "./panels/MonitoringPanel.jsx";
 import RuntimeLogPanel from "./panels/RuntimeLogPanel.jsx";
 import TerminalPanel from "./panels/TerminalPanel.jsx";
-import DbTerminalPanel from "./panels/DbTerminalPanel.jsx";
+import DbConsolePanel from "./panels/DbConsolePanel.jsx";
 
 const PANEL_TYPES = [
   {
@@ -269,7 +269,7 @@ function TerminalSelector({ compact }) {
   const [target, setTarget] = useState(null);
 
   if (target === "app") return <TerminalPanel />;
-  if (target === "db") return <DbTerminalPanel />;
+  if (target === "db") return <DbConsolePanel />;
 
   const cardSize = compact ? "w-[160px] h-[160px]" : "w-[200px] h-[200px]";
   const iconSize = compact ? 30 : 36;
@@ -280,7 +280,7 @@ function TerminalSelector({ compact }) {
     <div className="flex-1 min-h-0 flex items-center justify-center gap-3 p-6">
       {[
         { id: "app", icon: Server, label: "WAS", sub: "앱 Pod 쉘 접속", color: "#a4abee" },
-        { id: "db", icon: Database, label: "DB", sub: "mysql · psql 쉘", color: "#7fb6db" },
+        { id: "db", icon: Database, label: "DB", sub: "쿼리 콘솔 · 쉘", color: "#7fb6db" },
       ].map((opt) => {
         const Icon = opt.icon;
         return (

@@ -9,9 +9,10 @@ from datetime import datetime, timezone
 from app.auth.deps import get_current_user
 from app.auth.model import User
 from app.auth import service as auth_service
-from app.deploy import env, logs, metrics, service, snapshots, terminal
+from app.deploy import dbquery, env, logs, metrics, service, snapshots, terminal
 from app.deploy.model import Build
 from app.deploy.schemas import (
+    DbQueryRequest,
     DeployRequest,
     DeployResponse,
     EnvVarsRequest,
@@ -237,6 +238,23 @@ async def app_db_terminal(ws: WebSocket):
     finally:
         db.close()
     await terminal.handle_db_terminal(ws, tenant_id)
+
+
+# DB 콘솔 — 단발 SQL 실행 후 구조화된 결과(columns/rows) 반환. 표 UI가 렌더.
+# raw 터미널(/app/db-terminal)과 같은 exec 인프라를 쓰되 결과를 JSON으로 파싱해 돌려줌.
+# /{build_id} 핸들러보다 위에 등록해야 "app"이 build_id로 잡히지 않음.
+@router.post("/app/db/query")
+async def db_query(
+    req: DbQueryRequest,
+    user: User = Depends(get_current_user),
+) -> dict:
+    if not user.app_name:
+        raise HTTPException(status_code=400, detail="배포된 앱이 없습니다")
+    tenant_id = f"tenant-{user.id.hex[:8]}"
+    try:
+        return await dbquery.run_query(tenant_id, req.sql, offset=req.offset)
+    except dbquery.QueryError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 # 앱 완전 삭제 — K8s 리소스 + PVC + builds + user.app_name 리셋.

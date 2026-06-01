@@ -1,0 +1,216 @@
+"""DB 콘솔 — 단발성 SQL 실행 후 구조화된 결과(columns/rows)를 반환.
+
+raw 터미널(terminal.py)은 mysql/psql CLI에 직접 붙어 ASCII 표를 그리지만, 패널 폭에
+따라 깨진다. 여기서는 CLI를 **기계가독 포맷**으로 돌려 백엔드가 파싱한 뒤 JSON으로 주고,
+프론트가 HTML 표로 렌더한다. 격리/네트워크 모델은 그대로 — snapshots와 동일하게 DB 파드에
+exec하고, 새 드라이버나 core→DB 직결 경로를 만들지 않는다.
+
+- mysql : `mysql --batch`     → TAB 구분(테두리 없음), 첫 줄이 컬럼명.
+- pg    : `psql --csv`        → CSV(첫 줄이 컬럼명).
+
+SQL은 `bash -c` 안에서 `-e`/`-c` 인자로 넘기되 shlex.quote로 감싸 셸 이스케이프를
+회피한다(snapshots._dump_cmd와 동일 철학). 매 호출이 stateless exec이라 트랜잭션/USE
+같은 세션 상태는 유지되지 않는다(그게 필요하면 raw 터미널 사용).
+"""
+
+import csv
+import io
+import json
+import re
+import shlex
+import time
+
+import aiohttp
+from kubernetes_asyncio import client
+from kubernetes_asyncio.stream import WsApiClient
+
+from app.deploy.snapshots import _detect_target, _ensure_loaded
+
+# 한 페이지에 받아올 행 수. SELECT/WITH 쿼리는 OFFSET 페이지네이션으로 다음 페이지를 더
+# 받을 수 있고, 그 외(SHOW/INSERT 등)는 감쌀 수 없어 이 수에서 잘리고 truncated로 알린다.
+PAGE_SIZE = 500
+# SQL 길이 상한 — 거대 입력 차단(거대 덤프는 restore 경로로).
+MAX_SQL_LENGTH = 20000
+
+# 선행 주석(-- ... / /* ... */)·공백 — 첫 키워드 판별 전에 제거.
+_LEADING_NOISE = re.compile(r"(?:--[^\n]*\n|/\*.*?\*/|\s)*", re.DOTALL)
+
+
+class QueryError(Exception):
+    """사용자에게 그대로 보여줄 수 있는 쿼리 실행 실패(문법 오류 등)."""
+
+
+# 파생 테이블로 감싸 LIMIT/OFFSET 페이징이 가능한 쿼리인지.
+# SELECT/WITH 단일 문장만 — 다중 문장(;)이나 SHOW/INSERT 등은 감싸면 깨지므로 제외.
+def _wrappable(sql: str) -> bool:
+    body = sql.strip()
+    while body.endswith(";"):
+        body = body[:-1].rstrip()
+    if ";" in body:                                   # 다중 문장 — 감쌀 수 없음
+        return False
+    head = body[_LEADING_NOISE.match(body).end():]
+    return bool(re.match(r"(?is)(?:select|with)\b", head))
+
+
+# exec 명령 빌더. db_type별로 기계가독 출력 옵션을 건다.
+def _query_cmd(t: dict, sql: str) -> list[str]:
+    if t["db_type"] == "mysql":
+        inner = (
+            f"export MYSQL_PWD={shlex.quote(t['pw'])}; "
+            f"exec mysql --batch --default-character-set=utf8mb4 "
+            f"-u root {shlex.quote(t['db'])} -e {shlex.quote(sql)}"
+        )
+    else:  # postgres
+        inner = (
+            f"export PGPASSWORD={shlex.quote(t['pw'])}; "
+            f"exec psql --csv -U {shlex.quote(t['user'])} "
+            f"-d {shlex.quote(t['db'])} -c {shlex.quote(sql)}"
+        )
+    return ["/bin/bash", "-c", inner]
+
+
+# exec status 채널(3)의 JSON에서 exit code 추출. Success면 0, 아니면 ExitCode cause 파싱.
+def _parse_exit(payload: bytes) -> int:
+    try:
+        status = json.loads(payload.decode("utf-8", errors="replace"))
+    except ValueError:
+        return 0
+    if status.get("status") == "Success":
+        return 0
+    for cause in status.get("details", {}).get("causes", []):
+        if cause.get("reason") == "ExitCode":
+            try:
+                return int(cause.get("message", "1"))
+            except (ValueError, TypeError):
+                return 1
+    return 1
+
+
+# 단발 exec — stdout / stderr / exit_code를 분리해 수집(채널 1/2/3).
+async def _exec(ns: str, t: dict, cmd: list[str]) -> tuple[str, str, int]:
+    async with WsApiClient() as ws_api:
+        cm = await client.CoreV1Api(ws_api).connect_get_namespaced_pod_exec(
+            name=t["pod"], namespace=ns, container=t["container"], command=cmd,
+            stderr=True, stdin=False, stdout=True, tty=False, _preload_content=False,
+        )
+        out, err = bytearray(), bytearray()
+        exit_code = 0
+        async with cm as ws:
+            async for msg in ws:
+                if msg.type == aiohttp.WSMsgType.BINARY and len(msg.data) > 1:
+                    ch, data = msg.data[0], msg.data[1:]
+                    if ch == 1:
+                        out += data
+                    elif ch == 2:
+                        err += data
+                    elif ch == 3:                     # 종료 상태(JSON)
+                        exit_code = _parse_exit(data)
+                elif msg.type in (
+                    aiohttp.WSMsgType.CLOSE, aiohttp.WSMsgType.CLOSING,
+                    aiohttp.WSMsgType.CLOSED, aiohttp.WSMsgType.ERROR,
+                ):
+                    break
+    return (
+        out.decode("utf-8", errors="replace"),
+        err.decode("utf-8", errors="replace"),
+        exit_code,
+    )
+
+
+# mysql --batch 값 unescape (\t \n \\ \0). NULL은 리터럴 "NULL"로 와서 None과 구분 불가 —
+# batch 모드의 알려진 한계라 빈 결과/실제 문자열 "NULL"은 그대로 문자열로 둔다.
+def _unescape_mysql(field: str) -> str:
+    return (
+        field.replace("\\t", "\t")
+        .replace("\\n", "\n")
+        .replace("\\0", "\0")
+        .replace("\\\\", "\\")
+    )
+
+
+def _parse_mysql(stdout: str) -> tuple[list[str], list[list[str]]]:
+    text = stdout.rstrip("\n")
+    if not text:
+        return [], []
+    lines = text.split("\n")
+    columns = [_unescape_mysql(c) for c in lines[0].split("\t")]
+    rows = [[_unescape_mysql(v) for v in ln.split("\t")] for ln in lines[1:]]
+    return columns, rows
+
+
+def _parse_csv(stdout: str) -> tuple[list[str], list[list[str]]]:
+    reader = list(csv.reader(io.StringIO(stdout)))
+    if not reader:
+        return [], []
+    return reader[0], reader[1:]
+
+
+# 고수준 API — router가 호출. tenant ns의 DB 파드에 SQL을 돌려 구조화된 결과를 반환.
+# offset: SELECT/WITH 쿼리에서 다음 페이지를 보기 위한 시작 위치(페이지네이션). 그 외는 무시.
+async def run_query(ns: str, sql: str, offset: int = 0) -> dict:
+    sql = (sql or "").strip()
+    if not sql:
+        raise QueryError("SQL을 입력해주세요")
+    if len(sql) > MAX_SQL_LENGTH:
+        raise QueryError(f"SQL이 너무 깁니다 (최대 {MAX_SQL_LENGTH}자)")
+    offset = max(0, int(offset))
+
+    await _ensure_loaded()
+    async with client.ApiClient() as api:
+        t = await _detect_target(client.CoreV1Api(api), ns)
+    if not t:
+        raise QueryError(
+            "DB가 활성화돼 있지 않습니다 — DB(MySQL/PostgreSQL)를 추가한 앱에서만 콘솔을 쓸 수 있습니다."
+        )
+
+    # 페이징 가능한 쿼리면 파생 테이블로 감싸 DB가 LIMIT/OFFSET을 처리하게 한다.
+    # PAGE_SIZE+1을 받아 "다음 페이지 존재 여부"(has_more)를 한 번에 판별.
+    paginated = _wrappable(sql)
+    if paginated:
+        inner = sql
+        while inner.rstrip().endswith(";"):
+            inner = inner.rstrip()[:-1]
+        exec_sql = (
+            f"SELECT * FROM (\n{inner}\n) AS _kd_page "
+            f"LIMIT {PAGE_SIZE + 1} OFFSET {offset}"
+        )
+    else:
+        offset = 0
+        exec_sql = sql
+
+    started = time.perf_counter()
+    stdout, stderr, code = await _exec(ns, t, _query_cmd(t, exec_sql))
+    duration_ms = int((time.perf_counter() - started) * 1000)
+
+    if code != 0:
+        raise QueryError(stderr.strip() or f"쿼리 실패 (exit {code})")
+
+    if t["db_type"] == "mysql":
+        columns, rows = _parse_mysql(stdout)
+    else:
+        columns, rows = _parse_csv(stdout)
+
+    if paginated:
+        has_more = len(rows) > PAGE_SIZE          # +1행이 더 왔으면 다음 페이지 있음
+        rows = rows[:PAGE_SIZE]
+        truncated = False
+    else:
+        has_more = False
+        truncated = len(rows) > PAGE_SIZE         # 페이징 불가 쿼리 — 그냥 자름
+        if truncated:
+            rows = rows[:PAGE_SIZE]
+
+    return {
+        "db_type": t["db_type"],
+        "columns": columns,
+        "rows": rows,
+        "row_count": len(rows),
+        "paginated": paginated,
+        "offset": offset,
+        "page_size": PAGE_SIZE,
+        "has_more": has_more,
+        "truncated": truncated,
+        "duration_ms": duration_ms,
+        # 컬럼 없는 결과(INSERT/UPDATE/DDL 등) — 성공 메시지로 표시.
+        "message": None if columns else "실행 완료",
+    }

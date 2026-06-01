@@ -133,6 +133,16 @@ export function getAppMetrics(range = "1h") {
   return request(`/deploy/app/metrics?range=${encodeURIComponent(range)}`);
 }
 
+// DB 콘솔 — 단발 SQL 실행 후 구조화된 결과 반환.
+// offset: SELECT/WITH 쿼리의 다음 페이지 시작 위치(500개씩). 그 외 쿼리는 무시됨.
+// 응답: { db_type, columns, rows, row_count, paginated, offset, page_size, has_more, truncated, duration_ms, message }
+export function runDbQuery(sql, offset = 0) {
+  return request("/deploy/app/db/query", {
+    method: "POST",
+    body: JSON.stringify({ sql, offset }),
+  });
+}
+
 // DB 스냅샷 다운로드 URL — 현재 앱 MySQL을 mysqldump → .sql.gz (cookie 인증).
 // 앵커/창 이동으로 직접 다운로드(스트림 → 디스크, 메모리 안 씀).
 export function dbExportUrl() {

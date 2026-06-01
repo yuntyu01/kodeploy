@@ -7,7 +7,8 @@ import "@xterm/xterm/css/xterm.css";
 const API_BASE = (import.meta.env.VITE_API_BASE || "").replace(/\/$/, "");
 const WS_URL = API_BASE.replace(/^http/, "ws") + "/deploy/app/db-terminal";
 
-export default function DbTerminalPanel() {
+// bare=true면 자체 헤더를 숨김 — DbConsolePanel의 [표|터미널] 토글 안에 끼울 때 헤더 중복 방지.
+export default function DbTerminalPanel({ bare = false }) {
   const containerRef = useRef(null);
 
   useEffect(() => {
@@ -63,17 +64,19 @@ export default function DbTerminalPanel() {
 
   return (
     <div className="flex-1 min-h-0 flex flex-col">
-      <div
-        className="flex items-center gap-2 px-4 py-1.5 shrink-0"
-        style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}
-      >
-        <span className="text-[11px] text-fg-3" style={{ fontWeight: 510 }}>
-          DB 터미널
-        </span>
-        <span className="text-[10px] text-fg-4" style={{ fontWeight: 450 }}>
-          mysql / psql 쉘
-        </span>
-      </div>
+      {!bare && (
+        <div
+          className="flex items-center gap-2 px-4 py-1.5 shrink-0"
+          style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}
+        >
+          <span className="text-[11px] text-fg-3" style={{ fontWeight: 510 }}>
+            DB 터미널
+          </span>
+          <span className="text-[10px] text-fg-4" style={{ fontWeight: 450 }}>
+            mysql / psql 쉘
+          </span>
+        </div>
+      )}
       <div ref={containerRef} className="flex-1 min-h-0 p-1" style={{ background: "#0a0a0b" }} />
     </div>
   );
