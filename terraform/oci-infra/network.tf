@@ -117,28 +117,34 @@ resource "oci_core_security_list" "public" {
     stateless        = false
   }
 
-  # 외부 → NLB HTTP(80) 허용
-  ingress_security_rules {
-    protocol  = "6" # TCP
-    source    = "0.0.0.0/0"
-    stateless = false
-    tcp_options {
-      min = 80
-      max = 80
+  # 외부 → NLB HTTP(80) — Cloudflare 엣지 IP만 허용 (오리진 잠금 레이어 A)
+  dynamic "ingress_security_rules" {
+    for_each = var.cloudflare_ip_cidrs
+    content {
+      protocol  = "6" # TCP
+      source    = ingress_security_rules.value
+      stateless = false
+      tcp_options {
+        min = 80
+        max = 80
+      }
+      description = "Cloudflare → HTTP"
     }
-    description = "HTTP"
   }
 
-  # 외부 → NLB HTTPS(443) 허용
-  ingress_security_rules {
-    protocol  = "6" # TCP
-    source    = "0.0.0.0/0"
-    stateless = false
-    tcp_options {
-      min = 443
-      max = 443
+  # 외부 → NLB HTTPS(443) — Cloudflare 엣지 IP만 허용 (오리진 잠금 레이어 A)
+  dynamic "ingress_security_rules" {
+    for_each = var.cloudflare_ip_cidrs
+    content {
+      protocol  = "6" # TCP
+      source    = ingress_security_rules.value
+      stateless = false
+      tcp_options {
+        min = 443
+        max = 443
+      }
+      description = "Cloudflare → HTTPS"
     }
-    description = "HTTPS"
   }
 
   freeform_tags = { project = var.cluster_name }
