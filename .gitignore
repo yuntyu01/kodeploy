@@ -61,6 +61,7 @@ kubeconfig/
 deploy/k8s/secrets/
 deploy/k8s/build/ghcr-auth.yaml
 .tls-selfsigned/
+deploy/k8s/gateway/cf-origin-ca.configmap.yaml
 .claude/
 
 # ---- Editors / OS ----

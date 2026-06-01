@@ -6,13 +6,16 @@
 
 # ---------- Cloudflare 인증 --------------------------------------------------
 
-# Cloudflare API Token
-# 필요한 권한:
+# Cloudflare API Token — terraform이 "사용"하는 부트스트랩 자격증명. terraform으로 만들지 않는다
+# (자기가 쓸 토큰을 자기가 만들 수 없음 = 닭-달걀). 대시보드에서 수동 발급/편집해 주입.
+# 필요한 권한 (대상 zone: kodeploy.com):
 #   - Account → Cloudflare Tunnel: Edit
-#   - Zone → DNS: Edit (대상 zone: kodeploy.com)
-# 발급: dash.cloudflare.com → My Profile → API Tokens → Create Token
+#   - Zone → DNS: Edit
+#   - Zone → SSL and Certificates: Edit   # Authenticated Origin Pulls(origin_tls_client_auth) — origin-mtls.tf
+#   - Zone → Config Rules: Edit           # http_config_settings ruleset — security.tf (UI 그룹명 다르면 Rulesets/WAF 계열 매칭)
+# 발급: dash.cloudflare.com → My Profile → API Tokens → 기존 토큰 Edit 또는 Create Token
 variable "cloudflare_api_token" {
-  description = "Cloudflare API Token (Tunnel + DNS 권한)"
+  description = "Cloudflare API Token (Tunnel + DNS + SSL/Certificates + Config Rules)"
   type        = string
   sensitive   = true
 }
