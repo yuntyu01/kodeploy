@@ -34,8 +34,16 @@ export default function TerminalPanel() {
 
     const ws = new WebSocket(WS_URL);
 
+    // 현재 xterm 크기를 백엔드로 보내 파드 pty 크기를 맞춤 → 쉘 출력이 실제 폭으로 정렬
+    const sendResize = () => {
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ __resize: { cols: term.cols, rows: term.rows } }));
+      }
+    };
+
     ws.onopen = () => {
       term.write("\x1b[1;34m연결됨\x1b[0m\r\n");
+      sendResize();
     };
 
     ws.onmessage = (e) => {
@@ -55,6 +63,7 @@ export default function TerminalPanel() {
         ws.send(data);
       }
     });
+    term.onResize(() => sendResize());
 
     const ro = new ResizeObserver(() => {
       fitAddon.fit();

@@ -32,13 +32,24 @@ export default function DbTerminalPanel() {
 
     const ws = new WebSocket(WS_URL);
 
-    ws.onopen = () => term.write("\x1b[1;34mDB 연결됨\x1b[0m\r\n");
+    // 현재 xterm 크기를 백엔드로 보내 파드 pty 크기를 맞춤 → mysql 등이 실제 폭으로 출력 정렬
+    const sendResize = () => {
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ __resize: { cols: term.cols, rows: term.rows } }));
+      }
+    };
+
+    ws.onopen = () => {
+      term.write("\x1b[1;34mDB 연결됨\x1b[0m\r\n");
+      sendResize();
+    };
     ws.onmessage = (e) => term.write(e.data);
     ws.onclose = (e) => term.write(`\r\n\x1b[1;31m연결 종료${e.reason ? `: ${e.reason}` : ""}\x1b[0m\r\n`);
     ws.onerror = () => term.write("\r\n\x1b[1;31m연결 실패\x1b[0m\r\n");
     term.onData((data) => {
       if (ws.readyState === WebSocket.OPEN) ws.send(data);
     });
+    term.onResize(() => sendResize());
 
     const ro = new ResizeObserver(() => fitAddon.fit());
     ro.observe(containerRef.current);

@@ -8,6 +8,7 @@ K8s exec WebSocket은 binary 프레임에 1바이트 채널 prefix를 붙임
 
 import asyncio
 import base64
+import json
 
 import aiohttp
 from fastapi import WebSocket, WebSocketDisconnect
@@ -50,8 +51,23 @@ async def _relay(ws: WebSocket, k8s_ws: aiohttp.ClientWebSocketResponse):
         try:
             while True:
                 data = await ws.receive_text()
-                if not k8s_ws.closed:
-                    await k8s_ws.send_bytes(b"\x00" + data.encode("utf-8"))
+                if k8s_ws.closed:
+                    continue
+                # 터미널 리사이즈 제어 메시지 → k8s exec resize 채널(4)로 pty 크기 전달.
+                # 파드 안 프로그램(mysql 등)이 실제 터미널 폭에 맞춰 출력을 정렬하게 함.
+                if data.startswith('{"__resize":'):
+                    try:
+                        dims = json.loads(data)["__resize"]
+                        await k8s_ws.send_bytes(
+                            b"\x04"
+                            + json.dumps(
+                                {"Width": int(dims["cols"]), "Height": int(dims["rows"])}
+                            ).encode("utf-8")
+                        )
+                        continue
+                    except (ValueError, KeyError, TypeError):
+                        pass  # 파싱 실패 시 일반 입력으로 처리
+                await k8s_ws.send_bytes(b"\x00" + data.encode("utf-8"))
         except WebSocketDisconnect:
             pass
         except Exception:
@@ -175,7 +191,10 @@ async def handle_db_terminal(ws: WebSocket, tenant_id: str):
         password = await _get_db_password(core, tenant_id, db_type)
 
     if db_type == "mysql":
-        command = ["mysql", "-u", "app", f"-p{password}", "app"]
+        # --default-character-set=utf8mb4: 패널(xterm, UTF-8)에서 한글 등 멀티바이트가
+        # ?로 깨지지 않게 클라 연결 charset 고정. (컨테이너 로케일이 C면 mysql이 latin1로
+        # 붙어서 결과를 ?로 변환하는 문제 방지)
+        command = ["mysql", "--default-character-set=utf8mb4", "-u", "app", f"-p{password}", "app"]
     else:
         command = ["psql", "-U", "app", "app"]
 

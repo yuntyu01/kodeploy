@@ -112,6 +112,10 @@ spec:
           args:
             - --innodb-buffer-pool-size=128M             # 기본 75% → 128M로 못박아 OOM 방지
             - --max-connections=50                       # 기본 151 → 50 (커넥션 폭주 방지)
+            - --performance-schema=OFF                   # MySQL 8.4 perf_schema가 200~300MB 점유 → OFF로 lim_mem(500Mi) 안에 안정. import OOM 방지
+            # charset: MySQL 8.4는 서버 기본이 utf8mb4라 별도 args 불필요.
+            # (--skip-character-set-client-handshake는 8.4에서 제거돼 "unknown option"으로 부팅 실패함)
+            # CLI에서 한글 깨지면 클라 측 `mysql --default-character-set=utf8mb4`로 접속.
           resources:
             requests:
               cpu: {{ req_cpu }}m                        # 스케줄러 보장값
