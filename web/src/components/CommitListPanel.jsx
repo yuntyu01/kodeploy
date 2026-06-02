@@ -632,6 +632,22 @@ function BuildLogsPanel({ build, mode, onClose }) {
 }
 
 // 환경변수 편집 본문. 값은 기본 마스킹, row Eye 토글로 평문 표시.
+// 현재 env rows → .env 파일 텍스트. 빈 KEY는 무시.
+// 공백·#·따옴표·=·역슬래시 등이 든 값은 큰따옴표로 감싸고 이스케이프(다시 source 가능하게).
+function envValueToken(v) {
+  if (v === "" || /[\s#"'=\\]/.test(v)) {
+    return `"${v.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\n/g, "\\n")}"`;
+  }
+  return v;
+}
+function rowsToEnvFile(rows) {
+  const lines = rows
+    .map(({ key, value }) => [key.trim(), value])
+    .filter(([k]) => k)
+    .map(([k, v]) => `${k}=${envValueToken(v)}`);
+  return lines.length ? lines.join("\n") + "\n" : "";
+}
+
 // 저장 직후 onSaved(env)로 위젯 state 동기화 → 위젯 미리보기 즉시 갱신.
 function EnvBody({ envVars, onSaved }) {
   const [rows, setRows] = useState(() => {
@@ -658,6 +674,20 @@ function EnvBody({ envVars, onSaved }) {
     setRows((r) =>
       r.map((row, idx) => (idx === i ? { ...row, visible: !row.visible } : row)),
     );
+
+  const hasEnv = rows.some((r) => r.key.trim());
+  // 현재 rows를 .env 파일로 다운로드 (저장 안 한 편집분도 화면 그대로 반영). 클라이언트 Blob.
+  const onExport = () => {
+    const blob = new Blob([rowsToEnvFile(rows)], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = ".env";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  };
 
   const handleSave = async () => {
     setError(null);
@@ -753,6 +783,15 @@ function EnvBody({ envVars, onSaved }) {
         className="shrink-0 px-5 py-3 flex items-center gap-3"
         style={{ borderTop: "1px solid rgba(255,255,255,0.09)" }}
       >
+        <button
+          onClick={onExport}
+          disabled={!hasEnv}
+          className="flex items-center gap-1.5 px-3 py-2 rounded-md text-[12.5px] text-fg-3 hover:text-fg-1 hover:bg-white/[0.04] transition-colors disabled:opacity-40 disabled:hover:bg-transparent"
+          style={{ fontWeight: 510 }}
+          title=".env 파일로 내보내기"
+        >
+          <Download size={12} strokeWidth={1.8} /> 내보내기
+        </button>
         {savedAt && (
           <span
             className="text-[11.5px]"
