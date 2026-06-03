@@ -20,7 +20,11 @@ S3 호환 자격증명을 담은 dict. service.py가 그걸 `r2-secret` K8s Secr
 - 계정 토큰: POST/DELETE /accounts/{acct}/tokens (R2 권한그룹 + 버킷 리소스 스코프)
 """
 
+import datetime
 import hashlib
+import hmac
+import xml.etree.ElementTree as ET
+from urllib.parse import quote, urlparse
 
 import httpx
 
@@ -217,3 +221,143 @@ def deprovision(token_id: str | None, bucket: str | None = None) -> None:
             _delete_token(client, token_id)
         if bucket:
             _delete_bucket(client, bucket)
+
+
+# --- S3 데이터플레인 (객체 목록/삭제) ------------------------------------------
+# 위 함수들은 CF 관리 API(account 스코프, CF_API_TOKEN)로 버킷/토큰을 다룬다.
+# 여기서부터는 **앱당 스코프 토큰의 S3 자격증명**(r2-secret에 든 env)으로 버킷 안
+# 객체를 직접 list/delete 한다. boto3 같은 SDK 대신 SigV4를 직접 서명 — 이미 쓰는
+# httpx만으로 끝나고(추가 의존성 0), r2.py/domains.py의 "REST 직접 호출" 스타일과 일치.
+# service.py가 r2-secret을 K8s에서 읽어 env dict를 넘긴다.
+
+_EMPTY_SHA256 = hashlib.sha256(b"").hexdigest()
+
+
+def _sign(key: bytes, msg: str) -> bytes:
+    return hmac.new(key, msg.encode("utf-8"), hashlib.sha256).digest()
+
+
+# AWS SigV4 서명 키 파생 (date → region → service → aws4_request 체인).
+def _signing_key(secret: str, date_stamp: str, region: str, service: str) -> bytes:
+    k_date = _sign(("AWS4" + secret).encode("utf-8"), date_stamp)
+    k_region = _sign(k_date, region)
+    k_service = _sign(k_region, service)
+    return _sign(k_service, "aws4_request")
+
+
+# 버킷 스코프 S3 자격증명(env)으로 R2에 SigV4 서명 요청. GET/DELETE만 — body 없음.
+# key 있으면 객체 경로(/{bucket}/{key}), 없으면 버킷 경로(/{bucket}, list용).
+def _s3_request(
+    env: dict, method: str, key: str = "", query: dict | None = None,
+    timeout: float = 30.0,
+) -> httpx.Response:
+    endpoint = (env.get("S3_ENDPOINT") or "").rstrip("/")
+    bucket = env.get("S3_BUCKET") or ""
+    access = env.get("S3_ACCESS_KEY") or ""
+    secret = env.get("S3_SECRET_KEY") or ""
+    if not (endpoint and bucket and access and secret):
+        raise R2Error("S3 자격증명이 불완전합니다 (r2-secret 확인)")
+
+    host = urlparse(endpoint).netloc
+    region, service = "auto", "s3"
+
+    # canonical URI — '/'는 보존, 그 외 비예약문자는 %인코딩 (S3 SigV4 규칙).
+    path = f"/{bucket}" + (f"/{key}" if key else "")
+    canonical_uri = quote(path, safe="/")
+
+    # canonical query — 키 정렬, 값은 '/' 포함 전부 인코딩(continuation-token에 / = 들어감).
+    query = query or {}
+    canonical_qs = "&".join(
+        f"{quote(k, safe='')}={quote(str(v), safe='')}"
+        for k, v in sorted(query.items())
+    )
+
+    now = datetime.datetime.now(datetime.timezone.utc)
+    amz_date = now.strftime("%Y%m%dT%H%M%SZ")
+    date_stamp = now.strftime("%Y%m%d")
+
+    canonical_headers = (
+        f"host:{host}\n"
+        f"x-amz-content-sha256:{_EMPTY_SHA256}\n"
+        f"x-amz-date:{amz_date}\n"
+    )
+    signed_headers = "host;x-amz-content-sha256;x-amz-date"
+    canonical_request = "\n".join([
+        method, canonical_uri, canonical_qs,
+        canonical_headers, signed_headers, _EMPTY_SHA256,
+    ])
+
+    scope = f"{date_stamp}/{region}/{service}/aws4_request"
+    string_to_sign = "\n".join([
+        "AWS4-HMAC-SHA256", amz_date, scope,
+        hashlib.sha256(canonical_request.encode("utf-8")).hexdigest(),
+    ])
+    signature = hmac.new(
+        _signing_key(secret, date_stamp, region, service),
+        string_to_sign.encode("utf-8"), hashlib.sha256,
+    ).hexdigest()
+
+    headers = {
+        "Authorization": (
+            f"AWS4-HMAC-SHA256 Credential={access}/{scope}, "
+            f"SignedHeaders={signed_headers}, Signature={signature}"
+        ),
+        "x-amz-content-sha256": _EMPTY_SHA256,
+        "x-amz-date": amz_date,
+    }
+    url = endpoint + canonical_uri + (f"?{canonical_qs}" if canonical_qs else "")
+    with httpx.Client(timeout=timeout) as client:
+        return client.request(method, url, headers=headers)
+
+
+# 네임스페이스 무시하고 로컬 태그명만 (R2 XML이 s3 네임스페이스를 달고 옴).
+def _localname(tag: str) -> str:
+    return tag.rsplit("}", 1)[-1]
+
+
+# ListObjectsV2 XML → {objects, next}. public_base 있으면 객체별 공개 URL도 채운다.
+def _parse_list_xml(text: str, public_base: str) -> dict:
+    base = (public_base or "").rstrip("/")
+    root = ET.fromstring(text)
+    objects: list[dict] = []
+    next_token = None
+    is_truncated = False
+    for el in root:
+        name = _localname(el.tag)
+        if name == "Contents":
+            d = {_localname(c.tag): (c.text or "") for c in el}
+            k = d.get("Key", "")
+            size = d.get("Size", "0")
+            objects.append({
+                "key": k,
+                "size": int(size) if size.isdigit() else 0,
+                "last_modified": d.get("LastModified", ""),
+                "url": f"{base}/{quote(k, safe='/')}" if base else None,
+            })
+        elif name == "NextContinuationToken":
+            next_token = el.text
+        elif name == "IsTruncated":
+            is_truncated = (el.text or "").strip().lower() == "true"
+    return {"objects": objects, "next": next_token if is_truncated else None}
+
+
+# 버킷 객체 목록 (페이지당 limit개). token으로 다음 페이지 이어받기.
+def list_objects(
+    env: dict, continuation_token: str | None = None, limit: int = 200,
+) -> dict:
+    query = {"list-type": "2", "max-keys": str(limit)}
+    if continuation_token:
+        query["continuation-token"] = continuation_token
+    resp = _s3_request(env, "GET", query=query)
+    if resp.status_code != 200:
+        raise R2Error(f"객체 목록 조회 실패 (status={resp.status_code})")
+    return _parse_list_xml(resp.text, env.get("S3_PUBLIC_BASE_URL", ""))
+
+
+# 객체 1개 삭제 (멱등 — 404도 성공 취급).
+def delete_object(env: dict, key: str) -> None:
+    if not key:
+        raise R2Error("삭제할 key가 필요합니다")
+    resp = _s3_request(env, "DELETE", key=key)
+    if resp.status_code not in (200, 204, 404):
+        raise R2Error(f"객체 삭제 실패 (status={resp.status_code})")

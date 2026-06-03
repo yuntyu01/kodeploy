@@ -259,6 +259,32 @@ async def db_query(
         raise HTTPException(status_code=400, detail=str(e))
 
 
+# R2 오브젝트 목록 — 이미지 미리보기용 공개 URL 포함. ?token=으로 다음 페이지.
+# /{build_id} GET보다 위에 등록해야 "app"이 build_id로 잡히지 않음.
+@router.get("/app/storage/objects")
+def storage_list(
+    token: str | None = None,
+    user: User = Depends(get_current_user),
+) -> dict:
+    try:
+        return service.list_storage_objects(user, token)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+# R2 오브젝트 1개 삭제 (파괴적 — UI에서 확인 후 호출).
+@router.delete("/app/storage/objects")
+def storage_delete(
+    key: str,
+    user: User = Depends(get_current_user),
+) -> dict:
+    try:
+        service.delete_storage_object(user, key)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"status": "deleted"}
+
+
 # 커스텀 도메인 조회 (+ CNAME 안내값). 호출마다 CF에서 검증/cert status 갱신.
 # /{build_id} GET보다 위에 등록 (path param이 "domain"을 잡지 않게).
 @router.get("/domain")

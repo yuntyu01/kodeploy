@@ -7,6 +7,7 @@ import {
   Columns2,
   Database,
   FileText,
+  HardDrive,
   Plus,
   Rows2,
   Server,
@@ -17,6 +18,7 @@ import MonitoringPanel from "./panels/MonitoringPanel.jsx";
 import RuntimeLogPanel from "./panels/RuntimeLogPanel.jsx";
 import TerminalPanel from "./panels/TerminalPanel.jsx";
 import DbConsolePanel from "./panels/DbConsolePanel.jsx";
+import StoragePanel from "./panels/StoragePanel.jsx";
 
 const PANEL_TYPES = [
   {
@@ -41,6 +43,14 @@ const PANEL_TYPES = [
     label: "모니터링",
     sub: "CPU · 메모리 · 요청량",
     color: "#6dd5a0",
+    ready: true,
+  },
+  {
+    id: "storage",
+    icon: HardDrive,
+    label: "스토리지",
+    sub: "R2 객체 · 이미지",
+    color: "#d8a657",
     ready: true,
   },
 ];
@@ -256,6 +266,8 @@ export default function Pane({ build, splitLevel = 0, onSplit, onUnsplit, exclud
                 <TerminalSelector compact={compact} />
               ) : t.type === "monitoring" ? (
                 <MonitoringPanel />
+              ) : t.type === "storage" ? (
+                <StoragePanel />
               ) : null}
             </div>
           );

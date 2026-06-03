@@ -1,6 +1,7 @@
 """배포 오케스트레이션."""
 
 import asyncio
+import base64
 import json
 import os.path
 import re
@@ -838,6 +839,45 @@ def _apply_redis(build: Build) -> None:
             except ApiException as e:
                 if e.status != 404:
                     raise
+
+
+# r2-secret(테넌트 ns)에서 S3 자격증명 env를 dict로 읽음. storage 미활성이면 None.
+# r2.list_objects/delete_object가 이 env로 버킷에 직접 S3 호출한다 (앱당 스코프 토큰 재사용).
+def _read_storage_env(ns: str) -> dict | None:
+    try:
+        secret = k8s.core_v1().read_namespaced_secret(name="r2-secret", namespace=ns)
+    except ApiException as e:
+        if e.status == 404:
+            return None
+        raise
+    data = secret.data or {}
+    return {k: base64.b64decode(v).decode("utf-8") for k, v in data.items()}
+
+
+# 앱 버킷 객체 목록 — router가 호출. tenant ns는 user.id에서 파생되므로 격리 자동.
+def list_storage_objects(user: User, token: str | None = None) -> dict:
+    if not user.app_name:
+        raise ValueError("배포된 앱이 없습니다")
+    env = _read_storage_env(f"tenant-{user.id.hex[:8]}")
+    if not env:
+        raise ValueError("오브젝트 스토리지가 활성화돼 있지 않습니다")
+    try:
+        return r2.list_objects(env, continuation_token=token)
+    except r2.R2Error as e:
+        raise ValueError(str(e))
+
+
+# 앱 버킷 객체 1개 삭제 — router가 호출.
+def delete_storage_object(user: User, key: str) -> None:
+    if not user.app_name:
+        raise ValueError("배포된 앱이 없습니다")
+    env = _read_storage_env(f"tenant-{user.id.hex[:8]}")
+    if not env:
+        raise ValueError("오브젝트 스토리지가 활성화돼 있지 않습니다")
+    try:
+        r2.delete_object(env, key)
+    except r2.R2Error as e:
+        raise ValueError(str(e))
 
 
 # 현재 ns의 r2-secret 주석에서 R2 토큰 id 조회 (없으면 None). 정리/회전 시 사용.

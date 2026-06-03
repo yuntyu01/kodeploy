@@ -132,6 +132,20 @@ export function deleteDomain() {
   return request("/deploy/domain", { method: "DELETE" });
 }
 
+// R2 오브젝트 목록 — 응답: { objects: [{key, size, last_modified, url}], next }
+// next(continuation token)가 있으면 다음 페이지 존재. token으로 이어받기.
+export function listStorageObjects(token) {
+  const q = token ? `?token=${encodeURIComponent(token)}` : "";
+  return request(`/deploy/app/storage/objects${q}`);
+}
+
+// R2 오브젝트 1개 삭제 (파괴적). 응답: { status: "deleted" }
+export function deleteStorageObject(key) {
+  return request(`/deploy/app/storage/objects?key=${encodeURIComponent(key)}`, {
+    method: "DELETE",
+  });
+}
+
 // 현재 앱 Pod 상태 — 빌드와 독립. 응답: { status: "running" | "pending" | "crashing" | "missing" }
 export function getAppStatus() {
   return request("/deploy/app/status");
