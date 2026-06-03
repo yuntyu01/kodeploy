@@ -14,8 +14,9 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { ExternalLink, Minus, Trash2 } from "lucide-react";
-import { getAppStatus, getEnvVars, listBuilds, listRecentCommits } from "../api/deploy.js";
+import { getAppStatus, getDomain, getEnvVars, listBuilds, listRecentCommits } from "../api/deploy.js";
 import AppStatusBadge from "./AppStatusBadge.jsx";
+import DomainStatusBadge from "./DomainStatusBadge.jsx";
 import DeleteAppModal from "./DeleteAppModal.jsx";
 import { relativeTime } from "../lib/format.js";
 import { useAuth } from "../contexts/AuthContext.jsx";
@@ -62,6 +63,8 @@ export default function CommitListWidget() {
   const [builds, setBuilds] = useState([]);
   const [appStatus, setAppStatus] = useState(null);
   const [startedAt, setStartedAt] = useState(null);
+  // 커스텀 도메인 + CF 연결 상태 ({ domain, status } 또는 null). pending이면 자주 폴링.
+  const [domainInfo, setDomainInfo] = useState(null);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   // env: {KEY: value} dict. 폴링 안 함 — 자주 안 바뀌고 사용자가 바꾸면 직접 refresh.
   const [envVars, setEnvVars] = useState({});
@@ -160,6 +163,30 @@ export default function CommitListWidget() {
         const unstable = appStatus === "pending" || appStatus === "crashing";
         timer = setTimeout(tick, unstable ? 5000 : 10000);
       }
+    };
+    tick();
+    return () => { cancelled = true; if (timer) clearTimeout(timer); };
+  }, [hidden, user?.id, user?.app_name]);
+
+  // 커스텀 도메인 + CF 연결 상태 폴링 — pending(인증서 발급 중)이면 8s, active/없음이면 30s.
+  useEffect(() => {
+    if (hidden || !user?.app_name) { setDomainInfo(null); return; }
+    let cancelled = false;
+    let timer;
+    const tick = async () => {
+      let pending = false;
+      try {
+        const d = await getDomain();
+        if (!cancelled) {
+          if (d?.domain) {
+            setDomainInfo({ domain: d.domain, status: d.status });
+            pending = d.status !== "active";
+          } else {
+            setDomainInfo(null);
+          }
+        }
+      } catch {}
+      if (!cancelled) timer = setTimeout(tick, pending ? 8000 : 30000);
     };
     tick();
     return () => { cancelled = true; if (timer) clearTimeout(timer); };
@@ -454,21 +481,42 @@ export default function CommitListWidget() {
                 <span className="text-[13px] text-fg-1 truncate" style={{ fontWeight: 590 }}>{user.app_name}</span>
                 <AppStatusBadge status={appStatus} />
               </div>
-              <div className="flex items-center gap-3 mb-3">
-                <a
-                  href={`https://${user.app_name}.kodeploy.com`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1 text-[11px] text-fg-3 hover:text-fg-1 no-underline transition-colors"
-                  style={{ fontWeight: 450 }}
-                >
-                  {user.app_name}.kodeploy.com
-                  <ExternalLink size={9} strokeWidth={2} />
-                </a>
-                {startedAt && appStatus === "running" && (
-                  <span className="text-[10px] text-fg-4 tabular-nums" style={{ fontWeight: 450 }}>
-                    {formatUptime(startedAt)}
-                  </span>
+              <div className="mb-3 flex flex-col gap-1">
+                {/* 기본 서브도메인 — 항상 살아있는 canonical 주소 */}
+                <div className="flex items-center gap-3 min-w-0">
+                  <a
+                    href={`https://${user.app_name}.kodeploy.com`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 text-[11px] text-fg-3 hover:text-fg-1 no-underline transition-colors truncate"
+                    style={{ fontWeight: 450 }}
+                  >
+                    {user.app_name}.kodeploy.com
+                    <ExternalLink size={9} strokeWidth={2} />
+                  </a>
+                  {startedAt && appStatus === "running" && (
+                    <span className="text-[10px] text-fg-4 tabular-nums shrink-0" style={{ fontWeight: 450 }}>
+                      {formatUptime(startedAt)}
+                    </span>
+                  )}
+                </div>
+                {/* 커스텀 도메인 — 연결 상태 배지(우측). active=연결됨 / 그 외=대기중 */}
+                {domainInfo && (
+                  <div className="flex items-center gap-2 min-w-0">
+                    <a
+                      href={`https://${domainInfo.domain}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 text-[11px] text-fg-3 hover:text-fg-1 no-underline transition-colors truncate min-w-0"
+                      style={{ fontWeight: 450 }}
+                    >
+                      <span className="truncate">{domainInfo.domain}</span>
+                      <ExternalLink size={9} strokeWidth={2} className="shrink-0" />
+                    </a>
+                    <span className="ml-auto shrink-0">
+                      <DomainStatusBadge status={domainInfo.status} />
+                    </span>
+                  </div>
                 )}
               </div>
               <div className="flex items-center gap-2">

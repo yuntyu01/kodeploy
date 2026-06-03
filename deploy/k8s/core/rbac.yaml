@@ -28,7 +28,7 @@ rules:
     verbs: ["get", "list", "create", "delete"]
   - apiGroups: ["gateway.networking.k8s.io"]             # 유저 앱 서브도메인 라우팅용
     resources: ["httproutes"]
-    verbs: ["get", "list", "create", "delete"]            # delete=앱 삭제 시 라우트 정리
+    verbs: ["get", "list", "create", "update", "patch", "delete"]  # patch=커스텀 도메인 hostname 주입, delete=앱 삭제 시 정리
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding                                 # SA를 ClusterRole에 연결 

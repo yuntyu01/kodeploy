@@ -11,10 +11,12 @@ from app.auth.model import User
 from app.auth import service as auth_service
 from app.deploy import dbquery, env, logs, metrics, service, snapshots, terminal
 from app.deploy.model import Build
+from app import config
 from app.deploy.schemas import (
     DbQueryRequest,
     DeployRequest,
     DeployResponse,
+    DomainRequest,
     EnvVarsRequest,
     EnvVarsResponse,
     StatusResponse,
@@ -255,6 +257,43 @@ async def db_query(
         return await dbquery.run_query(tenant_id, req.sql, offset=req.offset)
     except dbquery.QueryError as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+# 커스텀 도메인 조회 (+ CNAME 안내값). 호출마다 CF에서 검증/cert status 갱신.
+# /{build_id} GET보다 위에 등록 (path param이 "domain"을 잡지 않게).
+@router.get("/domain")
+def get_domain(
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> dict:
+    result = service.refresh_custom_domain_status(db, user)
+    result["cname_target"] = config.CUSTOM_DOMAIN_CNAME_TARGET
+    return result
+
+
+# 커스텀 도메인 연결/변경 — CF custom hostname 생성 + 앱 HTTPRoute에 hostname 주입.
+@router.put("/domain")
+def put_domain(
+    req: DomainRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> dict:
+    try:
+        result = service.set_custom_domain(db, user, req.domain)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    result["cname_target"] = config.CUSTOM_DOMAIN_CNAME_TARGET
+    return result
+
+
+# 커스텀 도메인 해제 — CF custom hostname 삭제 + route에서 hostname 제거.
+@router.delete("/domain")
+def delete_domain(
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> dict:
+    service.clear_custom_domain(db, user)
+    return {"status": "cleared"}
 
 
 # 앱 완전 삭제 — K8s 리소스 + PVC + builds + user.app_name 리셋.

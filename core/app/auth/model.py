@@ -26,6 +26,13 @@ class User(Base):
     app_name: Mapped[str | None] = mapped_column(
         String(50), nullable=True, unique=True
     )
+    # 커스텀 도메인 (유저가 자기 도메인을 앱에 연결 — CF for SaaS custom hostname).
+    # 1유저=1앱이라 도메인도 1개 → 별도 테이블 없이 User에 직접. None이면 미설정.
+    custom_domain: Mapped[str | None] = mapped_column(
+        String(253), nullable=True, unique=True  # 253 = DNS 호스트네임 최대 길이
+    )
+    # CF 검증 상태: "pending"(DCV/cert 발급 중) | "active". None이면 도메인 미설정.
+    custom_domain_status: Mapped[str | None] = mapped_column(String(20), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, default=_utcnow, onupdate=_utcnow

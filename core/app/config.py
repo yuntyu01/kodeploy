@@ -45,6 +45,20 @@ CF_R2_PERMISSION_GROUP_IDS = [
     if g.strip()
 ]
 
+# --- Cloudflare for SaaS (커스텀 도메인 = 유저가 자기 도메인을 앱에 연결) ---
+# custom hostname은 zone 단위 API (R2의 account 단위와 다른 스코프) → 별도 zone id.
+# 비어 있으면 커스텀 도메인 기능 비활성(domains.is_configured()=False).
+CF_ZONE_ID = os.getenv("CF_ZONE_ID", "")
+# custom hostname 전용 CF 토큰 (Zone · SSL and Certificates · Edit). R2용 CF_API_TOKEN과 분리 —
+# R2 토큰은 account 스코프라 zone SSL 권한이 없어서 별도 최소권한 토큰을 둔다.
+CF_ZONE_API_TOKEN = os.getenv("CF_ZONE_API_TOKEN", "")
+# 유저가 자기 도메인 DNS에 걸 CNAME 타깃 (CF for SaaS fallback origin). UI 안내에 노출.
+CUSTOM_DOMAIN_CNAME_TARGET = os.getenv("CUSTOM_DOMAIN_CNAME_TARGET", "origin.kodeploy.com")
+# CF가 오리진 요청에 붙이는 origin-verify 헤더의 공유 비밀. HTTPRoute가 이 값으로 헤더매칭해
+# CF 경유 트래픽만 통과시킨다(origin-lock Layer B′, mTLS 대체). CF Transform Rule 값과 일치해야 함.
+# 비어 있으면 헤더매칭 생략(미적용 — Layer A만). CF가 전 트래픽에 헤더 붙이는 걸 켠 뒤 설정할 것.
+ORIGIN_VERIFY_SECRET = os.getenv("ORIGIN_VERIFY_SECRET", "")
+
 # --- CORS ---
 # 쉼표로 구분된 허용 origin 목록. 환경별 다름 (dev=localhost, 운영=Cloudflare Pages 도메인).
 # Cookie 인증 쓰니까 allow_credentials=True와 함께 와일드카드(*) 금지 — 명시적 origin만.

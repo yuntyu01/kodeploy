@@ -1,18 +1,21 @@
 // DeployForm 옆에 fixed drawer로 뜨는 가이드 패널.
 // TopBar 아래(60px)부터 화면 끝까지 차지. 자체 스크롤.
-// runtime(python/java)에 따라 해당 섹션만 보여줌. 닫기 X 버튼.
+// view 키(python/java/custom-domain)에 따라 해당 가이드만 보여줌. 닫기 X 버튼.
 // 동일 가이드 컨텐츠가 /guide 페이지에서도 재사용됨.
 import { X } from "lucide-react";
+import CustomDomain from "./guide/CustomDomain.jsx";
 import Java from "./guide/Java.jsx";
 import Python from "./guide/Python.jsx";
 
-const TITLES = {
-  python: "Python 가이드",
-  java: "Java 가이드",
+const GUIDES = {
+  python: { title: "Python 가이드", Component: Python },
+  java: { title: "Java 가이드", Component: Java },
+  "custom-domain": { title: "커스텀 도메인 가이드", Component: CustomDomain },
 };
 
 export default function GuidePanel({ runtime, onClose }) {
-  const Body = runtime === "python" ? Python : Java;
+  const guide = GUIDES[runtime] || GUIDES.java;
+  const Body = guide.Component;
   return (
     <aside
       className="kd-slide-in-right fixed overflow-auto scroll-thin"
@@ -32,7 +35,7 @@ export default function GuidePanel({ runtime, onClose }) {
           className="text-[15px] text-fg-1"
           style={{ fontWeight: 590, letterSpacing: -0.2 }}
         >
-          {TITLES[runtime] || "가이드"}
+          {guide.title}
         </h3>
         <button
           onClick={onClose}

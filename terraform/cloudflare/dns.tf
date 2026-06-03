@@ -72,3 +72,15 @@ resource "cloudflare_dns_record" "api" {
   ttl     = 1
   comment = "OCI NLB (CF proxy ON, API security via Configuration Rule)"
 }
+
+# CF for SaaS fallback origin — 커스텀 도메인 트래픽의 기본 오리진.
+# 와일드카드(*)로도 해소되지만 SaaS fallback origin은 명시적 proxied 레코드를 요구하므로 별도 등록.
+resource "cloudflare_dns_record" "origin" {
+  zone_id = var.cloudflare_zone_id
+  name    = "origin"
+  content = var.nlb_public_ip
+  type    = "A"
+  proxied = true
+  ttl     = 1
+  comment = "CF for SaaS fallback origin (custom hostnames)"
+}

@@ -16,7 +16,15 @@ spec:
   hostnames:
     - api.kodeploy.com
   rules:
-    - backendRefs:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+          headers:
+            - type: Exact
+              name: X-Origin-Verify
+              value: "${ORIGIN_VERIFY_SECRET}"
+      backendRefs:
         - name: kodeploy-core
           port: 80
 

@@ -45,6 +45,11 @@ class DbQueryRequest(BaseModel):
     offset: int = 0
 
 
+# PUT /deploy/domain — 유저 커스텀 도메인 연결 (CF for SaaS custom hostname).
+class DomainRequest(BaseModel):
+    domain: str
+
+
 # GET/PUT /deploy/env 입출력 — 전체 dict를 통째로 다룸 (부분 patch 안 함).
 class EnvVarsRequest(BaseModel):
     env: dict[str, str]

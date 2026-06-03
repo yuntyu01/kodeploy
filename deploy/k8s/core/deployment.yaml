@@ -39,6 +39,9 @@ spec:
             - secretRef:
                 name: kodeploy-cloudflare                # CF_API_TOKEN (R2 버킷/토큰 프로비저닝)
                 optional: true                           # 없으면 storage 토글만 비활성 — 나머지는 정상
+            - secretRef:
+                name: kodeploy-origin-verify             # ORIGIN_VERIFY_SECRET — 앱 HTTPRoute 헤더매칭값(origin-lock B′)
+                optional: true                           # 없으면 새 앱 라우트에 헤더매칭 미주입(Layer A만) — /healthz 정상
           env:
             - name: DB_PASSWORD                          # 시크릿은 개별로
               valueFrom:

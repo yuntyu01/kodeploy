@@ -49,6 +49,7 @@ def service(app_name: str, tenant_id: str, user_id: str, port: int) -> dict:
 
 
 # 앱 서브도메인 라우팅 (HTTPS + HTTP→HTTPS redirect)
+# origin_verify_secret 있으면 https route에 X-Origin-Verify 헤더매칭 주입 (origin-lock Layer B′).
 def httproute(app_name: str, tenant_id: str, user_id: str, port: int) -> list[dict]:
     return render_all(
         "httproute.yaml.j2",
@@ -56,6 +57,7 @@ def httproute(app_name: str, tenant_id: str, user_id: str, port: int) -> list[di
         tenant_id=tenant_id,
         user_id=user_id,
         port=port,
+        origin_verify_secret=config.ORIGIN_VERIFY_SECRET,
     )
 
 

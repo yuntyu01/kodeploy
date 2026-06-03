@@ -118,6 +118,20 @@ export function deleteApp() {
   return request("/deploy/app", { method: "DELETE" });
 }
 
+// 커스텀 도메인 (CF for SaaS) — 서브도메인 전용 (CNAME). 루트(apex)는 미지원.
+// 응답: { domain, status, ssl_status }  status: null|"pending"|"active"
+// 유저가 자기 DNS에 걸 CNAME 타깃 (백엔드 config.CUSTOM_DOMAIN_CNAME_TARGET 기본값과 동기).
+export const CUSTOM_DOMAIN_CNAME_TARGET = "origin.kodeploy.com";
+export function getDomain() {
+  return request("/deploy/domain");
+}
+export function setDomain(domain) {
+  return request("/deploy/domain", { method: "PUT", body: JSON.stringify({ domain }) });
+}
+export function deleteDomain() {
+  return request("/deploy/domain", { method: "DELETE" });
+}
+
 // 현재 앱 Pod 상태 — 빌드와 독립. 응답: { status: "running" | "pending" | "crashing" | "missing" }
 export function getAppStatus() {
   return request("/deploy/app/status");

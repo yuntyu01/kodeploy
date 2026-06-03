@@ -18,7 +18,16 @@ import {
   Upload,
   X,
 } from "lucide-react";
-import { dbExportUrl, restoreDb, setEnvVars } from "../api/deploy.js";
+import {
+  CUSTOM_DOMAIN_CNAME_TARGET,
+  dbExportUrl,
+  deleteDomain,
+  getDomain,
+  restoreDb,
+  setDomain,
+  setEnvVars,
+} from "../api/deploy.js";
+import DomainStatusBadge from "./DomainStatusBadge.jsx";
 import { formatFull, relativeTime, repoSlug } from "../lib/format.js";
 import StatusBadge from "./StatusBadge.jsx";
 
@@ -825,7 +834,158 @@ function EnvBody({ envVars, onSaved }) {
   );
 }
 
-// 부가기능 탭 본문 — 앱 부가 작업 모음. 지금은 DB 스냅샷(내보내기/복원).
+// 커스텀 도메인 — 연결/변경/해제 (재배포 불필요: PUT/DELETE /deploy/domain).
+// 넣어야 할 DNS 레코드(라우팅 A/CNAME + apex 검증 TXT)를 읽기 좋게 + 클릭 복사. active 되면 레코드 숨김.
+function CustomDomainSection() {
+  const [info, setInfo] = useState(null); // { domain, status, ssl_status }
+  const [loading, setLoading] = useState(true);
+  const [value, setValue] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(null);
+  const [copied, setCopied] = useState(null);
+
+  // 마운트 시 조회 + pending이면 8s, 아니면 30s 폴링 (TXT 추가 후 active 자동 반영)
+  useEffect(() => {
+    let cancelled = false;
+    let timer;
+    const tick = async () => {
+      let pending = false;
+      try {
+        const d = await getDomain();
+        if (!cancelled) { setInfo(d); pending = !!d?.domain && d.status !== "active"; }
+      } catch { /* 폴링 — 조용히 */ }
+      if (!cancelled) { setLoading(false); timer = setTimeout(tick, pending ? 8000 : 30000); }
+    };
+    tick();
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, []);
+
+  const copy = (k, text) => {
+    navigator.clipboard?.writeText(text);
+    setCopied(k);
+    setTimeout(() => setCopied((c) => (c === k ? null : c)), 1500);
+  };
+  const onConnect = async () => {
+    const d = value.trim();
+    if (!d || busy) return;
+    setBusy(true); setError(null);
+    try { const res = await setDomain(d); setInfo(res); setValue(""); }
+    catch (e) { setError(e.message || "연결 실패"); }
+    finally { setBusy(false); }
+  };
+  const onDisconnect = async () => {
+    if (busy) return;
+    setBusy(true); setError(null);
+    try { await deleteDomain(); setInfo({ domain: null }); }
+    catch (e) { setError(e.message || "해제 실패"); }
+    finally { setBusy(false); }
+  };
+
+  const domain = info?.domain;
+  const active = info?.status === "active";
+  // 서브도메인 전용 — CNAME 한 줄. (apex 미지원)
+  const records = !active && domain
+    ? [{ key: "cname", type: "CNAME", name: domain, value: CUSTOM_DOMAIN_CNAME_TARGET }]
+    : [];
+
+  return (
+    <section className="flex flex-col gap-3">
+      <div className="flex flex-col gap-0.5">
+        <span className="text-[13px] text-fg-1" style={{ fontWeight: 590, letterSpacing: -0.2 }}>커스텀 도메인</span>
+        <span className="text-[11px] text-fg-4">내 도메인을 앱에 연결 — 재배포 없이 바로 적용.</span>
+      </div>
+
+      {loading ? (
+        <div className="text-[11.5px] text-fg-4">불러오는 중…</div>
+      ) : !domain ? (
+        <div className="flex items-center gap-2">
+          <input
+            value={value}
+            onChange={(e) => setValue(e.target.value.toLowerCase())}
+            placeholder="app.example.com"
+            spellCheck={false}
+            className="flex-1 min-w-0 px-2.5 py-1.5 rounded-md bg-transparent outline-none text-[12.5px] text-fg-1 placeholder:text-fg-4"
+            style={{ border: "1px solid rgba(255,255,255,0.09)", fontWeight: 510 }}
+            disabled={busy}
+            onKeyDown={(e) => e.key === "Enter" && onConnect()}
+          />
+          <button onClick={onConnect} disabled={busy || !value.trim()}
+            className="px-3 py-1.5 rounded-md text-[12px] shrink-0 text-white disabled:opacity-40"
+            style={{ background: "#6672d5", fontWeight: 510 }}>
+            {busy ? "연결 중…" : "연결"}
+          </button>
+        </div>
+      ) : (
+        <div className="flex flex-col gap-2.5">
+          {/* 현재 도메인 — 한 줄 */}
+          <div className="flex items-center gap-2 min-w-0">
+            <a href={`https://${domain}`} target="_blank" rel="noopener noreferrer"
+               className="inline-flex items-center gap-1 text-[12.5px] text-fg-1 no-underline hover:text-[#aab2f0] truncate min-w-0" style={{ fontWeight: 540 }}>
+              <span className="truncate">{domain}</span><ExternalLink size={10} strokeWidth={2} className="shrink-0" />
+            </a>
+            <DomainStatusBadge status={info.status} />
+            <button onClick={onDisconnect} disabled={busy}
+              className="ml-auto shrink-0 text-[11px] text-fg-4 hover:text-red-300 disabled:opacity-40 transition-colors">
+              해제
+            </button>
+          </div>
+
+          {/* 넣어야 할 레코드 — 한 덩어리 (얇은 구분선) */}
+          {records.length > 0 && (
+            <div className="rounded-md overflow-hidden" style={{ border: "1px solid rgba(255,255,255,0.08)" }}>
+              <div className="px-2.5 py-1.5 text-[10px] text-fg-4" style={{ background: "rgba(255,255,255,0.02)", fontWeight: 540 }}>
+                DNS에 추가하면 인증서 자동 발급
+              </div>
+              {records.map((r) => (
+                <div key={r.key} className="flex items-start gap-2 px-2.5 py-1.5" style={{ borderTop: "1px solid rgba(255,255,255,0.06)" }}>
+                  <span className="text-[10px] text-fg-4 w-10 shrink-0 mt-0.5" style={{ fontWeight: 590 }}>{r.type}</span>
+                  <div className="flex-1 min-w-0 leading-snug">
+                    {/* 이름 — 클릭하면 복사 */}
+                    <button onClick={() => copy(`${r.key}-n`, r.name)} title="이름 복사"
+                      className="flex items-center gap-1 w-full text-left text-[10.5px] text-fg-4 hover:text-fg-2 transition-colors">
+                      <span className="truncate">{r.name}</span>
+                      {copied === `${r.key}-n` && <Check size={10} strokeWidth={2.5} style={{ color: "#818be0" }} className="shrink-0" />}
+                    </button>
+                    {/* 값 — 클릭하면 복사 */}
+                    <button onClick={() => copy(`${r.key}-v`, r.value)} title="값 복사"
+                      className="flex items-center gap-1 w-full text-left text-[11.5px] text-[#a4abee] hover:text-fg-1 transition-colors" style={{ fontWeight: 510 }}>
+                      <span className="truncate">{r.value}</span>
+                      {copied === `${r.key}-v` && <Check size={10} strokeWidth={2.5} style={{ color: "#818be0" }} className="shrink-0" />}
+                    </button>
+                  </div>
+                  <Copy size={11} strokeWidth={1.8} className="text-fg-4 shrink-0 mt-0.5" />
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* 변경 */}
+          <div className="flex items-center gap-2">
+            <input
+              value={value}
+              onChange={(e) => setValue(e.target.value.toLowerCase())}
+              placeholder="다른 도메인으로 변경"
+              spellCheck={false}
+              className="flex-1 min-w-0 px-2.5 py-1.5 rounded-md bg-transparent outline-none text-[12px] text-fg-1 placeholder:text-fg-4"
+              style={{ border: "1px solid rgba(255,255,255,0.09)", fontWeight: 510 }}
+              disabled={busy}
+              onKeyDown={(e) => e.key === "Enter" && onConnect()}
+            />
+            <button onClick={onConnect} disabled={busy || !value.trim()}
+              className="px-3 py-1.5 rounded-md text-[12px] shrink-0 disabled:opacity-40"
+              style={{ border: "1px solid rgba(255,255,255,0.12)", color: "#aab2f0", fontWeight: 510 }}>
+              변경
+            </button>
+          </div>
+        </div>
+      )}
+
+      {error && <div className="text-[11px]" style={{ color: "#e0a0a0" }}>{error}</div>}
+    </section>
+  );
+}
+
+// 부가기능 탭 본문 — 앱 부가 작업 모음. 커스텀 도메인 + DB 스냅샷(내보내기/복원).
 // 내보내기: mysqldump → .sql.gz 다운로드. 복원: 업로드 .sql(.gz) 적재 (파괴적, 2단계 확인).
 function ExtraBody() {
   const [file, setFile] = useState(null);
@@ -869,6 +1029,9 @@ function ExtraBody() {
 
   return (
     <div className="flex-1 min-h-0 overflow-auto scroll-thin px-5 py-5 flex flex-col gap-5">
+      {/* 커스텀 도메인 */}
+      <CustomDomainSection />
+
       {/* DB 스냅샷 */}
       <section className="flex flex-col gap-3.5">
         <div className="flex flex-col gap-1">

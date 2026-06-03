@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 
 from app import config
 from app.auth.model import User
-from app.deploy import crud, env as env_module, manifests, r2, runtimes, snapshots
+from app.deploy import crud, domains, env as env_module, manifests, r2, runtimes, snapshots
 from app.deploy.model import Build
 from app.shared import k8s
 from app.shared.db import SessionLocal
@@ -61,6 +61,7 @@ RESERVED_NAMES = {
     "app",       # 자동 생성 prefix 충돌 회피
     "apps",
     "kodeploy",  # 브랜드명
+    "origin",    # CF for SaaS fallback origin (origin.kodeploy.com) — 유저가 잡으면 커스텀 도메인 전부 깨짐
 }
 
 # DNS-1123 label rule (K8s metadata.name + 서브도메인 둘 다 만족)
@@ -289,9 +290,18 @@ def delete_app(db: Session, user: User) -> None:
         except r2.R2Error:
             pass  # 외부 정리 실패가 DB/응답을 막지 않게 — orphan은 sweeper(백로그)
 
-    # DB: builds 히스토리 + user.app_name 리셋. 다음 배포는 첫 배포 흐름으로 진입.
+    # 커스텀 도메인 CF custom hostname 정리 (외부 리소스라 ns 삭제로 안 사라짐). best-effort.
+    if user.custom_domain:
+        try:
+            domains.delete(user.custom_domain)
+        except domains.DomainError:
+            pass
+
+    # DB: builds 히스토리 + user.app_name/custom_domain 리셋. 다음 배포는 첫 배포 흐름으로 진입.
     db.query(Build).filter(Build.user_id == user.id).delete()
     user.app_name = None
+    user.custom_domain = None
+    user.custom_domain_status = None
     db.commit()
 
 
@@ -993,4 +1003,123 @@ def _apply_deployment(build: Build) -> None:
     except ApiException as e:
         if e.status != 409:
             raise
+
+
+# --- 커스텀 도메인 (CF for SaaS custom hostname) -----------------------------
+# domains.py(CF API)와 K8s HTTPRoute를 잇는 오케스트레이션 (r2/_apply_storage와 같은 위치).
+# User엔 도메인+status만 저장(컬럼 2개), CF id는 매번 이름으로 lookup(domains.find).
+
+_DOMAIN_RE = re.compile(
+    r"^(?=.{1,253}$)([a-z0-9](?:[-a-z0-9]*[a-z0-9])?\.)+[a-z]{2,}$"
+)
+
+
+def _normalize_domain(domain: str) -> str:
+    d = (domain or "").strip().lower().rstrip(".")
+    if not _DOMAIN_RE.match(d):
+        raise ValueError("올바른 도메인 형식이 아닙니다 (예: app.example.com)")
+    if d == "kodeploy.com" or d.endswith(".kodeploy.com"):
+        raise ValueError("kodeploy.com 하위 도메인은 자동 제공되므로 커스텀 도메인으로 못 씁니다")
+    return d
+
+
+# 앱 HTTPRoute(+redirect)의 hostnames를 desired로 patch. custom_domain=None이면 기본 서브도메인만.
+# 템플릿은 create-only(app.kodeploy.com)라 커스텀 도메인은 여기서 직접 주입/제거한다.
+def _set_app_route_hostnames(
+    tenant_id: str, app_name: str, custom_domain: str | None,
+) -> None:
+    hostnames = [f"{app_name}.kodeploy.com"]
+    if custom_domain:
+        hostnames.append(custom_domain)
+    custom = k8s.custom()
+    for route_name in (app_name, f"{app_name}-redirect"):
+        try:
+            custom.patch_namespaced_custom_object(
+                group="gateway.networking.k8s.io",
+                version="v1",
+                namespace=tenant_id,
+                plural="httproutes",
+                name=route_name,
+                body={"spec": {"hostnames": hostnames}},
+            )
+        except ApiException as e:
+            if e.status != 404:  # 첫 배포 전이면 route 없음 — 정상
+                raise
+
+
+# 커스텀 도메인 연결/변경 — CF custom hostname 생성 + User 저장 + 앱 route에 hostname 주입.
+def set_custom_domain(db: Session, user: User, domain: str) -> dict:
+    if not user.app_name:
+        raise ValueError("먼저 앱을 배포한 후 커스텀 도메인을 연결할 수 있습니다")
+    if not domains.is_configured():
+        raise ValueError("커스텀 도메인이 서버에 설정되지 않았습니다")
+    domain = _normalize_domain(domain)
+
+    # 서브도메인 전용 — 루트(apex) 도메인은 CNAME 위임이 안 돼 CF for SaaS로 활성화 불가.
+    if len([p for p in domain.split(".") if p]) < 3:
+        raise ValueError("서브도메인만 연결할 수 있어요 (예: app.example.com). 루트 도메인은 미지원입니다")
+
+    other = (
+        db.query(User)
+        .filter(User.custom_domain == domain, User.id != user.id)
+        .first()
+    )
+    if other:
+        raise ValueError(f"이미 사용 중인 도메인: {domain}")
+
+    # 도메인 변경이면 옛 CF custom hostname 정리
+    if user.custom_domain and user.custom_domain != domain:
+        domains.delete(user.custom_domain)
+
+    try:
+        summary = domains.create(domain)
+    except domains.DomainError as e:
+        raise ValueError(str(e))
+
+    user.custom_domain = domain
+    user.custom_domain_status = "active" if summary.get("status") == "active" else "pending"
+    db.commit()
+
+    _set_app_route_hostnames(f"tenant-{user.id.hex[:8]}", user.app_name, domain)
+    return {
+        "domain": user.custom_domain,
+        "status": user.custom_domain_status,
+        "ssl_status": summary.get("ssl_status"),
+    }
+
+
+# CF에서 검증/cert 상태를 다시 읽어 User.custom_domain_status 갱신 (UI 폴링).
+def refresh_custom_domain_status(db: Session, user: User) -> dict:
+    if not user.custom_domain:
+        return {"domain": None, "status": None, "ssl_status": None}
+    summary = None
+    try:
+        summary = domains.get_status(user.custom_domain)
+    except domains.DomainError:
+        pass
+    if summary:
+        new_status = "active" if summary.get("status") == "active" else "pending"
+        if new_status != user.custom_domain_status:
+            user.custom_domain_status = new_status
+            db.commit()
+    return {
+        "domain": user.custom_domain,
+        "status": user.custom_domain_status,
+        "ssl_status": summary.get("ssl_status") if summary else None,
+    }
+
+
+# 커스텀 도메인 해제 — route에서 hostname 제거 + CF custom hostname 삭제 + User 클리어.
+def clear_custom_domain(db: Session, user: User) -> None:
+    if not user.custom_domain:
+        return
+    if user.app_name:
+        try:
+            _set_app_route_hostnames(f"tenant-{user.id.hex[:8]}", user.app_name, None)
+        except ApiException:
+            pass
+    domains.delete(user.custom_domain)
+    user.custom_domain = None
+    user.custom_domain_status = None
+    db.commit()
 

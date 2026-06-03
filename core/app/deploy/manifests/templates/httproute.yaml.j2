@@ -16,7 +16,17 @@ spec:
   hostnames:
     - {{ app_name }}.kodeploy.com
   rules:
-    - backendRefs:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+{% if origin_verify_secret %}
+          headers:
+            - type: Exact
+              name: X-Origin-Verify
+              value: "{{ origin_verify_secret }}"
+{% endif %}
+      backendRefs:
         - name: {{ app_name }}
           port: {{ port }}
 ---

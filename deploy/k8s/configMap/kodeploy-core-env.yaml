@@ -5,6 +5,7 @@ metadata:
 data:
   GHCR_USER: "yuntyu01"                                  # GHCR 이미지 푸시/풀 시 owner 경로
   CF_ACCOUNT_ID: "4a73c7440c6c59e668d89d6f06c4813e"                                      # Cloudflare 계정 ID (R2 endpoint·API 경로 파생). 대시보드 사이드바에서 복사해 채우기
+  CF_ZONE_ID: "2fec3004cefff9a5e7fef294f4312816"                                          # kodeploy.com zone ID — 커스텀 도메인(CF for SaaS custom hostname) zone-scoped API용
   DB_HOST: "mysql"                                       # 운영 mysql Service 이름 (DNS로 접근)
   DB_USER: "kodeploy"
   DB_NAME: "kodeploy"

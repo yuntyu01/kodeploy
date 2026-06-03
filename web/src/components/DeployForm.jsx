@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ChevronDown, Eye, EyeOff, GitBranch, Plus, Trash2 } from "lucide-react";
-import { createDeploy, getEnvVars, listBuilds, RUNTIMES, stageDump } from "../api/deploy.js";
+import { createDeploy, CUSTOM_DOMAIN_CNAME_TARGET, getEnvVars, listBuilds, RUNTIMES, setDomain, stageDump } from "../api/deploy.js";
 import { useAuth } from "../contexts/AuthContext.jsx";
 
 const RUNTIME_META = {
@@ -37,6 +37,8 @@ export default function DeployForm({ onRequestGuide }) {
   const [showAdvanced, setShowAdvanced] = useState(false);
   // 초기 DB 덤프 파일 — mysql 선택 + 첨부 시 배포 후 자동 복원 (stage → token → 자동 restore).
   const [initDumpFile, setInitDumpFile] = useState(null);
+  // 커스텀 도메인(서브도메인 전용) — 배포 성공 후 setDomain 호출. 입력 안 하면 스킵.
+  const [customDomain, setCustomDomain] = useState("");
   // 환경변수 row 편집 — 활동 패널 EnvBody와 동일 UI.
   // 재배포 시점에 기존 env 받아와 채움. 첫 배포면 빈 row 하나.
   const [envRows, setEnvRows] = useState([
@@ -204,6 +206,17 @@ export default function DeployForm({ onRequestGuide }) {
       });
       // 첫 배포면 user.app_name이 백엔드에 박혔으니 AuthContext 갱신 — Dashboard에서 즉시 반영
       if (isFirstDeploy) await refresh();
+      // 커스텀 도메인 입력 시 — 배포로 app_name 확정됐으니 이어서 연결 (서브도메인 전용).
+      const cd = customDomain.trim();
+      if (cd) {
+        try {
+          await setDomain(cd);
+        } catch (err2) {
+          setError(`배포는 시작됐어요. 단, 커스텀 도메인 연결 실패: ${err2.message}`);
+          setSubmitting(false);
+          return;
+        }
+      }
       navigate("/dashboard");
     } catch (err) {
       if (err.status === 401) {
@@ -635,6 +648,48 @@ export default function DeployForm({ onRequestGuide }) {
                   );
                 })}
               </div>
+            </div>
+
+            {/* 커스텀 도메인 — 서브도메인 전용(CNAME). 배포 직후 setDomain 호출. */}
+            <div>
+              <div className="flex items-center justify-between mb-2.5">
+                <div className="text-[10.5px] tracking-[0.08em] text-fg-3" style={{ fontWeight: 590 }}>
+                  커스텀 도메인 (선택)
+                </div>
+                <button
+                  type="button"
+                  onClick={() => onRequestGuide?.("custom-domain")}
+                  className="text-[11px] text-fg-3 hover:text-fg-1 transition-colors"
+                  style={{ fontWeight: 510 }}
+                >
+                  가이드 보기
+                </button>
+              </div>
+              <input
+                value={customDomain}
+                onChange={(e) => setCustomDomain(e.target.value.toLowerCase())}
+                placeholder="app.example.com"
+                spellCheck={false}
+                autoCapitalize="off"
+                className="w-full px-2.5 py-1.5 rounded-md bg-transparent outline-none text-[12.5px] text-fg-1 placeholder:text-fg-4"
+                style={{ border: "1px solid rgba(255,255,255,0.09)", fontWeight: 510 }}
+                disabled={submitting}
+              />
+              {customDomain.trim() && (
+                <div
+                  className="mt-2 flex items-center gap-2 px-2.5 py-2 rounded-md text-[11.5px]"
+                  style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)", fontWeight: 510 }}
+                >
+                  <span className="text-fg-4 w-12 shrink-0">CNAME</span>
+                  <span className="text-fg-2 truncate">{customDomain.trim()}</span>
+                  <span className="text-fg-4 shrink-0">→</span>
+                  <span className="text-[#a4abee] truncate flex-1">{CUSTOM_DOMAIN_CNAME_TARGET}</span>
+                </div>
+              )}
+              <p className="text-[11px] text-fg-4 mt-1.5" style={{ lineHeight: 1.5 }}>
+                <span className="text-fg-3">서브도메인만</span> 가능해요(예: app.example.com). 배포 후 위 CNAME 한 줄을
+                도메인 DNS에 추가하면 인증서가 자동 발급됩니다. 루트(apex) 도메인은 미지원.
+              </p>
             </div>
 
             {/* 환경변수 */}
