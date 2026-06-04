@@ -23,6 +23,12 @@ export function listPosts() {
   return request("/community");
 }
 
+// velog 블로그 글 목록 — 백엔드 RSS 프록시 (1시간 캐시).
+// 응답: [{title, url, thumbnail, date, description}, ...]. 실패 시 [].
+export function listBlogPosts() {
+  return request("/community/blog");
+}
+
 export function getPost(id) {
   return request(`/community/${id}`);
 }

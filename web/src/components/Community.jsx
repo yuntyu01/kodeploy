@@ -14,6 +14,7 @@ import {
   deleteComment,
   deletePost,
   getPost,
+  listBlogPosts,
   listPosts,
 } from "../api/community.js";
 import { useAuth } from "../contexts/AuthContext.jsx";
@@ -23,30 +24,36 @@ const SECTIONS = [
   { id: "feedback", label: "건의사항", icon: MessageSquare },
 ];
 
-const BLOG_POSTS = [
-  {
-    title: "OOMKilled의 진짜 범인 — OS는 반려동물용인데 노드는 가축이었다",
-    url: "https://velog.io/@yun60/OOMKilled%EC%9D%98-%EC%A7%84%EC%A7%9C-%EB%B2%94%EC%9D%B8-OS%EB%8A%94-%EB%B0%98%EB%A0%A4%EB%8F%99%EB%AC%BC%EC%9A%A9%EC%9D%B8%EB%8D%B0-%EB%85%B8%EB%93%9C%EB%8A%94-%EA%B0%80%EC%B6%95%EC%9D%B4%EC%97%88%EB%8B%A4",
-    thumbnail: "https://velog.velcdn.com/images/yun60/post/1bcf084c-04ec-4873-a2fd-770526c97d1e/image.png",
-    date: "2026.05.14",
-    description: "K8s 마스터 노드 control plane Pod이 13일 간 98회 재시작. OOMKilled 에러와 dmesg 로그를 추적한 과정.",
-    tags: ["Kubernetes", "OOMKill", "OCI"],
-  },
-  {
-    title: "DNS Timeout 범인 찾기 — K8s의 길과 클라우드의 입구 막기",
-    url: "https://velog.io/@yun60/BuildKit-DNS-Timeout%EC%9D%98-%EC%A7%84%EC%A7%9C-%EB%B2%94%EC%9D%B8-K8s%EA%B0%80-%EA%B9%AC-%EA%B8%B8%EA%B3%BC-%ED%81%B4%EB%9D%BC%EC%9A%B0%EB%93%9C%EA%B0%80-%EB%A7%89%EC%9D%80-%EA%B8%B8%EC%9D%98-%EB%AF%B8%EC%8A%A4%EB%A7%A4%EC%B9%98",
-    thumbnail: "https://velog.velcdn.com/images/yun60/post/a40f0dd7-832d-45f2-99be-13a3541bcc6f/image.png",
-    date: "2026.05.15",
-    description: "BuildKit Job에서 DNS 타임아웃 발생. K8s 네트워크 경로와 OCI Security List의 불일치를 찾아낸 과정.",
-    tags: ["DNS", "BuildKit", "NetworkPolicy"],
-  },
-];
-
-
+// 블로그 글은 백엔드 RSS 프록시(/community/blog)에서 — 새 글 발행 시 재배포 불필요.
 function BlogSection() {
+  const [posts, setPosts] = useState(null);             // null=로딩 중, []=실패/없음
+
+  useEffect(() => {
+    let alive = true;
+    listBlogPosts()
+      .then((data) => alive && setPosts(data))
+      .catch(() => alive && setPosts([]));
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  if (posts === null) {
+    return (
+      <div className="text-[13px] text-fg-4 py-8" style={{ fontWeight: 450 }}>
+        블로그 글을 불러오는 중…
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col gap-5">
-      {BLOG_POSTS.map((post, i) => (
+      {posts.length === 0 && (
+        <div className="text-[13px] text-fg-4 py-8" style={{ fontWeight: 450 }}>
+          글을 불러오지 못했어요 — 아래 시리즈 링크에서 직접 볼 수 있습니다.
+        </div>
+      )}
+      {posts.map((post, i) => (
         <a
           key={i}
           href={post.url}
@@ -90,7 +97,7 @@ function BlogSection() {
                   fontWeight: 590,
                 }}
               >
-                KoDeploy
+                velog
               </span>
               <span className="text-[12px] text-fg-4" style={{ fontWeight: 450 }}>
                 {post.date}
@@ -103,27 +110,11 @@ function BlogSection() {
               {post.title}
             </h3>
             <p
-              className="text-[13px] text-fg-3 mb-2.5 line-clamp-2"
+              className="text-[13px] text-fg-3 line-clamp-2"
               style={{ fontWeight: 450, lineHeight: 1.5 }}
             >
               {post.description}
             </p>
-            <div className="flex gap-1.5 flex-wrap">
-              {post.tags.map((tag) => (
-                <span
-                  key={tag}
-                  className="text-[11px] px-2 py-0.5 rounded"
-                  style={{
-                    background: "rgba(255,255,255,0.04)",
-                    border: "1px solid rgba(255,255,255,0.08)",
-                    color: "#8a8f98",
-                    fontWeight: 510,
-                  }}
-                >
-                  {tag}
-                </span>
-              ))}
-            </div>
           </div>
         </a>
       ))}

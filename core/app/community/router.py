@@ -2,6 +2,7 @@
 
 POST   /community           — 글 작성
 GET    /community           — 글 목록 (비밀글은 본인/관리자만 content 노출)
+GET    /community/blog      — velog 블로그 글 목록 (RSS 프록시, 캐시)
 GET    /community/{id}      — 글 상세 + 댓글
 POST   /community/{id}/comments — 댓글 작성
 DELETE /community/{id}      — 글 삭제 (본인/관리자)
@@ -13,6 +14,7 @@ from sqlalchemy.orm import Session
 
 from app.auth.deps import get_current_user, get_current_user_optional
 from app.auth.model import User
+from app.community import blog
 from app.community.model import Comment, Post
 from app.community.schemas import (
     CommentCreate,
@@ -91,6 +93,13 @@ def list_posts(
         count = db.query(Comment).filter_by(post_id=p.id).count()
         result.append(_mask_post(db, p, user, count))
     return result
+
+
+# velog 블로그 글 목록 — RSS 프록시 (1시간 메모리 캐시). 실패 시 빈 리스트.
+# 인증 불필요(공개 글) + /{post_id} GET보다 위에 등록 ("blog"가 post_id로 잡히지 않게).
+@router.get("/blog")
+def list_blog_posts() -> list[dict]:
+    return blog.fetch_blog_posts()
 
 
 @router.get("/{post_id}", response_model=PostDetail)
