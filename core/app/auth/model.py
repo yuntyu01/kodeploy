@@ -33,6 +33,10 @@ class User(Base):
     )
     # CF 검증 상태: "pending"(DCV/cert 발급 중) | "active". None이면 도메인 미설정.
     custom_domain_status: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    # 등급: "user"(기본) | "admin"(관리자 페이지) | "root"(소유자 — 등급 변경 가능).
+    # root는 코드에 하드코딩 안 함 — 운영자가 DB에서 직접 지정(재시작에도 안 덮어씀).
+    # admin은 root가 /admin에서 부여.
+    role: Mapped[str] = mapped_column(String(10), default="user")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, default=_utcnow, onupdate=_utcnow

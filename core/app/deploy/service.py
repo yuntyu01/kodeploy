@@ -9,14 +9,16 @@ import time
 import urllib.error
 import urllib.request
 import uuid
+from datetime import datetime, timezone
 
 from kubernetes.client.exceptions import ApiException
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app import config
 from app.auth.model import User
 from app.deploy import crud, domains, env as env_module, manifests, r2, runtimes, snapshots
-from app.deploy.model import Build
+from app.deploy.model import Build, BuildRecord
 from app.shared import k8s
 from app.shared.db import SessionLocal
 
@@ -299,6 +301,7 @@ def delete_app(db: Session, user: User) -> None:
             pass
 
     # DB: builds 히스토리 + user.app_name/custom_domain 리셋. 다음 배포는 첫 배포 흐름으로 진입.
+    # build_records(빌드 행위 영구 기록)는 운영 분석용 append-only라 의도적으로 보존.
     db.query(Build).filter(Build.user_id == user.id).delete()
     user.app_name = None
     user.custom_domain = None
@@ -452,6 +455,29 @@ async def _run_build(
             db.refresh(build)
             return build.status == "cancelled"
 
+        # 빌드 행위 영구 기록 (append-only — delete_app에도 안 지워짐).
+        # seq = 이 유저의 N번째 빌드. 기록 테이블 카운트 기준이라 앱 삭제 후에도 이어진다.
+        # started_at은 aware datetime 로컬 변수로 들고 있음 — commit 후 ORM 재로드되면
+        # naive로 바뀌어 total_seconds 계산(aware-naive 빼기)이 깨지므로.
+        started_at = datetime.now(timezone.utc)
+        seq = (
+            db.query(func.count(BuildRecord.id))
+            .filter(BuildRecord.user_id == build.user_id)
+            .scalar()
+            or 0
+        ) + 1
+        record = BuildRecord(
+            build_id=build.build_id,
+            user_id=build.user_id,
+            seq=seq,
+            app_name=build.app_name,
+            runtime=build.runtime,
+            build_mode=build.build_mode,
+            started_at=started_at,
+        )
+        db.add(record)
+        db.commit()
+
         try:
             # 빌드 시작 전에 Dockerfile 텍스트를 DB에 보존 (UI 노출 + AI 분석용).
             # dockerfile 모드: GitHub raw fetch. auto 모드: 빌드 후 init container 로그에서 추출.
@@ -496,6 +522,11 @@ async def _run_build(
 
             job_name = _build_job_name(build.build_id, build.user_id_str)
             success = await _wait_for_job(job_name)
+
+            # 단계별 소요시간 기록 — Job 종료 직후 Pod 컨테이너 상태에서 추출.
+            phases = _get_build_phase_seconds(build.build_id)
+            record.nixpacks_seconds = phases.get("nixpacks_seconds")
+            record.buildkit_seconds = phases.get("buildkit_seconds")
 
             # auto 모드: init container 로그도 함께. 빌드 실패가 init 단계(nixpacks)일 때
             # buildkit 로그는 비어있고 진짜 원인은 init에 있음. UI에서 디버깅 가능하게 둘 다 노출.
@@ -591,6 +622,18 @@ async def _run_build(
                 build.status = "failed"
                 build.error = f"오케스트레이션 에러: {e}"
                 db.commit()
+        finally:
+            # 어떤 경로(성공/실패/취소/예외)로 끝나든 기록 마감.
+            # 기록 실패가 빌드 흐름이나 세션 정리를 막지 않게 자체 예외는 삼킨다.
+            try:
+                finished_at = datetime.now(timezone.utc)
+                record.finished_at = finished_at
+                record.total_seconds = (finished_at - started_at).total_seconds()
+                record.status = build.status
+                record.error = build.error
+                db.commit()
+            except Exception:
+                db.rollback()
     except Exception:
         pass
     finally:
@@ -654,6 +697,40 @@ def _get_job_logs(build_id: str) -> str:
         )
     except ApiException as e:
         return f"로그 조회 실패: {e}"
+
+
+# 빌드 Pod의 컨테이너 종료 정보에서 단계별 소요시간 추출 (BuildRecord용).
+# nixpacks=init container(auto 모드만) / buildkit=main container.
+# 컨테이너가 아직 안 끝났거나(타임아웃) Pod이 없으면 해당 값 생략 — 기록은 best-effort.
+def _get_build_phase_seconds(build_id: str) -> dict:
+    core = k8s.core_v1()
+    try:
+        pods = core.list_namespaced_pod(
+            namespace=config.BUILD_NAMESPACE,
+            label_selector=f"build-id={build_id}",
+        )
+    except ApiException:
+        return {}
+    if not pods.items:
+        return {}
+    status = pods.items[0].status
+
+    def terminated_seconds(statuses, name: str) -> float | None:
+        for cs in statuses or []:
+            if cs.name == name and cs.state and cs.state.terminated:
+                t = cs.state.terminated
+                if t.started_at and t.finished_at:
+                    return (t.finished_at - t.started_at).total_seconds()
+        return None
+
+    out = {}
+    nix = terminated_seconds(status.init_container_statuses, "nixpacks")
+    if nix is not None:
+        out["nixpacks_seconds"] = nix
+    bk = terminated_seconds(status.container_statuses, "buildkit")
+    if bk is not None:
+        out["buildkit_seconds"] = bk
+    return out
 
 
 # 같은 Pod의 특정 init container 로그 조회 (auto 모드의 nixpacks container용)

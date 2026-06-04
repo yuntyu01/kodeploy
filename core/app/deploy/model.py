@@ -3,7 +3,7 @@
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, DateTime, Integer, String, Text, Uuid
+from sqlalchemy import Boolean, DateTime, Float, Integer, String, Text, Uuid
 from sqlalchemy.dialects.mysql import LONGTEXT
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -57,3 +57,29 @@ class Build(Base):
     @property
     def user_id_str(self) -> str:
         return self.user_id.hex if self.user_id else "anonymous"
+
+
+# 빌드 행위의 영구 기록 (운영 분석용, append-only).
+# builds 테이블은 delete_app 시 통째로 삭제되는 유저 대면 히스토리지만,
+# 이 테이블은 의도적으로 안 지움 — "누가 언제 몇 번째 빌드를 얼마나 걸려 돌렸나"가
+# 앱 삭제 후에도 남는다. API 미노출 — 운영자가 플랫폼 DB에서 직접 조회.
+class BuildRecord(Base):
+    __tablename__ = "build_records"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    build_id: Mapped[str] = mapped_column(String(8))     # builds row와 느슨한 연결 (FK 아님 — builds는 삭제될 수 있음)
+    user_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True, index=True)
+    seq: Mapped[int] = mapped_column(Integer)            # 그 유저의 N번째 빌드 (1부터, 이 테이블 카운트 기준 — 앱 삭제에도 이어짐)
+    app_name: Mapped[str] = mapped_column(String(50))
+    runtime: Mapped[str] = mapped_column(String(20))
+    build_mode: Mapped[str] = mapped_column(String(20))  # "dockerfile" | "auto"
+    started_at: Mapped[datetime] = mapped_column(DateTime)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    # 단계별 소요시간 — 빌드 Pod 컨테이너 종료 정보(terminated.startedAt/finishedAt)에서 추출.
+    # nixpacks는 auto 모드의 init container라 dockerfile 모드면 None.
+    # 컨테이너가 비정상 종료/타임아웃으로 안 끝났으면 None (best-effort).
+    nixpacks_seconds: Mapped[float | None] = mapped_column(Float, nullable=True)
+    buildkit_seconds: Mapped[float | None] = mapped_column(Float, nullable=True)
+    total_seconds: Mapped[float | None] = mapped_column(Float, nullable=True)  # 시작→종료 전체 (배포/rollout 대기 포함)
+    status: Mapped[str] = mapped_column(String(20), default="building")  # 최종: "running" | "failed" | "cancelled"
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)

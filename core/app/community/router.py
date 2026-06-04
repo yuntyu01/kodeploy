@@ -12,7 +12,7 @@ DELETE /community/comments/{id} — 댓글 삭제 (본인/관리자)
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from app.auth.deps import get_current_user, get_current_user_optional
+from app.auth.deps import ADMIN_ROLES, get_current_user, get_current_user_optional
 from app.auth.model import User
 from app.community import blog
 from app.community.model import Comment, Post
@@ -27,11 +27,9 @@ from app.shared.db import get_db
 
 router = APIRouter(prefix="/community", tags=["community"])
 
-ADMIN_LOGIN = "yuntyu01"
-
-
+# 비밀글 열람·타인 글/댓글 삭제 가능 여부 — users.role 기반 (옛 ADMIN_LOGIN 하드코딩 대체)
 def _is_admin(user: User) -> bool:
-    return user.login == ADMIN_LOGIN
+    return user.role in ADMIN_ROLES
 
 
 def _resolve_login(db: Session, user_id) -> str:

@@ -24,7 +24,8 @@ const SECTIONS = [
   { id: "feedback", label: "건의사항", icon: MessageSquare },
 ];
 
-// 블로그 글은 백엔드 RSS 프록시(/community/blog)에서 — 새 글 발행 시 재배포 불필요.
+// 블로그 글은 백엔드 velog 프록시(/community/blog)에서 — KoDeploy 시리즈만, 태그 포함.
+// 새 글 발행 시 재배포 불필요.
 function BlogSection() {
   const [posts, setPosts] = useState(null);             // null=로딩 중, []=실패/없음
 
@@ -97,7 +98,7 @@ function BlogSection() {
                   fontWeight: 590,
                 }}
               >
-                velog
+                KoDeploy
               </span>
               <span className="text-[12px] text-fg-4" style={{ fontWeight: 450 }}>
                 {post.date}
@@ -110,11 +111,30 @@ function BlogSection() {
               {post.title}
             </h3>
             <p
-              className="text-[13px] text-fg-3 line-clamp-2"
+              className="text-[13px] text-fg-3 mb-2.5 line-clamp-2"
               style={{ fontWeight: 450, lineHeight: 1.5 }}
             >
               {post.description}
             </p>
+            {post.tags?.length > 0 && (
+              <div className="flex gap-1.5 flex-wrap">
+                {/* velog 태그가 10개씩 달리기도 함 — 카드 한 줄 유지 위해 4개까지만 */}
+                {post.tags.slice(0, 4).map((tag) => (
+                  <span
+                    key={tag}
+                    className="text-[11px] px-2 py-0.5 rounded"
+                    style={{
+                      background: "rgba(255,255,255,0.04)",
+                      border: "1px solid rgba(255,255,255,0.08)",
+                      color: "#8a8f98",
+                      fontWeight: 510,
+                    }}
+                  >
+                    {tag}
+                  </span>
+                ))}
+              </div>
+            )}
           </div>
         </a>
       ))}

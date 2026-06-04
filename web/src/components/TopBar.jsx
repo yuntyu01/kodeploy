@@ -14,6 +14,10 @@ const AUTHED_NAV_ITEMS = [
   { label: "대시보드", to: "/dashboard" },
 ];
 
+// 등급(admin/root)에게만 보이는 관리자 링크 — /auth/me의 role로 분기
+const ADMIN_NAV_ITEM = { label: "관리자", to: "/admin" };
+const ADMIN_ROLES = ["admin", "root"];
+
 // NAV 끝(대시보드 우측)에 항상 표시되는 KoDeploy 소스 repo 링크
 const GITHUB_NAV_ITEM = {
   label: "GitHub",
@@ -48,6 +52,7 @@ export default function TopBar({ onLogin }) {
         {[
           ...NAV_ITEMS,
           ...(user ? AUTHED_NAV_ITEMS : []),
+          ...(user && ADMIN_ROLES.includes(user.role) ? [ADMIN_NAV_ITEM] : []),
         ].map((item) => {
           const className =
             "px-3 py-1.5 rounded-md text-[14px] text-fg-2 hover:text-fg-1 hover:bg-white/[0.04] transition-colors flex items-center gap-1.5 no-underline";

@@ -23,6 +23,9 @@ rules:
                 "secrets", "resourcequotas",
                 "persistentvolumeclaims"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: [""]                                      # 관리자 페이지 노드 현황용 (읽기 전용)
+    resources: ["nodes", "nodes/proxy"]                  # nodes/proxy = kubelet stats/summary (CPU/메모리/디스크)
+    verbs: ["get", "list"]
   - apiGroups: ["projectcalico.org"]                     # Calico NetworkPolicy (per-tenant 격리)
     resources: ["networkpolicies"]
     verbs: ["get", "list", "create", "delete"]

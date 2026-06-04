@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
+import Admin from "./components/Admin.jsx";
 import CommitListWidget from "./components/CommitListWidget.jsx";
 import Dashboard from "./components/Dashboard.jsx";
 import DeployForm from "./components/DeployForm.jsx";
@@ -63,6 +64,7 @@ export default function App() {
               <Route path="/" element={<Home />} />
               <Route path="/deploy" element={<FormView />} />
               <Route path="/dashboard" element={<Dashboard />} />
+              <Route path="/admin" element={<div className="flex-1 overflow-auto scroll-thin"><Admin /></div>} />
               <Route path="/community" element={<div className="flex-1 overflow-auto scroll-thin"><Community /></div>} />
               <Route path="/guide" element={<GuideView />} />
               <Route path="/guide/:section" element={<GuideView />} />
