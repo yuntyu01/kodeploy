@@ -4,7 +4,7 @@ import Pane from "./Pane.jsx";
 let _paneKeySeq = 0;
 const genPaneKey = () => `pk-${++_paneKeySeq}`;
 
-export default function PanelWorkspace({ build }) {
+export default function PanelWorkspace({ build, storageEnabled = false }) {
   const [primaryDir, setPrimaryDir] = useState(null);
   const [primaryRatio, setPrimaryRatio] = useState(50);
   const [slot1Dir, setSlot1Dir] = useState(null);
@@ -134,6 +134,7 @@ export default function PanelWorkspace({ build }) {
         <Pane
           key={keys.a}
           build={build}
+          storageEnabled={storageEnabled}
           splitLevel={isSplit ? 2 : splitLevel}
           onSplit={isSplit ? null : handleSplit(slotNum)}
           onUnsplit={isSplit ? closeA : onClosePrimary}
@@ -147,6 +148,7 @@ export default function PanelWorkspace({ build }) {
           <Pane
             key={keys.b}
             build={build}
+            storageEnabled={storageEnabled}
             splitLevel={2}
             onSplit={null}
             onUnsplit={closeB}

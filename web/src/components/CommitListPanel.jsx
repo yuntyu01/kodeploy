@@ -42,7 +42,12 @@ export default function CommitListPanel({
   const [tab, setTab] = useState(initialTab);
 
   useEffect(() => {
-    const onKey = (e) => e.key === "Escape" && onClose();
+    // defaultPrevented = 위에 뜬 오버레이(빌드 로그/커밋 상세)가 capture 단계에서
+    // 이미 소비한 ESC — 활동 패널은 무시해서 한 번에 한 겹만 닫히게.
+    const onKey = (e) => {
+      if (e.key !== "Escape" || e.defaultPrevented) return;
+      onClose();
+    };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
   }, [onClose]);
@@ -221,9 +226,15 @@ function CommitsBody({ commits }) {
 // portal로 body에 직접 렌더해서 활동 패널 stacking context 밖으로 빠짐.
 function CommitDetailPanel({ commit, onClose }) {
   useEffect(() => {
-    const onKey = (e) => e.key === "Escape" && onClose();
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
+    // capture 단계 + preventDefault — 활동 패널(bubble 단계, defaultPrevented 무시)보다
+    // 먼저 ESC를 소비해 이 오버레이만 닫힘. 활동 패널은 그대로 유지.
+    const onKey = (e) => {
+      if (e.key !== "Escape") return;
+      e.preventDefault();
+      onClose();
+    };
+    document.addEventListener("keydown", onKey, true);
+    return () => document.removeEventListener("keydown", onKey, true);
   }, [onClose]);
 
   return createPortal(
@@ -535,9 +546,15 @@ function BuildLogsPanel({ build, mode, onClose }) {
   const [copied, setCopied] = useState(false);
 
   useEffect(() => {
-    const onKey = (e) => e.key === "Escape" && onClose();
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
+    // capture 단계 + preventDefault — 활동 패널보다 먼저 ESC를 소비해
+    // 이 로그/Dockerfile 창만 닫히고 뒤의 활동 패널은 유지 (CommitDetailPanel과 동일).
+    const onKey = (e) => {
+      if (e.key !== "Escape") return;
+      e.preventDefault();
+      onClose();
+    };
+    document.addEventListener("keydown", onKey, true);
+    return () => document.removeEventListener("keydown", onKey, true);
   }, [onClose]);
 
   const title = mode === "logs" ? "빌드 로그" : "Dockerfile";

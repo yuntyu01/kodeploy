@@ -133,6 +133,10 @@ export default function Dashboard() {
   const selected =
     builds.find((b) => b.build_id === pinnedBuildId) || pickAutoBuild(builds);
 
+  // 스토리지 패널 노출 여부 — "지금" 토글 상태는 최신 빌드 기준 (선택/핀된 옛 빌드 아님).
+  // builds는 최신순 정렬, env_change row도 당시 토글 값을 복사해 갖고 있음.
+  const storageEnabled = builds[0]?.use_storage ?? false;
+
   return (
     <div className="flex-1 flex flex-col min-h-0 h-full">
       {error && (
@@ -150,7 +154,11 @@ export default function Dashboard() {
 
       <div className="flex-1 min-h-0 h-0">
         {selected ? (
-          <PanelWorkspace key={selected.build_id} build={selected} />
+          <PanelWorkspace
+            key={selected.build_id}
+            build={selected}
+            storageEnabled={storageEnabled}
+          />
         ) : (
           <div className="h-full flex items-center justify-center text-[12px] text-fg-4">
             불러오는 중…

@@ -310,9 +310,15 @@ function ObjectCard({ obj, onPreview, onDeleted }) {
 
 function Lightbox({ obj, onClose }) {
   useEffect(() => {
-    const onKey = (e) => e.key === "Escape" && onClose();
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
+    // capture 단계 + preventDefault — 최상위 오버레이가 ESC를 먼저 소비해
+    // 이 미리보기만 닫힘 (활동 패널 등 뒤 레이어의 ESC 핸들러는 defaultPrevented로 무시).
+    const onKey = (e) => {
+      if (e.key !== "Escape") return;
+      e.preventDefault();
+      onClose();
+    };
+    document.addEventListener("keydown", onKey, true);
+    return () => document.removeEventListener("keydown", onKey, true);
   }, [onClose]);
 
   return (

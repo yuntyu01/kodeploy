@@ -1,6 +1,7 @@
 // 독립 탭 컨테이너 — PanelWorkspace 안에 1개 또는 2개씩 들어감.
 // 탭이 비었으면 "패널 선택" 카드를 보여주고, 선택 시 탭 생성 + 활성.
-// 터미널 / 모니터링은 백엔드 미구현 상태라 disabled "준비중" — 클릭해도 탭 안 생김.
+// ready: false인 타입은 disabled "준비중" 카드 — 클릭해도 탭 안 생김.
+// 스토리지 카드는 storageEnabled(최신 빌드의 use_storage)일 때만 노출.
 import { useRef, useState } from "react";
 import {
   Activity,
@@ -55,7 +56,11 @@ const PANEL_TYPES = [
   },
 ];
 
-export default function Pane({ build, splitLevel = 0, onSplit, onUnsplit, excludeSplitDir, style }) {
+export default function Pane({ build, storageEnabled = false, splitLevel = 0, onSplit, onUnsplit, excludeSplitDir, style }) {
+  // 스토리지 토글 꺼진 앱엔 스토리지 카드 자체를 안 보여줌 (선택해도 빈 패널뿐).
+  const panelTypes = PANEL_TYPES.filter(
+    (opt) => opt.id !== "storage" || storageEnabled,
+  );
   const compact = splitLevel > 0;
   const [tabs, setTabs] = useState([]);
   const [activeTabId, setActiveTabId] = useState(null);
@@ -192,7 +197,7 @@ export default function Pane({ build, splitLevel = 0, onSplit, onUnsplit, exclud
               추가할 패널을 선택하세요
             </div>
             <div className="flex gap-3 flex-wrap justify-center">
-              {PANEL_TYPES.map((opt) => {
+              {panelTypes.map((opt) => {
                 const Icon = opt.icon;
                 const disabled = !opt.ready;
                 return (
