@@ -302,10 +302,12 @@ def delete_app(db: Session, user: User) -> None:
 
     # DB: builds 히스토리 + user.app_name/custom_domain 리셋. 다음 배포는 첫 배포 흐름으로 진입.
     # build_records(빌드 행위 영구 기록)는 운영 분석용 append-only라 의도적으로 보존.
+    # extra_hostnames도 클리어 — 옛 앱용 hostname이 다음(다른) 앱 route에 자동 주입되면 안 됨.
     db.query(Build).filter(Build.user_id == user.id).delete()
     user.app_name = None
     user.custom_domain = None
     user.custom_domain_status = None
+    user.extra_hostnames = None
     db.commit()
 
 
@@ -604,6 +606,13 @@ async def _run_build(
                     snapshots.discard_staged(init_dump_token)
 
             _apply_deployment(build)
+
+            # HTTPRoute hostnames reconcile — 템플릿 route는 기본 서브도메인만 갖고
+            # 생성되므로 DB의 커스텀 도메인·extra_hostnames를 배포 때마다 다시 주입.
+            # 수동 drift도 이 시점에 DB 상태로 복원된다 (DB가 유일한 진실원).
+            owner = db.query(User).filter_by(id=build.user_id).first()
+            if owner:
+                _set_app_route_hostnames(build.tenant_id, build.app_name, owner)
 
             ready = await _wait_for_rollout(build.app_name, build.tenant_id)
             if _check_cancelled():
@@ -1140,14 +1149,21 @@ def _normalize_domain(domain: str) -> str:
     return d
 
 
-# 앱 HTTPRoute(+redirect)의 hostnames를 desired로 patch. custom_domain=None이면 기본 서브도메인만.
-# 템플릿은 create-only(app.kodeploy.com)라 커스텀 도메인은 여기서 직접 주입/제거한다.
-def _set_app_route_hostnames(
-    tenant_id: str, app_name: str, custom_domain: str | None,
-) -> None:
-    hostnames = [f"{app_name}.kodeploy.com"]
-    if custom_domain:
-        hostnames.append(custom_domain)
+# User.extra_hostnames(콤마 구분 텍스트) → 리스트. 운영자가 DB에 직접 등록하는 값.
+def _extra_hostnames(user: User) -> list[str]:
+    raw = user.extra_hostnames or ""
+    return [h.strip().lower() for h in raw.split(",") if h.strip()]
+
+
+# 앱 HTTPRoute(+redirect)의 hostnames를 DB 기준으로 통째 set (authoritative reconcile).
+# 구성: 기본 서브도메인 + extra_hostnames(운영자 DB 등록 — apex 등 기능 밖 케이스)
+#       + custom_domain(유저 기능). DB가 유일한 진실원 — kubectl 수동 drift는
+#       다음 갱신 때 DB 상태로 복원된다. 특수 hostname이 필요하면 patch가 아니라
+#       extra_hostnames에 등록할 것.
+def _set_app_route_hostnames(tenant_id: str, app_name: str, user: User) -> None:
+    hostnames = [f"{app_name}.kodeploy.com", *_extra_hostnames(user)]
+    if user.custom_domain:
+        hostnames.append(user.custom_domain)
     custom = k8s.custom()
     for route_name in (app_name, f"{app_name}-redirect"):
         try:
@@ -1197,7 +1213,8 @@ def set_custom_domain(db: Session, user: User, domain: str) -> dict:
     user.custom_domain_status = "active" if summary.get("status") == "active" else "pending"
     db.commit()
 
-    _set_app_route_hostnames(f"tenant-{user.id.hex[:8]}", user.app_name, domain)
+    # DB 갱신 후 reconcile — 옛 도메인은 리스트에서 빠지는 걸로 자연 제거됨
+    _set_app_route_hostnames(f"tenant-{user.id.hex[:8]}", user.app_name, user)
     return {
         "domain": user.custom_domain,
         "status": user.custom_domain_status,
@@ -1226,17 +1243,18 @@ def refresh_custom_domain_status(db: Session, user: User) -> dict:
     }
 
 
-# 커스텀 도메인 해제 — route에서 hostname 제거 + CF custom hostname 삭제 + User 클리어.
+# 커스텀 도메인 해제 — User 클리어 후 reconcile(route에서 자연 제거) + CF custom hostname 삭제.
 def clear_custom_domain(db: Session, user: User) -> None:
     if not user.custom_domain:
         return
-    if user.app_name:
-        try:
-            _set_app_route_hostnames(f"tenant-{user.id.hex[:8]}", user.app_name, None)
-        except ApiException:
-            pass
-    domains.delete(user.custom_domain)
+    domain = user.custom_domain
     user.custom_domain = None
     user.custom_domain_status = None
     db.commit()
+    if user.app_name:
+        try:
+            _set_app_route_hostnames(f"tenant-{user.id.hex[:8]}", user.app_name, user)
+        except ApiException:
+            pass
+    domains.delete(domain)
 

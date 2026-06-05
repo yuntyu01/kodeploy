@@ -3,7 +3,7 @@
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import BigInteger, DateTime, ForeignKey, Index, String, Uuid
+from sqlalchemy import BigInteger, DateTime, ForeignKey, Index, String, Text, Uuid
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.shared.db import Base
@@ -37,6 +37,11 @@ class User(Base):
     # root는 코드에 하드코딩 안 함 — 운영자가 DB에서 직접 지정(재시작에도 안 덮어씀).
     # admin은 root가 /admin에서 부여.
     role: Mapped[str] = mapped_column(String(10), default="user")
+    # 플랫폼 기능 밖의 추가 hostname (콤마 구분) — 운영자가 DB에서 직접 등록 (role과 동일 방침).
+    # 예: apex 도메인(Dailo의 dailoapp.com — 커스텀 도메인 기능은 서브도메인 전용이라 거부).
+    # HTTPRoute hostnames reconcile 시 기본 서브도메인·커스텀 도메인과 함께 통째로 주입되므로
+    # kubectl 수동 patch와 달리 다음 갱신에 사라지지 않는다.
+    extra_hostnames: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, default=_utcnow, onupdate=_utcnow
