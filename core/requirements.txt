@@ -10,3 +10,4 @@ jinja2==3.1.4
 pyyaml==6.0.2
 httpx==0.28.1
 python-multipart==0.0.18
+publicsuffixlist==1.0.2.20260529

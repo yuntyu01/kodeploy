@@ -12,6 +12,7 @@ import uuid
 from datetime import datetime, timezone
 
 from kubernetes.client.exceptions import ApiException
+from publicsuffixlist import PublicSuffixList
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
@@ -1139,6 +1140,12 @@ _DOMAIN_RE = re.compile(
     r"^(?=.{1,253}$)([a-z0-9](?:[-a-z0-9]*[a-z0-9])?\.)+[a-z]{2,}$"
 )
 
+# Public Suffix List (패키지 동봉 스냅샷 — 네트워크 호출 없음).
+# apex 판정용: privatesuffix(d)가 d 자신이면 등록 도메인(apex), 부모면 서브도메인.
+# 라벨 수 세기(<3)는 co.kr 같은 복합 TLD에 구멍이 있어 PSL로 판정한다
+# (example.co.kr은 라벨 3개지만 apex).
+_PSL = PublicSuffixList()
+
 
 def _normalize_domain(domain: str) -> str:
     d = (domain or "").strip().lower().rstrip(".")
@@ -1189,7 +1196,12 @@ def set_custom_domain(db: Session, user: User, domain: str) -> dict:
     domain = _normalize_domain(domain)
 
     # 서브도메인 전용 — 루트(apex) 도메인은 CNAME 위임이 안 돼 CF for SaaS로 활성화 불가.
-    if len([p for p in domain.split(".") if p]) < 3:
+    # PSL 기반 판정: privatesuffix == 자기 자신이면 apex (example.com, example.co.kr 모두),
+    # None이면 공용 suffix 자체(co.kr 등) — 둘 다 거부. 통과하면 진짜 서브도메인.
+    registrable = _PSL.privatesuffix(domain)
+    if registrable is None:
+        raise ValueError("올바른 도메인 형식이 아닙니다 (예: app.example.com)")
+    if registrable == domain:
         raise ValueError("서브도메인만 연결할 수 있어요 (예: app.example.com). 루트 도메인은 미지원입니다")
 
     other = (
