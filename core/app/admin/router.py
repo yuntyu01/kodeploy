@@ -2,10 +2,13 @@
 
 GET /admin/overview          — 가입/빌드 통계
 GET /admin/users             — 가입자 목록 (tenant·빌드 집계 포함)
+GET /admin/builds            — 빌드 기록 목록 ("총 빌드" 카드 드릴다운)
 GET /admin/nodes             — 노드별 CPU/메모리/디스크 사용량
+GET /admin/nodes/{name}/pods — 그 노드 Pod별 사용량+limit (노드 카드 드릴다운)
 PUT /admin/users/{id}/role   — 등급 변경 (root 전용, user↔admin만)
 """
 
+import re
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -40,10 +43,37 @@ def list_users(
     return service.list_users(db)
 
 
+# 빌드 기록 목록 (최신순 100건) — "총 빌드" 카드 드릴다운.
+@router.get("/builds")
+def list_builds(
+    db: Session = Depends(get_db),
+    _: User = Depends(get_admin_user),
+) -> list[dict]:
+    return service.list_build_records(db)
+
+
 # sync def — K8s proxy 호출(노드당 1회)이 블로킹이라 FastAPI threadpool에서 실행됨.
 @router.get("/nodes")
 def nodes(_: User = Depends(get_admin_user)) -> list[dict]:
     return service.node_stats()
+
+
+# 노드 이름 형식 (DNS-1123) — proxy URL 경로에 들어가므로 형식 밖 입력은 사전 거절.
+_NODE_NAME_RE = re.compile(r"^[a-z0-9]([-a-z0-9.]*[a-z0-9])?$")
+
+
+# 그 노드에서 도는 Pod별 사용량 + limit — 노드 카드 드릴다운.
+@router.get("/nodes/{node_name}/pods")
+def node_pods(
+    node_name: str,
+    _: User = Depends(get_admin_user),
+) -> list[dict]:
+    if not _NODE_NAME_RE.match(node_name):
+        raise HTTPException(status_code=400, detail="잘못된 노드 이름")
+    try:
+        return service.node_pod_stats(node_name)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @router.put("/users/{user_id}/role")

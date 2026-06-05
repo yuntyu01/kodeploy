@@ -144,6 +144,18 @@ def _parse_mem_bytes(v: str) -> int:
     return int(v)
 
 
+# kubelet stats/summary 프록시 호출 (노드 1대). 응답은 dict (실패 시 ApiException 전파).
+def _node_summary(core, node_name: str) -> dict:
+    summary = core.api_client.call_api(
+        f"/api/v1/nodes/{node_name}/proxy/stats/summary",
+        "GET",
+        auth_settings=["BearerToken"],
+        response_type="object",
+        _return_http_data_only=True,
+    )
+    return summary if isinstance(summary, dict) else {}
+
+
 # 노드별 상태 + CPU/메모리/디스크 사용량. master 먼저, 이후 이름순.
 # stats/summary 실패(권한/노드 다운)는 그 노드만 error 표시 — 전체 응답은 유지.
 def node_stats() -> list[dict]:
@@ -169,14 +181,8 @@ def node_stats() -> list[dict]:
         }
         try:
             # kubelet Stats Summary — usageNanoCores/workingSetBytes/fs가 한 JSON에 다 옴
-            summary = core.api_client.call_api(
-                f"/api/v1/nodes/{name}/proxy/stats/summary",
-                "GET",
-                auth_settings=["BearerToken"],
-                response_type="object",
-                _return_http_data_only=True,
-            )
-            node_sum = summary.get("node", {}) if isinstance(summary, dict) else {}
+            summary = _node_summary(core, name)
+            node_sum = summary.get("node", {})
             cpu = node_sum.get("cpu") or {}
             mem = node_sum.get("memory") or {}
             fs = node_sum.get("fs") or {}
@@ -195,3 +201,97 @@ def node_stats() -> list[dict]:
 
     out.sort(key=lambda e: (e["role"] != "master", e["name"]))
     return out
+
+
+# 특정 노드의 Pod별 리소스 — 사용량은 stats/summary, 제한은 Pod spec limits 합산.
+# 컨테이너 하나라도 limit이 없으면 그 자원은 사실상 무제한 → None (UI에서 "—").
+def node_pod_stats(node_name: str) -> list[dict]:
+    core = k8s.core_v1()
+
+    # Pod spec에서 limit 합산 — field selector로 그 노드의 Running Pod만.
+    limits: dict = {}
+    try:
+        pod_list = core.list_pod_for_all_namespaces(
+            field_selector=f"spec.nodeName={node_name},status.phase=Running",
+        )
+    except ApiException:
+        pod_list = None
+    if pod_list:
+        for p in pod_list.items:
+            cpu_total, mem_total, eph_total = 0.0, 0, 0
+            cpu_all = mem_all = eph_all = True
+            for c in p.spec.containers:
+                lim = (c.resources.limits or {}) if c.resources else {}
+                if lim.get("cpu"):
+                    cpu_total += _parse_cpu_cores(lim["cpu"])
+                else:
+                    cpu_all = False
+                if lim.get("memory"):
+                    mem_total += _parse_mem_bytes(lim["memory"])
+                else:
+                    mem_all = False
+                if lim.get("ephemeral-storage"):
+                    eph_total += _parse_mem_bytes(lim["ephemeral-storage"])
+                else:
+                    eph_all = False
+            limits[(p.metadata.namespace, p.metadata.name)] = {
+                "cpu": cpu_total if cpu_all else None,
+                "memory": mem_total if mem_all else None,
+                "ephemeral": eph_total if eph_all else None,
+            }
+
+    try:
+        summary = _node_summary(core, node_name)
+    except ApiException as e:
+        raise ValueError(f"노드 stats 조회 실패 (HTTP {e.status})")
+
+    out = []
+    for pod in summary.get("pods") or []:
+        ref = pod.get("podRef") or {}
+        ns, name = ref.get("namespace", ""), ref.get("name", "")
+        lim = limits.get((ns, name), {})
+        cpu = (pod.get("cpu") or {}).get("usageNanoCores")
+        mem = (pod.get("memory") or {}).get("workingSetBytes")
+        eph = (pod.get("ephemeral-storage") or {}).get("usedBytes")
+        out.append({
+            "namespace": ns,
+            "name": name,
+            "cpu_used_cores": round(cpu / 1e9, 4) if cpu is not None else None,
+            "cpu_limit_cores": lim.get("cpu"),
+            "memory_used_bytes": mem,
+            "memory_limit_bytes": lim.get("memory"),
+            "disk_used_bytes": eph,                      # ephemeral-storage (노드 로컬 임시 디스크)
+            "disk_limit_bytes": lim.get("ephemeral"),
+        })
+    out.sort(key=lambda e: e["memory_used_bytes"] or 0, reverse=True)
+    return out
+
+
+# 빌드 기록 목록 (최신순, 최근 limit건) — "총 빌드" 카드 드릴다운용.
+# build_records ⟕ users (탈퇴/anonymous면 login 없음 — user_id 표시 대체).
+def list_build_records(db: Session, limit: int = 100) -> list[dict]:
+    rows = (
+        db.query(BuildRecord, User.login)
+        .outerjoin(User, BuildRecord.user_id == User.id)
+        .order_by(BuildRecord.started_at.desc())
+        .limit(limit)
+        .all()
+    )
+    return [
+        {
+            "id": r.id,
+            "build_id": r.build_id,
+            "login": login or "anonymous",
+            "seq": r.seq,
+            "app_name": r.app_name,
+            "runtime": r.runtime,
+            "build_mode": r.build_mode,
+            "started_at": r.started_at.isoformat(),
+            "nixpacks_seconds": r.nixpacks_seconds,
+            "buildkit_seconds": r.buildkit_seconds,
+            "total_seconds": r.total_seconds,
+            "status": r.status,
+            "error": r.error,
+        }
+        for r, login in rows
+    ]

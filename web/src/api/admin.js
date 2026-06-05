@@ -22,6 +22,20 @@ export function getNodes() {
   return request("/admin/nodes");
 }
 
+// 노드 카드 드릴다운 — 그 노드 Pod별 사용량 + limit (limit 없으면 null).
+// 응답: [{namespace, name, cpu_used_cores, cpu_limit_cores,
+//         memory_used_bytes, memory_limit_bytes, disk_used_bytes, disk_limit_bytes}]
+export function getNodePods(name) {
+  return request(`/admin/nodes/${encodeURIComponent(name)}/pods`);
+}
+
+// "총 빌드" 카드 드릴다운 — 빌드 기록 최신순 100건 (단계별 소요시간 포함).
+// 응답: [{build_id, login, seq, app_name, runtime, build_mode, started_at,
+//         nixpacks_seconds, buildkit_seconds, total_seconds, status, error}]
+export function listBuildRecords() {
+  return request("/admin/builds");
+}
+
 // 등급 변경 (root 전용). role: "user" | "admin". root 등급은 API로 못 바꿈.
 export function setUserRole(userId, role) {
   return request(`/admin/users/${userId}/role`, {
