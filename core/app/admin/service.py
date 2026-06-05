@@ -14,7 +14,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.auth.model import User
-from app.deploy.model import BuildRecord
+from app.deploy.model import Build, BuildRecord
 from app.shared import k8s
 
 
@@ -295,3 +295,70 @@ def list_build_records(db: Session, limit: int = 100) -> list[dict]:
         }
         for r, login in rows
     ]
+
+
+# 유저 테넌트 상세 — 가입자 row 드릴다운용.
+# 1) 선택 스택: 최신 빌드 row(builds, kind="build")의 runtime/db_type/use_redis/use_storage 등.
+#    delete_app이 builds를 지우므로 앱 삭제 후엔 config=None (영구 기록이 필요한 건
+#    build_records가 담당, 여기는 "현재 구성"이 목적이라 의도된 동작).
+# 2) 실제 상태: 테넌트 ns의 Pod 목록 (phase/ready/restarts) — ns 없으면 빈 리스트.
+def user_tenant_detail(db: Session, user_id: uuid.UUID) -> dict:
+    user = db.query(User).filter_by(id=user_id).first()
+    if not user:
+        raise ValueError("유저를 찾을 수 없습니다")
+    tenant_id = f"tenant-{user.id.hex[:8]}"
+
+    latest = (
+        db.query(Build)
+        .filter_by(user_id=user.id, kind="build")
+        .order_by(Build.created_at.desc())
+        .first()
+    )
+    config = None
+    if latest:
+        config = {
+            "runtime": latest.runtime,
+            "db_type": latest.db_type or "none",
+            "use_redis": bool(latest.use_redis),
+            "use_storage": bool(latest.use_storage),
+            "build_mode": latest.build_mode,
+            "port": latest.port,
+            "repo_url": latest.repo_url,
+            "branch": latest.branch,
+            "status": latest.status,
+            "created_at": latest.created_at.isoformat(),
+        }
+
+    pods = []
+    if user.app_name:
+        try:
+            pod_list = k8s.core_v1().list_namespaced_pod(namespace=tenant_id)
+            for p in pod_list.items:
+                statuses = p.status.container_statuses or []
+                conditions = p.status.conditions or []
+                pods.append({
+                    "name": p.metadata.name,
+                    # app 라벨로 컴포넌트 구분 (앱 이름 / mysql / postgres / redis)
+                    "component": (p.metadata.labels or {}).get("app", ""),
+                    "phase": p.status.phase,
+                    "ready": any(
+                        c.type == "Ready" and c.status == "True" for c in conditions
+                    ),
+                    "restarts": sum(cs.restart_count or 0 for cs in statuses),
+                    "started_at": (
+                        p.status.start_time.isoformat() if p.status.start_time else None
+                    ),
+                })
+        except ApiException as e:
+            if e.status != 404:  # ns 없음(배포 전/삭제 직후) — 빈 리스트가 정답
+                raise
+        pods.sort(key=lambda x: x["name"])
+
+    return {
+        "login": user.login,
+        "app_name": user.app_name,
+        "tenant_id": tenant_id if user.app_name else None,
+        "custom_domain": user.custom_domain,
+        "config": config,
+        "pods": pods,
+    }

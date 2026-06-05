@@ -36,6 +36,15 @@ export function listBuildRecords() {
   return request("/admin/builds");
 }
 
+// 유저 row 드릴다운 — 선택 스택(runtime/DB/Redis/스토리지) + 테넌트 ns Pod 상태.
+// 응답: { login, app_name, tenant_id, custom_domain,
+//         config: {runtime, db_type, use_redis, use_storage, build_mode, port,
+//                  repo_url, branch, status, created_at} | null,
+//         pods: [{name, component, phase, ready, restarts, started_at}] }
+export function getUserTenant(userId) {
+  return request(`/admin/users/${userId}/tenant`);
+}
+
 // 등급 변경 (root 전용). role: "user" | "admin". root 등급은 API로 못 바꿈.
 export function setUserRole(userId, role) {
   return request(`/admin/users/${userId}/role`, {

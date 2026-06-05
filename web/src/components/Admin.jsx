@@ -13,6 +13,7 @@ import {
   getNodePods,
   getNodes,
   getOverview,
+  getUserTenant,
   listBuildRecords,
   listUsers,
   setUserRole,
@@ -67,6 +68,9 @@ export default function Admin() {
   // "총 빌드" 카드 드릴다운 — 열 때 1회 fetch 후 캐시 (닫았다 열어도 재요청 X)
   const [showBuilds, setShowBuilds] = useState(false);
   const [buildRecords, setBuildRecords] = useState(null);
+  // 유저 row 드릴다운 — 한 번에 한 명만 펼침. 상세는 id별 캐시.
+  const [expandedUser, setExpandedUser] = useState(null);
+  const [tenantDetails, setTenantDetails] = useState({});
 
   const isAdmin = user && ADMIN_ROLES.includes(user.role);
 
@@ -127,6 +131,22 @@ export default function Admin() {
   }, [isAdmin]);
 
   if (authLoading || !isAdmin) return null;
+
+  // 유저 row 클릭 — 펼침 토글 + 첫 오픈 시 테넌트 상세 fetch.
+  const toggleUser = (u) => {
+    const next = expandedUser === u.id ? null : u.id;
+    setExpandedUser(next);
+    if (next && !tenantDetails[u.id]) {
+      getUserTenant(u.id)
+        .then((d) => setTenantDetails((prev) => ({ ...prev, [u.id]: d })))
+        .catch((e) =>
+          setTenantDetails((prev) => ({
+            ...prev,
+            [u.id]: { error: e.message || "조회 실패" },
+          })),
+        );
+    }
+  };
 
   const handleRoleChange = async (target, role) => {
     try {
@@ -240,58 +260,15 @@ export default function Admin() {
           </thead>
           <tbody>
             {users.map((u) => (
-              <tr
+              <UserRow
                 key={u.id}
-                className="text-fg-2"
-                style={{ borderBottom: "1px solid rgba(255,255,255,0.04)" }}
-              >
-                <td className="px-4 py-2.5">
-                  <div className="flex items-center gap-2 min-w-0">
-                    {u.avatar_url && (
-                      <img
-                        src={u.avatar_url}
-                        alt=""
-                        className="w-5 h-5 rounded-full shrink-0"
-                        style={{ border: "1px solid rgba(255,255,255,0.08)" }}
-                      />
-                    )}
-                    <span className="truncate" style={{ fontWeight: 510, color: "#dde0e4" }}>
-                      {u.login}
-                    </span>
-                  </div>
-                </td>
-                <td className="px-4 py-2.5">
-                  <RoleCell user={u} me={user} onChange={handleRoleChange} />
-                </td>
-                <td className="px-4 py-2.5">
-                  {u.app_name ? (
-                    <div className="min-w-0">
-                      <a
-                        href={`https://${u.app_name}.kodeploy.com`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="hover:underline"
-                        style={{ color: "#818be0", fontWeight: 510 }}
-                      >
-                        {u.app_name}
-                      </a>
-                      <div className="text-[11px] text-fg-4 font-mono">{u.tenant_id}</div>
-                    </div>
-                  ) : (
-                    <span className="text-fg-4">—</span>
-                  )}
-                </td>
-                <td className="px-4 py-2.5">
-                  {u.custom_domain || <span className="text-fg-4">—</span>}
-                </td>
-                <td className="px-4 py-2.5 tabular-nums">{u.build_count}</td>
-                <td className="px-4 py-2.5 text-fg-3 tabular-nums">
-                  {u.last_build_at ? relativeTime(u.last_build_at) : "—"}
-                </td>
-                <td className="px-4 py-2.5 text-fg-3 tabular-nums">
-                  {relativeTime(u.created_at)}
-                </td>
-              </tr>
+                u={u}
+                me={user}
+                expanded={expandedUser === u.id}
+                detail={tenantDetails[u.id]}
+                onToggle={() => toggleUser(u)}
+                onRoleChange={handleRoleChange}
+              />
             ))}
             {users.length === 0 && (
               <tr>
@@ -426,6 +403,211 @@ function BuildRecordsTable({ records }) {
           ))}
         </tbody>
       </table>
+    </div>
+  );
+}
+
+// 가입자 row + 클릭 펼침 (테넌트 상세). 등급 select·앱 링크 클릭은 토글에 안 걸리게 차단.
+function UserRow({ u, me, expanded, detail, onToggle, onRoleChange }) {
+  return (
+    <>
+      <tr
+        onClick={onToggle}
+        className="text-fg-2 transition-colors"
+        style={{
+          borderBottom: "1px solid rgba(255,255,255,0.04)",
+          cursor: "pointer",
+          background: expanded ? "rgba(129,139,224,0.05)" : "transparent",
+        }}
+        title={expanded ? "테넌트 상세 접기" : "테넌트 상세 보기"}
+      >
+        <td className="px-4 py-2.5">
+          <div className="flex items-center gap-2 min-w-0">
+            {u.avatar_url && (
+              <img
+                src={u.avatar_url}
+                alt=""
+                className="w-5 h-5 rounded-full shrink-0"
+                style={{ border: "1px solid rgba(255,255,255,0.08)" }}
+              />
+            )}
+            <span className="truncate" style={{ fontWeight: 510, color: "#dde0e4" }}>
+              {u.login}
+            </span>
+            <ChevronDown
+              size={11}
+              strokeWidth={2}
+              className="text-fg-4 transition-transform shrink-0"
+              style={{ transform: expanded ? "rotate(180deg)" : "none" }}
+            />
+          </div>
+        </td>
+        <td className="px-4 py-2.5" onClick={(e) => e.stopPropagation()}>
+          <RoleCell user={u} me={me} onChange={onRoleChange} />
+        </td>
+        <td className="px-4 py-2.5">
+          {u.app_name ? (
+            <div className="min-w-0">
+              <a
+                href={`https://${u.app_name}.kodeploy.com`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="hover:underline"
+                style={{ color: "#818be0", fontWeight: 510 }}
+                onClick={(e) => e.stopPropagation()}
+              >
+                {u.app_name}
+              </a>
+              <div className="text-[11px] text-fg-4 font-mono">{u.tenant_id}</div>
+            </div>
+          ) : (
+            <span className="text-fg-4">—</span>
+          )}
+        </td>
+        <td className="px-4 py-2.5">
+          {u.custom_domain || <span className="text-fg-4">—</span>}
+        </td>
+        <td className="px-4 py-2.5 tabular-nums">{u.build_count}</td>
+        <td className="px-4 py-2.5 text-fg-3 tabular-nums">
+          {u.last_build_at ? relativeTime(u.last_build_at) : "—"}
+        </td>
+        <td className="px-4 py-2.5 text-fg-3 tabular-nums">
+          {relativeTime(u.created_at)}
+        </td>
+      </tr>
+      {expanded && (
+        <tr style={{ borderBottom: "1px solid rgba(255,255,255,0.04)" }}>
+          <td colSpan={7} className="px-4 py-4" style={{ background: "rgba(0,0,0,0.25)" }}>
+            <TenantDetail detail={detail} />
+          </td>
+        </tr>
+      )}
+    </>
+  );
+}
+
+// 펼침 내용 — 선택 스택 chips + 테넌트 Pod 상태 테이블.
+function TenantDetail({ detail }) {
+  if (!detail) return <Hint>테넌트 정보를 불러오는 중…</Hint>;
+  if (detail.error)
+    return (
+      <div className="text-[11.5px]" style={{ color: "#fca5a5" }}>
+        {detail.error}
+      </div>
+    );
+
+  const cfg = detail.config;
+  if (!cfg && detail.pods.length === 0) {
+    return <Hint>아직 배포한 앱이 없어요.</Hint>;
+  }
+
+  // 선택 스택 → chips. db "none"/redis off/storage off는 표시 안 함.
+  const chips = [];
+  if (cfg) {
+    chips.push({ label: cfg.runtime === "java" ? "Java" : "Python", color: "#a4abee" });
+    if (cfg.db_type && cfg.db_type !== "none")
+      chips.push({ label: cfg.db_type === "mysql" ? "MySQL" : "PostgreSQL", color: "#7fb6db" });
+    if (cfg.use_redis) chips.push({ label: "Redis", color: "#f87171" });
+    if (cfg.use_storage) chips.push({ label: "스토리지 (R2)", color: "#d8a657" });
+    chips.push({
+      label: cfg.build_mode === "auto" ? "auto (nixpacks)" : "Dockerfile",
+      color: "#8a8f98",
+    });
+  }
+
+  return (
+    <div className="flex flex-col gap-3">
+      {cfg && (
+        <>
+          <div className="flex items-center gap-1.5 flex-wrap">
+            {chips.map((c) => (
+              <span
+                key={c.label}
+                className="text-[11px] px-2 py-0.5 rounded"
+                style={{
+                  background: "rgba(255,255,255,0.04)",
+                  border: "1px solid rgba(255,255,255,0.08)",
+                  color: c.color,
+                  fontWeight: 590,
+                }}
+              >
+                {c.label}
+              </span>
+            ))}
+            <span className="text-[11px] text-fg-4 ml-1">port {cfg.port}</span>
+          </div>
+          <div className="text-[11.5px] text-fg-3">
+            <a
+              href={cfg.repo_url.replace(/\.git$/, "")}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="hover:underline"
+              style={{ color: "#818be0" }}
+            >
+              {cfg.repo_url.replace(/^https?:\/\/(www\.)?github\.com\//, "").replace(/\.git$/, "")}
+            </a>
+            <span className="text-fg-4"> · {cfg.branch} 브랜치 · 마지막 빌드 {relativeTime(cfg.created_at)}</span>
+          </div>
+        </>
+      )}
+      {detail.pods.length > 0 ? (
+        <div
+          className="rounded-lg overflow-x-auto scroll-thin"
+          style={{ border: "1px solid rgba(255,255,255,0.06)" }}
+        >
+          <table className="w-full text-[11.5px]" style={{ borderCollapse: "collapse" }}>
+            <thead>
+              <tr className="text-left text-[10px] text-fg-4" style={{ fontWeight: 590 }}>
+                {["POD", "컴포넌트", "상태", "재시작", "시작"].map((h) => (
+                  <th
+                    key={h}
+                    className="px-3 py-1.5 tracking-[0.06em] whitespace-nowrap"
+                    style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}
+                  >
+                    {h}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {detail.pods.map((p) => (
+                <tr
+                  key={p.name}
+                  className="text-fg-2"
+                  style={{ borderBottom: "1px solid rgba(255,255,255,0.03)" }}
+                >
+                  <td className="px-3 py-1.5 font-mono" style={{ color: "#dde0e4" }}>
+                    {p.name}
+                  </td>
+                  <td className="px-3 py-1.5 text-fg-3">{p.component || "—"}</td>
+                  <td className="px-3 py-1.5">
+                    <span
+                      style={{
+                        color:
+                          p.phase === "Running" && p.ready
+                            ? "#6dd5a0"
+                            : p.phase === "Running"
+                              ? "#d8a657"
+                              : "#f87171",
+                        fontWeight: 590,
+                      }}
+                    >
+                      {p.phase}
+                      {p.phase === "Running" && !p.ready && " (NotReady)"}
+                    </span>
+                  </td>
+                  <td className="px-3 py-1.5 tabular-nums">{p.restarts}</td>
+                  <td className="px-3 py-1.5 text-fg-3 tabular-nums whitespace-nowrap">
+                    {p.started_at ? relativeTime(p.started_at) : "—"}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <Hint>테넌트 네임스페이스에 실행 중인 Pod이 없어요.</Hint>
+      )}
     </div>
   );
 }

@@ -5,6 +5,7 @@ GET /admin/users             — 가입자 목록 (tenant·빌드 집계 포함)
 GET /admin/builds            — 빌드 기록 목록 ("총 빌드" 카드 드릴다운)
 GET /admin/nodes             — 노드별 CPU/메모리/디스크 사용량
 GET /admin/nodes/{name}/pods — 그 노드 Pod별 사용량+limit (노드 카드 드릴다운)
+GET /admin/users/{id}/tenant — 유저 테넌트 상세: 선택 스택 + Pod 상태 (유저 row 드릴다운)
 PUT /admin/users/{id}/role   — 등급 변경 (root 전용, user↔admin만)
 """
 
@@ -74,6 +75,20 @@ def node_pods(
         return service.node_pod_stats(node_name)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+# 유저 테넌트 상세 — 선택 스택(runtime/DB/Redis/스토리지) + 테넌트 ns Pod 상태.
+# sync def — ns Pod 조회가 블로킹이라 threadpool 실행.
+@router.get("/users/{user_id}/tenant")
+def user_tenant(
+    user_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_admin_user),
+) -> dict:
+    try:
+        return service.user_tenant_detail(db, user_id)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
 
 
 @router.put("/users/{user_id}/role")
