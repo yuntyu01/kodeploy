@@ -6,6 +6,9 @@
 FROM node:22-alpine AS build
 WORKDIR /app
 COPY . .
+{% for k, v in build_env.items() %}
+ENV {{ k }}={{ v }}
+{% endfor %}
 RUN {{ build_cmd }}
 
 {% endif %}

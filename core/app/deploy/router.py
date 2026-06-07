@@ -3,6 +3,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 import asyncio
+import json
 import uuid
 from datetime import datetime, timezone
 
@@ -46,6 +47,7 @@ def _to_status(build: Build) -> StatusResponse:
         project_path=build.project_path or "",
         build_cmd=build.build_cmd or "",
         output_dir=build.output_dir or "",
+        static_env=json.loads(build.build_env) if build.build_env else {},
         dockerfile_content=build.dockerfile_content,
         error=build.error,
         analysis=build.analysis,
@@ -85,6 +87,7 @@ async def create_deploy(
             static_project_path=req.static_project_path,
             build_cmd=req.build_cmd,
             output_dir=req.output_dir,
+            static_env=req.static_env,
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))

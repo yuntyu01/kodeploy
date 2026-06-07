@@ -202,31 +202,26 @@ def _update_event_status(
 #   "pending"  — 스케줄링/이미지 pull/부팅 중 또는 Running but not ready
 #   "crashing" — CrashLoopBackOff / ImagePullBackOff / Failed phase / restart 폭주
 #   "missing"  — Deployment 없음 또는 Pod 0 (첫 배포 전 또는 삭제 후)
-def get_app_status(user: User) -> dict:
-    if not user.app_name:
-        return {"status": "missing", "started_at": None}
-    tenant_id = f"tenant-{user.id.hex[:8]}"
-    core = k8s.core_v1()
+_CRASH_REASONS = (
+    "CrashLoopBackOff",
+    "ImagePullBackOff",
+    "ErrImagePull",
+    "CreateContainerError",
+    "CreateContainerConfigError",
+)
 
-    # 서버 슬롯 우선, 서버 Pod이 없으면(정적 단독 구성) 정적 슬롯으로 폴백 —
-    # 헤더 상태 뱃지는 "대표 워크로드 하나"를 보여주는 용도.
-    selectors = [f"app={user.app_name}"]
-    if user.site_enabled:
-        selectors.append(f"app={user.app_name}-static")
-    pods = None
-    for selector in selectors:
-        try:
-            found = core.list_namespaced_pod(
-                namespace=tenant_id, label_selector=selector,
-            )
-        except ApiException as e:
-            if e.status == 404:
-                return {"status": "missing", "started_at": None}
-            raise
-        if found.items:
-            pods = found
-            break
-    if pods is None:
+
+# 한 슬롯(라벨 셀렉터)의 Pod 상태 분류 — {"status", "started_at"}.
+def _slot_pod_status(core, tenant_id: str, app_label: str) -> dict:
+    try:
+        pods = core.list_namespaced_pod(
+            namespace=tenant_id, label_selector=f"app={app_label}",
+        )
+    except ApiException as e:
+        if e.status == 404:
+            return {"status": "missing", "started_at": None}
+        raise
+    if not pods.items:
         return {"status": "missing", "started_at": None}
 
     pod = max(
@@ -245,14 +240,7 @@ def get_app_status(user: User) -> dict:
             return {"status": "running", "started_at": started_at}
         for cs in pod.status.container_statuses or []:
             if cs.state and cs.state.waiting:
-                reason = cs.state.waiting.reason or ""
-                if reason in (
-                    "CrashLoopBackOff",
-                    "ImagePullBackOff",
-                    "ErrImagePull",
-                    "CreateContainerError",
-                    "CreateContainerConfigError",
-                ):
+                if (cs.state.waiting.reason or "") in _CRASH_REASONS:
                     return {"status": "crashing", "started_at": started_at}
         return {"status": "pending", "started_at": started_at}
 
@@ -261,16 +249,29 @@ def get_app_status(user: User) -> dict:
 
     for cs in pod.status.container_statuses or []:
         if cs.state and cs.state.waiting:
-            reason = cs.state.waiting.reason or ""
-            if reason in (
-                "CrashLoopBackOff",
-                "ImagePullBackOff",
-                "ErrImagePull",
-                "CreateContainerError",
-                "CreateContainerConfigError",
-            ):
+            if (cs.state.waiting.reason or "") in _CRASH_REASONS:
                 return {"status": "crashing", "started_at": started_at}
     return {"status": "pending", "started_at": started_at}
+
+
+# 슬롯별 상태 + 대표 상태. 응답:
+#   {status, started_at,            ← 대표 (서버 우선, 없으면 정적 — 위젯 최소화 라벨 등)
+#    server: {status, started_at},  ← 서버 슬롯 (정적 단독이면 "missing")
+#    site:   {status, started_at} | null}  ← site_enabled 아닐 땐 null
+def get_app_status(user: User) -> dict:
+    if not user.app_name:
+        return {"status": "missing", "started_at": None, "server": None, "site": None}
+    tenant_id = f"tenant-{user.id.hex[:8]}"
+    core = k8s.core_v1()
+
+    server = _slot_pod_status(core, tenant_id, user.app_name)
+    site = (
+        _slot_pod_status(core, tenant_id, f"{user.app_name}-static")
+        if user.site_enabled
+        else None
+    )
+    rep = server if server["status"] != "missing" else (site or server)
+    return {**rep, "server": server, "site": site}
 
 
 # 앱 완전 삭제 — tenant namespace 통째로 삭제하면 K8s가 cascade로
@@ -436,6 +437,29 @@ def _cleanup_build_job(build_id: str, user_id_str: str) -> None:
 _OUTPUT_DIR_PATTERN = re.compile(r"^[A-Za-z0-9._/-]+$")
 
 
+# 빌드 타임 변수 검증 — 키는 셸/Dockerfile 호환 형식(env.py와 동일 규칙), 값은 한 줄 텍스트.
+# 값이 번들에 박혀 공개되는 입력이라 보안 경계는 아니고, ENV 줄이 조용히 깨지는 것만 방지.
+_ENV_KEY_PATTERN = re.compile(r"^[A-Z_][A-Z0-9_]*$")
+_BUILD_ENV_MAX_KEYS = 20
+_BUILD_ENV_MAX_VALUE = 1000
+
+
+def _validate_static_env(env: dict[str, str]) -> dict[str, str]:
+    if len(env) > _BUILD_ENV_MAX_KEYS:
+        raise ValueError(f"빌드 타임 변수는 최대 {_BUILD_ENV_MAX_KEYS}개까지입니다")
+    out: dict[str, str] = {}
+    for k, v in env.items():
+        k = k.strip()
+        if not _ENV_KEY_PATTERN.match(k):
+            raise ValueError(f"변수 이름 형식 위배: {k} (대문자/숫자/_ 만, 영문 대문자나 _로 시작)")
+        if len(v) > _BUILD_ENV_MAX_VALUE:
+            raise ValueError(f"{k} 값이 너무 깁니다 (최대 {_BUILD_ENV_MAX_VALUE}자)")
+        if any(ch in v for ch in "\n\r"):
+            raise ValueError(f"{k} 값에 줄바꿈은 쓸 수 없습니다")
+        out[k] = v
+    return out
+
+
 def _validate_static_fields(build_cmd: str, output_dir: str) -> tuple[str, str]:
     build_cmd = (build_cmd or "").strip()
     if "\n" in build_cmd or "\r" in build_cmd:
@@ -475,6 +499,7 @@ async def start_deploy(
     static_project_path: str = "",
     build_cmd: str = "",
     output_dir: str = "",
+    static_env: dict[str, str] | None = None,
 ) -> list[Build]:
     has_server = runtime != "none"
     if not has_server and not use_static:
@@ -486,6 +511,7 @@ async def start_deploy(
         raise ValueError("오브젝트 스토리지(R2)가 서버에 설정되지 않았습니다")
     if use_static:
         build_cmd, output_dir = _validate_static_fields(build_cmd, output_dir)
+        static_env = _validate_static_env(static_env or {})
 
     repo_url = _normalize_repo_url(repo_url)
     app_name = _resolve_app_name(name, repo_url, user, db)
@@ -548,6 +574,7 @@ async def start_deploy(
             project_path=static_project_path.strip("/"),
             build_cmd=build_cmd,
             output_dir=output_dir,
+            build_env=json.dumps(static_env) if static_env else None,
         )
         builds.append(crud.create_build(db, static_build))
         asyncio.create_task(_run_build(build_id))
@@ -694,7 +721,9 @@ async def _run_build(
             if build.runtime == "static":
                 # 플랫폼 생성 Dockerfile — repo엔 없음. 빌드 전에 DB 보존 (UI 노출 + 재현성).
                 dockerfile_text = manifests.static_dockerfile(
-                    build.build_cmd or "", build.output_dir or "",
+                    build.build_cmd or "",
+                    build.output_dir or "",
+                    build_env=json.loads(build.build_env) if build.build_env else None,
                 )
                 build.dockerfile_content = dockerfile_text
                 db.commit()

@@ -31,6 +31,9 @@ class Build(Base):
     project_path: Mapped[str] = mapped_column(String(200), default="")  # auto/static 모드 — repo root 기준 서브디렉토리 (빈 값=root)
     build_cmd: Mapped[str] = mapped_column(String(300), default="")  # static 전용 — node 빌드 스테이지 커맨드. 빈 값=빌드 없이 repo 그대로 서빙
     output_dir: Mapped[str] = mapped_column(String(200), default="")  # static 전용 — 빌드 산출물 디렉토리 (예: "dist"). build_cmd 없으면 무시
+    # static 전용 — 빌드 타임 변수 JSON (VITE_* 등). 번들에 박혀 공개되는 값이라 Secret 아님.
+    # 서버 런타임 env({app}-env Secret)와 별개 — 섞으면 서버 시크릿이 번들에 구워지는 사고가 됨.
+    build_env: Mapped[str | None] = mapped_column(Text, nullable=True)
     dockerfile_content: Mapped[str | None] = mapped_column(LONGTEXT, nullable=True)  # 실제 빌드에 쓰인 Dockerfile 텍스트. UI 노출 + AI 분석용
     status: Mapped[str] = mapped_column(String(20), default="queued")
     error: Mapped[str | None] = mapped_column(Text, nullable=True)

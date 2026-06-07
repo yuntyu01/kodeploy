@@ -38,6 +38,8 @@ export default function DeployForm({ onRequestGuide }) {
   const [staticProjectPath, setStaticProjectPath] = useState("");
   const [buildCmd, setBuildCmd] = useState("npm ci && npm run build");
   const [outputDir, setOutputDir] = useState("dist");
+  // 정적 빌드 타임 변수 — 번들에 공개되는 값(VITE_*)이라 visibility 토글 없는 단순 key/value
+  const [staticEnvRows, setStaticEnvRows] = useState([{ key: "", value: "" }]);
   const [dbType, setDbType] = useState("none");
   const [useRedis, setUseRedis] = useState(false);
   const [useStorage, setUseStorage] = useState(false);
@@ -119,6 +121,10 @@ export default function DeployForm({ onRequestGuide }) {
           setStaticProjectPath(staticLatest.project_path || "");
           setBuildCmd(staticLatest.build_cmd ?? ""); // ""도 유효(빌드 없음) — ||로 덮으면 안 됨
           setOutputDir(staticLatest.output_dir || "dist");
+          const staticEnvEntries = Object.entries(staticLatest.static_env || {});
+          if (staticEnvEntries.length) {
+            setStaticEnvRows(staticEnvEntries.map(([k, v]) => ({ key: k, value: v })));
+          }
         }
         restoredRef.current = true;
         const entries = Object.entries(envData.env || {});
@@ -171,6 +177,17 @@ export default function DeployForm({ onRequestGuide }) {
     }, 500);
     return () => clearTimeout(timer);
   }, [repoUrl, branch]);
+
+  const addStaticEnvRow = () =>
+    setStaticEnvRows((r) => [...r, { key: "", value: "" }]);
+  const removeStaticEnvRow = (i) =>
+    setStaticEnvRows((r) =>
+      r.length === 1 ? [{ key: "", value: "" }] : r.filter((_, idx) => idx !== i),
+    );
+  const updateStaticEnvRow = (i, field, val) =>
+    setStaticEnvRows((r) =>
+      r.map((row, idx) => (idx === i ? { ...row, [field]: val } : row)),
+    );
 
   const addEnvRow = () =>
     setEnvRows((r) => [...r, { key: "", value: "", visible: true }]);
@@ -227,6 +244,13 @@ export default function DeployForm({ onRequestGuide }) {
       if (!k) continue;
       envDict[k] = value;
     }
+    // 정적 빌드 타임 변수 — 동일 규칙
+    const staticEnvDict = {};
+    for (const { key, value } of staticEnvRows) {
+      const k = key.trim();
+      if (!k) continue;
+      staticEnvDict[k] = value;
+    }
     // 서버 사용 안 함이면 서버 전용 옵션(DB/캐시/스토리지/환경변수)은 무의미 — 폼 상태에 남은 옛 값 무시.
     const effectiveDbType = serverNone ? "none" : dbType;
     try {
@@ -257,6 +281,7 @@ export default function DeployForm({ onRequestGuide }) {
         staticProjectPath: useStatic ? staticProjectPath.trim().replace(/^\/+|\/+$/g, "") : "",
         buildCmd: useStatic ? buildCmd.trim() : "",
         outputDir: useStatic ? outputDir.trim() : "",
+        staticEnv: useStatic ? staticEnvDict : {},
         env: serverNone ? {} : envDict,
         initDumpToken,
       });
@@ -406,177 +431,6 @@ export default function DeployForm({ onRequestGuide }) {
             );
           })}
         </div>
-      </div>
-
-      {/* 정적 슬롯 — 켜면 {app}.kodeploy.com이 정적 사이트, 서버는 {app}-api로 */}
-      <div className="mb-5">
-        <div className="flex items-center justify-between mb-2.5">
-          <div
-            className="text-[10.5px] tracking-[0.08em] text-fg-3"
-            style={{ fontWeight: 590 }}
-          >
-            정적 사이트
-          </div>
-          {useStatic && (
-            <button
-              type="button"
-              onClick={() => onRequestGuide?.("static")}
-              className="text-[11px] text-fg-3 hover:text-fg-1 transition-colors"
-              style={{ fontWeight: 510 }}
-            >
-              가이드 보기
-            </button>
-          )}
-        </div>
-        <div className="flex gap-1.5">
-          {[
-            { id: false, name: "선택 안 함" },
-            { id: true, name: "정적 사이트" },
-          ].map((s) => {
-            const active = useStatic === s.id;
-            return (
-              <button
-                key={String(s.id)}
-                type="button"
-                onClick={() => setUseStatic(s.id)}
-                className="flex-1 h-10 rounded-lg text-[13px] transition-colors flex items-center justify-center"
-                style={{
-                  background: active ? "rgba(129,139,224,0.12)" : "rgba(255,255,255,0.03)",
-                  border: `1px solid ${active ? "rgba(129,139,224,0.25)" : "rgba(255,255,255,0.06)"}`,
-                  color: active ? "#818be0" : "#8a8f98",
-                  fontWeight: 510,
-                }}
-                disabled={submitting}
-              >
-                {s.name}
-              </button>
-            );
-          })}
-        </div>
-        {useStatic && (
-          <>
-            {!serverNone && (
-              <p className="text-[11px] text-fg-4 mt-2" style={{ fontWeight: 450, lineHeight: 1.5 }}>
-                정적 사이트가 <span className="text-fg-3">{(user?.app_name || name.trim() || "앱이름")}.kodeploy.com</span>을
-                받고, 서버는 <span className="text-fg-3">{(user?.app_name || name.trim() || "앱이름")}-api.kodeploy.com</span>으로
-                제공돼요. 커스텀 도메인도 정적 사이트에 연결됩니다.
-              </p>
-            )}
-            <div className="mt-3 flex gap-3">
-              <div className="flex-1">
-                <div
-                  className="text-[10.5px] tracking-[0.08em] text-fg-3 mb-2"
-                  style={{ fontWeight: 590 }}
-                >
-                  정적 저장소 (선택)
-                </div>
-                <input
-                  value={staticRepoUrl}
-                  onChange={(e) => setStaticRepoUrl(e.target.value)}
-                  placeholder="비우면 위 저장소 사용"
-                  spellCheck={false}
-                  className="w-full bg-transparent outline-none text-fg-1 text-[14px] rounded-md px-3 py-2 placeholder:text-fg-3"
-                  style={{
-                    border: "1px solid rgba(255,255,255,0.09)",
-                    background: "rgba(255,255,255,0.02)",
-                    fontWeight: 510,
-                  }}
-                  disabled={submitting}
-                />
-              </div>
-              <div className="w-28 shrink-0">
-                <div
-                  className="text-[10.5px] tracking-[0.08em] text-fg-3 mb-2"
-                  style={{ fontWeight: 590 }}
-                >
-                  브랜치
-                </div>
-                <input
-                  value={staticBranch}
-                  onChange={(e) => setStaticBranch(e.target.value)}
-                  placeholder={branch.trim() || "main"}
-                  className="w-full bg-transparent outline-none text-fg-1 text-[14px] rounded-md px-3 py-2 placeholder:text-fg-3"
-                  style={{
-                    border: "1px solid rgba(255,255,255,0.09)",
-                    background: "rgba(255,255,255,0.02)",
-                    fontWeight: 510,
-                  }}
-                  disabled={submitting}
-                />
-              </div>
-            </div>
-            <div className="mt-3 flex gap-3">
-              <div className="flex-1">
-                <div
-                  className="text-[10.5px] tracking-[0.08em] text-fg-3 mb-2"
-                  style={{ fontWeight: 590 }}
-                >
-                  빌드 커맨드
-                </div>
-                <input
-                  value={buildCmd}
-                  onChange={(e) => setBuildCmd(e.target.value)}
-                  placeholder="npm ci && npm run build"
-                  spellCheck={false}
-                  className="w-full bg-transparent outline-none text-fg-1 text-[14px] rounded-md px-3 py-2 placeholder:text-fg-3"
-                  style={{
-                    border: "1px solid rgba(255,255,255,0.09)",
-                    background: "rgba(255,255,255,0.02)",
-                    fontWeight: 510,
-                  }}
-                  disabled={submitting}
-                />
-              </div>
-              <div className="w-32 shrink-0">
-                <div
-                  className="text-[10.5px] tracking-[0.08em] text-fg-3 mb-2"
-                  style={{ fontWeight: 590 }}
-                >
-                  출력 디렉토리
-                </div>
-                <input
-                  value={outputDir}
-                  onChange={(e) => setOutputDir(e.target.value)}
-                  placeholder="dist"
-                  spellCheck={false}
-                  className="w-full bg-transparent outline-none text-fg-1 text-[14px] rounded-md px-3 py-2 placeholder:text-fg-3"
-                  style={{
-                    border: "1px solid rgba(255,255,255,0.09)",
-                    background: "rgba(255,255,255,0.02)",
-                    fontWeight: 510,
-                  }}
-                  disabled={submitting}
-                />
-              </div>
-            </div>
-            <p className="text-[11px] text-fg-3 mt-2" style={{ fontWeight: 450, lineHeight: 1.55 }}>
-              빌드 결과물(출력 디렉토리)만 서빙돼요 — Vite는{" "}
-              <span style={{ color: "#d0d6e0" }}>dist</span>, CRA는{" "}
-              <span style={{ color: "#d0d6e0" }}>build</span>. 커맨드를 비우면
-              빌드 없이 저장소 파일을 그대로 서빙합니다 (순수 HTML).
-            </p>
-            <div className="mt-3">
-              <div
-                className="text-[10.5px] tracking-[0.08em] text-fg-3 mb-2"
-                style={{ fontWeight: 590 }}
-              >
-                정적 앱 디렉토리 (선택)
-              </div>
-              <input
-                value={staticProjectPath}
-                onChange={(e) => setStaticProjectPath(e.target.value)}
-                placeholder="모노레포면 프론트 폴더 (예: frontend)"
-                className="w-full bg-transparent outline-none text-fg-1 text-[14px] rounded-md px-3 py-2 placeholder:text-fg-3"
-                style={{
-                  border: "1px solid rgba(255,255,255,0.09)",
-                  background: "rgba(255,255,255,0.02)",
-                  fontWeight: 510,
-                }}
-                disabled={submitting}
-              />
-            </div>
-          </>
-        )}
       </div>
 
       {/* DB — 한 앱에 한 DB만 (mysql/postgres 동시 사용 X). 서버 없으면 숨김. */}
@@ -1059,6 +913,247 @@ export default function DeployForm({ onRequestGuide }) {
                 </p>
               </div>
             )}
+          </div>
+        )}
+      </div>
+
+      {/* 정적 사이트 세트 — 슬롯 전체(토글·repo·빌드·변수)를 한 묶음으로. 켜면
+          {app}.kodeploy.com=정적 / 서버={app}-api, 커스텀 도메인도 정적에 연결. */}
+      <div className="mb-6">
+        <div className="flex items-center justify-between mb-2.5">
+          <div
+            className="text-[10.5px] tracking-[0.08em] text-fg-3"
+            style={{ fontWeight: 590 }}
+          >
+            정적 사이트
+          </div>
+          {useStatic && (
+            <button
+              type="button"
+              onClick={() => onRequestGuide?.("static")}
+              className="text-[11px] text-fg-3 hover:text-fg-1 transition-colors"
+              style={{ fontWeight: 510 }}
+            >
+              가이드 보기
+            </button>
+          )}
+        </div>
+        <div className="flex gap-1.5">
+          {[
+            { id: false, name: "선택 안 함" },
+            { id: true, name: "정적 사이트" },
+          ].map((s) => {
+            const active = useStatic === s.id;
+            return (
+              <button
+                key={String(s.id)}
+                type="button"
+                onClick={() => setUseStatic(s.id)}
+                className="flex-1 h-10 rounded-lg text-[13px] transition-colors flex items-center justify-center"
+                style={{
+                  background: active ? "rgba(129,139,224,0.12)" : "rgba(255,255,255,0.03)",
+                  border: `1px solid ${active ? "rgba(129,139,224,0.25)" : "rgba(255,255,255,0.06)"}`,
+                  color: active ? "#818be0" : "#8a8f98",
+                  fontWeight: 510,
+                }}
+                disabled={submitting}
+              >
+                {s.name}
+              </button>
+            );
+          })}
+        </div>
+        {useStatic && (
+          <div
+            className="mt-3 flex flex-col gap-5 px-4 py-4 rounded-xl"
+            style={{
+              border: "1px solid rgba(255,255,255,0.07)",
+              background: "rgba(255,255,255,0.015)",
+            }}
+          >
+            {!serverNone && (
+              <p className="text-[11px] text-fg-4" style={{ fontWeight: 450, lineHeight: 1.5 }}>
+                정적 사이트가 <span className="text-fg-3">{(user?.app_name || name.trim() || "앱이름")}.kodeploy.com</span>을
+                받고, 서버는 <span className="text-fg-3">{(user?.app_name || name.trim() || "앱이름")}-api.kodeploy.com</span>으로
+                제공돼요. 커스텀 도메인도 정적 사이트에 연결됩니다.
+              </p>
+            )}
+            <div className="flex gap-3">
+              <div className="flex-1">
+                <div
+                  className="text-[10.5px] tracking-[0.08em] text-fg-3 mb-2"
+                  style={{ fontWeight: 590 }}
+                >
+                  정적 저장소 (선택)
+                </div>
+                <input
+                  value={staticRepoUrl}
+                  onChange={(e) => setStaticRepoUrl(e.target.value)}
+                  placeholder="비우면 위 저장소 사용"
+                  spellCheck={false}
+                  className="w-full bg-transparent outline-none text-fg-1 text-[13px] rounded-md px-3 py-2 placeholder:text-fg-4"
+                  style={{
+                    border: "1px solid rgba(255,255,255,0.09)",
+                    fontWeight: 510,
+                  }}
+                  disabled={submitting}
+                />
+              </div>
+              <div className="w-28 shrink-0">
+                <div
+                  className="text-[10.5px] tracking-[0.08em] text-fg-3 mb-2"
+                  style={{ fontWeight: 590 }}
+                >
+                  브랜치
+                </div>
+                <input
+                  value={staticBranch}
+                  onChange={(e) => setStaticBranch(e.target.value)}
+                  placeholder={branch.trim() || "main"}
+                  className="w-full bg-transparent outline-none text-fg-1 text-[13px] rounded-md px-3 py-2 placeholder:text-fg-4"
+                  style={{
+                    border: "1px solid rgba(255,255,255,0.09)",
+                    fontWeight: 510,
+                  }}
+                  disabled={submitting}
+                />
+              </div>
+            </div>
+            <div>
+              <div className="flex gap-3">
+                <div className="flex-1">
+                  <div
+                    className="text-[10.5px] tracking-[0.08em] text-fg-3 mb-2"
+                    style={{ fontWeight: 590 }}
+                  >
+                    빌드 커맨드
+                  </div>
+                  <input
+                    value={buildCmd}
+                    onChange={(e) => setBuildCmd(e.target.value)}
+                    placeholder="npm ci && npm run build"
+                    spellCheck={false}
+                    className="w-full bg-transparent outline-none text-fg-1 text-[13px] rounded-md px-3 py-2 placeholder:text-fg-4"
+                    style={{
+                      border: "1px solid rgba(255,255,255,0.09)",
+                      fontWeight: 510,
+                    }}
+                    disabled={submitting}
+                  />
+                </div>
+                <div className="w-32 shrink-0">
+                  <div
+                    className="text-[10.5px] tracking-[0.08em] text-fg-3 mb-2"
+                    style={{ fontWeight: 590 }}
+                  >
+                    출력 디렉토리
+                  </div>
+                  <input
+                    value={outputDir}
+                    onChange={(e) => setOutputDir(e.target.value)}
+                    placeholder="dist"
+                    spellCheck={false}
+                    className="w-full bg-transparent outline-none text-fg-1 text-[13px] rounded-md px-3 py-2 placeholder:text-fg-4"
+                    style={{
+                      border: "1px solid rgba(255,255,255,0.09)",
+                      fontWeight: 510,
+                    }}
+                    disabled={submitting}
+                  />
+                </div>
+              </div>
+              <p className="text-[11px] text-fg-4 mt-2" style={{ fontWeight: 450, lineHeight: 1.55 }}>
+                빌드 결과물(출력 디렉토리)만 서빙돼요 — Vite는{" "}
+                <span className="text-fg-3">dist</span>, CRA는{" "}
+                <span className="text-fg-3">build</span>. 커맨드를 비우면 빌드 없이
+                저장소 파일을 그대로 서빙합니다 (순수 HTML).
+              </p>
+            </div>
+            <div>
+              <div
+                className="text-[10.5px] tracking-[0.08em] text-fg-3 mb-2"
+                style={{ fontWeight: 590 }}
+              >
+                앱 디렉토리 (선택)
+              </div>
+              <input
+                value={staticProjectPath}
+                onChange={(e) => setStaticProjectPath(e.target.value)}
+                placeholder="모노레포면 프론트 폴더 (예: frontend)"
+                className="w-full bg-transparent outline-none text-fg-1 text-[13px] rounded-md px-3 py-2 placeholder:text-fg-4"
+                style={{
+                  border: "1px solid rgba(255,255,255,0.09)",
+                  fontWeight: 510,
+                }}
+                disabled={submitting}
+              />
+            </div>
+            {/* 빌드 타임 변수 — 빌드 스테이지 ENV로 주입. 번들에 박혀 공개되므로 시크릿 금지. */}
+            <div>
+              <div
+                className="text-[10.5px] tracking-[0.08em] text-fg-3 mb-2"
+                style={{ fontWeight: 590 }}
+              >
+                빌드 타임 변수 (선택)
+              </div>
+              <div className="flex flex-col gap-1.5">
+                {staticEnvRows.map((row, i) => (
+                  <div key={i} className="flex items-center gap-1.5">
+                    <input
+                      value={row.key}
+                      onChange={(e) =>
+                        updateStaticEnvRow(i, "key", e.target.value.toUpperCase())
+                      }
+                      placeholder="VITE_API_URL"
+                      spellCheck={false}
+                      autoCapitalize="characters"
+                      className="flex-1 min-w-0 px-2.5 py-1.5 rounded-md bg-transparent outline-none text-[12.5px] text-fg-1 placeholder:text-fg-4"
+                      style={{
+                        border: "1px solid rgba(255,255,255,0.09)",
+                        fontWeight: 510,
+                      }}
+                      disabled={submitting}
+                    />
+                    <input
+                      value={row.value}
+                      onChange={(e) => updateStaticEnvRow(i, "value", e.target.value)}
+                      placeholder="value"
+                      spellCheck={false}
+                      className="flex-1 min-w-0 px-2.5 py-1.5 rounded-md bg-transparent outline-none text-[12.5px] text-fg-1 placeholder:text-fg-4"
+                      style={{
+                        border: "1px solid rgba(255,255,255,0.09)",
+                        fontWeight: 510,
+                      }}
+                      disabled={submitting}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => removeStaticEnvRow(i)}
+                      className="w-7 h-7 rounded-md text-fg-4 hover:text-red-300 hover:bg-white/[0.04] flex items-center justify-center shrink-0"
+                      title="삭제"
+                    >
+                      <Trash2 size={12} strokeWidth={1.8} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+              <button
+                type="button"
+                onClick={addStaticEnvRow}
+                className="mt-2.5 flex items-center gap-1 px-2 py-1 rounded-md text-[11.5px] text-fg-3 hover:text-fg-1 hover:bg-white/[0.04]"
+                style={{ fontWeight: 510 }}
+              >
+                <Plus size={11} strokeWidth={2} /> 변수 추가
+              </button>
+              <p
+                className="text-[11px] text-fg-4 mt-2"
+                style={{ fontWeight: 450, lineHeight: 1.55 }}
+              >
+                <span className="text-fg-3">VITE_</span> 같은 빌드 타임 값이 번들에
+                들어가요 — 브라우저에 공개되니 <span className="text-fg-3">시크릿은 금지</span>.
+                서버 환경변수(고급 옵션)와는 별개입니다.
+              </p>
+            </div>
           </div>
         )}
       </div>

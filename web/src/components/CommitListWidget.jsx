@@ -63,6 +63,8 @@ export default function CommitListWidget() {
   const [builds, setBuilds] = useState([]);
   const [appStatus, setAppStatus] = useState(null);
   const [startedAt, setStartedAt] = useState(null);
+  // 슬롯별 상태 — {server: {status,started_at}|null, site: ...|null}. site가 있으면 두 줄 표시.
+  const [slotStatus, setSlotStatus] = useState({ server: null, site: null });
   // 커스텀 도메인 + CF 연결 상태 ({ domain, status } 또는 null). pending이면 자주 폴링.
   const [domainInfo, setDomainInfo] = useState(null);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
@@ -157,6 +159,7 @@ export default function CommitListWidget() {
         if (!cancelled) {
           setAppStatus(data.status);
           setStartedAt(data.started_at || null);
+          setSlotStatus({ server: data.server || null, site: data.site || null });
         }
       } catch {}
       if (!cancelled) {
@@ -369,6 +372,16 @@ export default function CommitListWidget() {
     tab === "commits" ? commits : tab === "builds" ? builds : envEntries;
   const visible = items.slice(0, VISIBLE_COUNT);
   const hiddenCount = Math.max(0, items.length - VISIBLE_COUNT);
+  // 빌드 목록 슬롯 구분(ID 색)·상단 범례 노출 여부 — 정적 빌드가 하나라도 있을 때만 (단일 슬롯이면 노이즈)
+  const hasStaticBuilds = builds.some((b) => b.runtime === "static");
+  // 슬롯별 활성 빌드 — Pod이 아직 없는 슬롯(missing)도 빌드 중이면 상태 줄에 "빌드 중"으로 표시
+  const activeServerBuild = builds.some(
+    (b) => b.runtime !== "static" && ACTIVE.has(b.status),
+  );
+  const activeStaticBuild = builds.some(
+    (b) => b.runtime === "static" && ACTIVE.has(b.status),
+  );
+
   // 모든 탭 카운트 한 줄: 커밋 · 빌드 · 환경변수
   const statusEmoji = appStatus === "running" ? "●" : appStatus === "crashing" ? "●" : "○";
   const minimizedLabel = `${statusEmoji} ${commits.length} · ${builds.length} · ${envEntries.length}`;
@@ -477,29 +490,58 @@ export default function CommitListWidget() {
           {/* Content */}
           {tab === "status" ? (
             <div className="px-3 py-2.5">
-              <div className="flex items-center gap-2 mb-2">
-                <span className="text-[13px] text-fg-1 truncate" style={{ fontWeight: 590 }}>{user.app_name}</span>
-                <AppStatusBadge status={appStatus} />
-              </div>
+              {/* 헤더 없음 — 이름은 모든 주소 줄의 접두라 중복, 상태는 줄마다 뱃지 */}
               <div className="mb-3 flex flex-col gap-1">
-                {/* 기본 서브도메인 — 항상 살아있는 canonical 주소 */}
-                <div className="flex items-center gap-3 min-w-0">
-                  <a
-                    href={`https://${user.app_name}.kodeploy.com`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1 text-[11px] text-fg-3 hover:text-fg-1 no-underline transition-colors truncate"
-                    style={{ fontWeight: 450 }}
-                  >
-                    {user.app_name}.kodeploy.com
-                    <ExternalLink size={9} strokeWidth={2} />
-                  </a>
-                  {startedAt && appStatus === "running" && (
-                    <span className="text-[10px] text-fg-4 tabular-nums shrink-0" style={{ fontWeight: 450 }}>
-                      {formatUptime(startedAt)}
+                {slotStatus.site ? (
+                  <>
+                    {/* 두 슬롯 — 프론트({app}=정적) / 백엔드({app}-api). 뱃지는 슬롯별 Pod 상태.
+                        Pod이 아직 없어도(missing) 그 슬롯의 빌드가 돌고 있으면 "빌드 중"으로 —
+                        java 빌드가 정적보다 오래 걸려서 백엔드 줄이 사라져 보이는 문제 방지. */}
+                    <SlotRow
+                      label="프론트"
+                      host={`${user.app_name}.kodeploy.com`}
+                      status={
+                        slotStatus.site.status === "missing" && activeStaticBuild
+                          ? "building"
+                          : slotStatus.site.status
+                      }
+                    />
+                    {slotStatus.server &&
+                      (slotStatus.server.status !== "missing" || activeServerBuild) && (
+                        <SlotRow
+                          label="백엔드"
+                          host={`${user.app_name}-api.kodeploy.com`}
+                          status={
+                            slotStatus.server.status === "missing" && activeServerBuild
+                              ? "building"
+                              : slotStatus.server.status
+                          }
+                        />
+                      )}
+                  </>
+                ) : (
+                  /* 단일 슬롯(서버만) — 한 줄 + 뱃지 (헤더 뱃지 제거에 따라 여기로) */
+                  <div className="flex items-center gap-2 min-w-0">
+                    <a
+                      href={`https://${user.app_name}.kodeploy.com`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 text-[11px] text-fg-3 hover:text-fg-1 no-underline transition-colors truncate min-w-0"
+                      style={{ fontWeight: 450 }}
+                    >
+                      <span className="truncate">{user.app_name}.kodeploy.com</span>
+                      <ExternalLink size={9} strokeWidth={2} className="shrink-0" />
+                    </a>
+                    {startedAt && appStatus === "running" && (
+                      <span className="text-[10px] text-fg-4 tabular-nums shrink-0" style={{ fontWeight: 450 }}>
+                        {formatUptime(startedAt)}
+                      </span>
+                    )}
+                    <span className="ml-auto shrink-0">
+                      <AppStatusBadge status={appStatus} />
                     </span>
-                  )}
-                </div>
+                  </div>
+                )}
                 {/* 커스텀 도메인 — 연결 상태 배지(우측). active=연결됨 / 그 외=대기중 */}
                 {domainInfo && (
                   <div className="flex items-center gap-2 min-w-0">
@@ -619,7 +661,11 @@ export default function CommitListWidget() {
                           </span>
                           <span
                             className="text-[10.5px] shrink-0"
-                            style={{ fontWeight: 510, color: "#818be0" }}
+                            style={{
+                              fontWeight: 510,
+                              // 슬롯 구분은 ID 색으로 — 프론트(static)=초록, 백엔드=보라 (범례는 자세히 보기에만)
+                              color: b.runtime === "static" ? "#4a9d76" : "#818be0",
+                            }}
                           >
                             {b.build_id}
                           </span>
@@ -704,6 +750,33 @@ export default function CommitListWidget() {
 }
 
 // 위젯 상단 작은 탭 버튼 — 보라 액센트 underline (탭 자체는 hover 색 변화 없음)
+// 슬롯 한 줄 — 라벨(프론트/백엔드) + 주소 링크 + 슬롯별 상태 뱃지 (status는 호출부가 계산)
+function SlotRow({ label, host, status }) {
+  return (
+    <div className="flex items-center gap-2 min-w-0">
+      <span
+        className="text-[10px] text-fg-4 w-9 shrink-0"
+        style={{ fontWeight: 590 }}
+      >
+        {label}
+      </span>
+      <a
+        href={`https://${host}`}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="inline-flex items-center gap-1 text-[11px] text-fg-3 hover:text-fg-1 no-underline transition-colors truncate min-w-0"
+        style={{ fontWeight: 450 }}
+      >
+        <span className="truncate">{host}</span>
+        <ExternalLink size={9} strokeWidth={2} className="shrink-0" />
+      </a>
+      <span className="ml-auto shrink-0">
+        <AppStatusBadge status={status} />
+      </span>
+    </div>
+  );
+}
+
 function WidgetTab({ active, onClick, label, count }) {
   return (
     <button

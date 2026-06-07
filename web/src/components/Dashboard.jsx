@@ -133,9 +133,11 @@ export default function Dashboard() {
   const selected =
     builds.find((b) => b.build_id === pinnedBuildId) || pickAutoBuild(builds);
 
-  // 스토리지 패널 노출 여부 — "지금" 토글 상태는 최신 빌드 기준 (선택/핀된 옛 빌드 아님).
-  // builds는 최신순 정렬, env_change row도 당시 토글 값을 복사해 갖고 있음.
-  const storageEnabled = builds[0]?.use_storage ?? false;
+  // 스토리지 패널 노출 여부 — "지금" 토글 상태는 최신 **서버** 빌드 기준.
+  // builds[0]이 static 빌드일 수 있어(두 슬롯) 슬롯 필터 필수 — static은 use_storage 항상 false라
+  // 그대로 쓰면 서버 앱의 스토리지 패널이 잘못 숨겨짐.
+  const storageEnabled =
+    builds.find((b) => b.runtime !== "static")?.use_storage ?? false;
 
   return (
     <div className="flex-1 flex flex-col min-h-0 h-full">

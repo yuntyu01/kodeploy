@@ -5,6 +5,7 @@ const STYLES = {
   pending:  { color: "#b45309", label: "시작 중", pulse: true },
   crashing: { color: "#991b1b", label: "오류" },
   missing:  { color: "#8a8f98", label: "중지" },
+  building: { color: "#b45309", label: "빌드 중", pulse: true },  // 슬롯 Pod 미존재 + 활성 빌드 — 위젯이 계산해서 전달
 };
 
 export default function AppStatusBadge({ status }) {

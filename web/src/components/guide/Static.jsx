@@ -66,8 +66,9 @@ CRA                npm ci && npm run build   →   build`}</CodeBlock>
           사이트(nginx)에는 적용되지 않습니다.
         </Bullet>
         <Bullet>
-          <Code>VITE_*</Code> 같은 빌드 타임 변수가 필요하면 아직은 저장소에 <Code>.env.production</Code>으로
-          포함해 주세요 (빌드 시 환경변수 주입은 준비 중).
+          <Code>VITE_*</Code> 같은 빌드 타임 변수는 정적 사이트 섹션의{" "}
+          <Code>빌드 타임 변수</Code>에 입력하세요 — 빌드 중 번들에 박혀 브라우저에
+          공개되는 값이라 <Code>시크릿은 금지</Code>입니다 (서버 환경변수와 별개).
         </Bullet>
         <Bullet>정적 사이트를 <Code>선택 안 함</Code>으로 돌리면 사이트가 내려가고 도메인이 서버로 돌아갑니다.</Bullet>
       </Section>

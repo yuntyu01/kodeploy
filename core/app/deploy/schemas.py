@@ -37,6 +37,7 @@ class DeployRequest(BaseModel):
     static_project_path: str = ""                        # 정적 빌드 기준 서브디렉토리 (모노레포 프론트 폴더)
     build_cmd: str = ""                                  # 정적 빌드 커맨드. 빈 값=빌드 없이 repo 그대로 서빙
     output_dir: str = ""                                 # 산출물 디렉토리. build_cmd 있고 빈 값이면 "dist"
+    static_env: dict[str, str] = {}                      # 빌드 타임 변수 (VITE_* 등 — 번들에 공개됨, 시크릿 금지)
 
 
 # POST /deploy 직후 응답 — 제출이 만든 빌드들 (서버/정적 슬롯당 최대 1개)
@@ -90,6 +91,7 @@ class StatusResponse(BaseModel):
     project_path: str = ""
     build_cmd: str = ""                                  # static 전용 — 재배포 폼 prefill용
     output_dir: str = ""                                 # static 전용 — 재배포 폼 prefill용
+    static_env: dict[str, str] = {}                      # static 전용 — 빌드 타임 변수 (재배포 폼 prefill용)
     dockerfile_content: str | None = None                # 실제 빌드에 쓰인 Dockerfile. UI에서 코드 블록으로 표시.
     error: str | None = None
     analysis: str | None = None

@@ -46,6 +46,7 @@ export function createDeploy({
   staticProjectPath = "",
   buildCmd = "",
   outputDir = "",
+  staticEnv = {},
   env = {},
   initDumpToken = null,
 }) {
@@ -70,6 +71,7 @@ export function createDeploy({
       static_project_path: staticProjectPath || "",
       build_cmd: buildCmd,                        // 빈 값이면 빌드 없이 repo 그대로 서빙
       output_dir: outputDir,                      // 빌드 산출물 디렉토리 (기본 dist)
+      static_env: staticEnv,                      // 빌드 타임 변수 (VITE_* — 번들에 공개, 시크릿 금지)
       env,                                        // 첫 배포: Secret 생성. 재배포: replace. 빈 dict면 backend가 무시.
       init_dump_token: initDumpToken,             // 초기 DB .sql(.gz) stage 토큰. mysql Ready 후 자동 복원.
     }),

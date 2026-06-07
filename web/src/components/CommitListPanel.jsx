@@ -332,6 +332,8 @@ function CommitDetailPanel({ commit, onClose }) {
 }
 
 function BuildsBody({ builds }) {
+  // 슬롯 칩(프론트/백엔드)은 정적 빌드가 섞여 있을 때만 — 단일 슬롯이면 노이즈
+  const hasStaticBuilds = builds.some((b) => b.runtime === "static");
   // row 펼침 (build_id 또는 null) + 좌측 BuildLogsPanel state ({build, mode}).
   // 활동 패널은 우측 z-40, BuildLogsPanel은 좌측 z-40 — 동시 표시 가능.
   const [expanded, setExpanded] = useState(null);
@@ -349,6 +351,22 @@ function BuildsBody({ builds }) {
     <>
       <div className="flex-1 min-h-0 overflow-auto scroll-thin px-5 py-5">
         <div className="flex flex-col gap-1">
+          {/* 슬롯 범례 — 우측 정렬, 점만 색·글자는 회색 (정적 빌드 있을 때만) */}
+          {hasStaticBuilds && (
+            <div
+              className="flex items-center justify-end gap-3 px-3 pb-1 text-[10.5px] text-fg-4"
+              style={{ fontWeight: 450 }}
+            >
+              <span className="inline-flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: "#4a9d76" }} />
+                프론트
+              </span>
+              <span className="inline-flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: "#818be0" }} />
+                백엔드
+              </span>
+            </div>
+          )}
           {(() => {
             // #N은 kind="build"만 카운트. 역순으로 매겨서 가장 최신이 가장 큰 번호.
             const totalBuilds = builds.filter((b) => (b.kind || "build") === "build").length;
@@ -402,7 +420,11 @@ function BuildsBody({ builds }) {
                       </span>
                       <span
                         className="text-[11.5px] shrink-0"
-                        style={{ fontWeight: 510, color: "#818be0" }}
+                        style={{
+                          fontWeight: 510,
+                          // 슬롯 구분은 ID 색으로 — 프론트(static)=초록, 백엔드=보라 (우측 범례와 동일 색)
+                          color: b.runtime === "static" ? "#4a9d76" : "#818be0",
+                        }}
                       >
                         {b.build_id}
                       </span>
