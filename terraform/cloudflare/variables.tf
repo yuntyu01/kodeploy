@@ -11,11 +11,11 @@
 # 필요한 권한 (대상 zone: kodeploy.com):
 #   - Account → Cloudflare Tunnel: Edit
 #   - Zone → DNS: Edit
-#   - Zone → SSL and Certificates: Edit   # Authenticated Origin Pulls(origin_tls_client_auth) — origin-mtls.tf
 #   - Zone → Config Rules: Edit           # http_config_settings ruleset — security.tf (UI 그룹명 다르면 Rulesets/WAF 계열 매칭)
+# (Zone → SSL and Certificates: Edit은 옛 mTLS/AOP(origin-mtls.tf, 69ec7bd)용이었음 — 제거 후 불필요)
 # 발급: dash.cloudflare.com → My Profile → API Tokens → 기존 토큰 Edit 또는 Create Token
 variable "cloudflare_api_token" {
-  description = "Cloudflare API Token (Tunnel + DNS + SSL/Certificates + Config Rules)"
+  description = "Cloudflare API Token (Tunnel + DNS + Config Rules)"
   type        = string
   sensitive   = true
 }
