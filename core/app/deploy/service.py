@@ -312,9 +312,18 @@ def delete_app(db: Session, user: User) -> None:
     db.commit()
 
 
-# 최근 커밋 조회 — public repo 한정 (unauthenticated GitHub API, IP당 60req/h).
+# GitHub 커밋 캐시 — unauthenticated 한도(IP당 60req/h, core egress IP 공유) 보호.
+# (owner, repo, branch) → {"etag", "data", "at"}.
+# - TTL 안: 네트워크 생략 (탭/유저 수와 무관하게 repo당 분당 최대 1회)
+# - TTL 후: If-None-Match 조건부 요청 — 304는 GitHub이 rate limit에서 차감 안 함
+# - 403(한도 초과) 등 실패: stale 캐시라도 반환 — UI가 갑자기 비지 않게
+_COMMITS_CACHE: dict[tuple, dict] = {}
+_COMMITS_TTL_SECONDS = 60
+
+
+# 최근 커밋 조회 — public repo 한정 (unauthenticated GitHub API).
 # private repo 지원은 App installation token 도입 시 분기 추가.
-# 실패는 빈 리스트로 swallow — UI에서 "없음" 표시되면 충분.
+# 실패는 캐시 fallback → 빈 리스트로 swallow — UI에서 "없음" 표시되면 충분.
 def fetch_recent_commits(
     repo_url: str, branch: str, per_page: int = 10,
 ) -> list[dict]:
@@ -322,22 +331,35 @@ def fetch_recent_commits(
     if not m:
         return []
     owner, repo = m.group(1), m.group(2)
+
+    key = (owner, repo, branch)
+    now = time.time()
+    cached = _COMMITS_CACHE.get(key)
+    if cached and now - cached["at"] < _COMMITS_TTL_SECONDS:
+        return cached["data"]
+
     api_url = (
         f"https://api.github.com/repos/{owner}/{repo}/commits"
         f"?sha={branch}&per_page={per_page}"
     )
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "User-Agent": "kodeploy",
+    }
+    if cached and cached.get("etag"):
+        headers["If-None-Match"] = cached["etag"]
     try:
-        req = urllib.request.Request(
-            api_url,
-            headers={
-                "Accept": "application/vnd.github+json",
-                "User-Agent": "kodeploy",
-            },
-        )
+        req = urllib.request.Request(api_url, headers=headers)
         with urllib.request.urlopen(req, timeout=10) as resp:
             data = json.load(resp)
+            etag = resp.headers.get("ETag")
+    except urllib.error.HTTPError as e:
+        if e.code == 304 and cached:          # 변경 없음 — 한도 미차감, 캐시 연장
+            cached["at"] = now
+            return cached["data"]
+        return cached["data"] if cached else []  # 403(한도) 등 — stale 캐시 fallback
     except (urllib.error.URLError, TimeoutError, ValueError):
-        return []
+        return cached["data"] if cached else []
     out = []
     for c in data:
         try:
@@ -353,6 +375,7 @@ def fetch_recent_commits(
             })
         except (KeyError, TypeError):
             continue
+    _COMMITS_CACHE[key] = {"etag": etag, "data": out, "at": now}
     return out
 
 
