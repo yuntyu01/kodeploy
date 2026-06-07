@@ -1,15 +1,17 @@
 // DeployForm 옆에 fixed drawer로 뜨는 가이드 패널.
 // TopBar 아래(60px)부터 화면 끝까지 차지. 자체 스크롤.
-// view 키(python/java/custom-domain)에 따라 해당 가이드만 보여줌. 닫기 X 버튼.
+// view 키(python/java/static/custom-domain)에 따라 해당 가이드만 보여줌. 닫기 X 버튼.
 // 동일 가이드 컨텐츠가 /guide 페이지에서도 재사용됨.
 import { X } from "lucide-react";
 import CustomDomain from "./guide/CustomDomain.jsx";
 import Java from "./guide/Java.jsx";
 import Python from "./guide/Python.jsx";
+import Static from "./guide/Static.jsx";
 
 const GUIDES = {
   python: { title: "Python 가이드", Component: Python },
   java: { title: "Java 가이드", Component: Java },
+  static: { title: "정적 사이트 가이드", Component: Static },
   "custom-domain": { title: "커스텀 도메인 가이드", Component: CustomDomain },
 };
 

@@ -13,8 +13,10 @@ spec:
     - name: kodeploy
       namespace: default
       sectionName: https
-  hostnames:
-    - {{ app_name }}.kodeploy.com
+  hostnames:                                             # 호출자가 슬롯 규칙으로 계산해 주입 (server/static 분배)
+{% for h in hostnames %}
+    - {{ h }}
+{% endfor %}
   rules:
     - matches:
         - path:
@@ -46,7 +48,9 @@ spec:
       namespace: default
       sectionName: http
   hostnames:
-    - {{ app_name }}.kodeploy.com
+{% for h in hostnames %}
+    - {{ h }}
+{% endfor %}
   rules:
     - filters:
         - type: RequestRedirect

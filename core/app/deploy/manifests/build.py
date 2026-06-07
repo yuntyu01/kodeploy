@@ -1,7 +1,9 @@
 """빌드 단계용 K8s 매니페스트 (templates/build*.yaml.j2 렌더)."""
 
+import base64
+
 from app import config
-from app.deploy.manifests._renderer import render
+from app.deploy.manifests._renderer import render, render_text
 
 
 # rootless BuildKit 일회성 Job (git → GHCR push) — dockerfile 모드 전용
@@ -51,6 +53,42 @@ def nixpacks_buildkit_job(
         branch=branch,
         project_path=project_path,
         build_args=build_args or {},
+        buildkit_image=config.BUILDKIT_IMAGE,
+        ghcr_auth_secret=config.GHCR_AUTH_SECRET_NAME,
+    )
+
+
+# static 런타임용 Dockerfile 본문 렌더 (repo에 Dockerfile 없음 — 플랫폼이 생성).
+# build_cmd 있으면 node 빌드 스테이지 → output_dir만 nginx로, 없으면 repo 통째 서빙.
+# service.py가 이 텍스트를 dockerfile_content로 보존(UI 노출)하고 Job에도 전달.
+def static_dockerfile(build_cmd: str = "", output_dir: str = "dist") -> str:
+    return render_text(
+        "static_dockerfile.j2",
+        build_cmd=build_cmd,
+        output_dir=output_dir or "dist",
+    )
+
+
+# static 런타임 빌드 Job — init(clone + Dockerfile 작성) + main(BuildKit), emptyDir 공유.
+# Dockerfile은 base64로 주입 — 유저 입력(build_cmd)이 YAML/셸 이스케이프를 깨지 못하게.
+def static_buildkit_job(
+    build_id: str,
+    user_id: str,
+    image: str,
+    repo_url: str,
+    branch: str,
+    dockerfile_text: str,
+    project_path: str = "",
+) -> dict:
+    return render(
+        "static_buildkit_job.yaml.j2",
+        build_id=build_id,
+        user_id=user_id,
+        image=image,
+        repo_url=repo_url,
+        branch=branch,
+        project_path=project_path,
+        dockerfile_b64=base64.b64encode(dockerfile_text.encode("utf-8")).decode("ascii"),
         buildkit_image=config.BUILDKIT_IMAGE,
         ghcr_auth_secret=config.GHCR_AUTH_SECRET_NAME,
     )

@@ -12,7 +12,12 @@ from app.deploy.manifests.app import (
     httproute,
     service,
 )
-from app.deploy.manifests.build import buildkit_job, nixpacks_buildkit_job
+from app.deploy.manifests.build import (
+    buildkit_job,
+    nixpacks_buildkit_job,
+    static_buildkit_job,
+    static_dockerfile,
+)
 from app.deploy.manifests.dependencies import mysql, postgres, redis, storage
 from app.deploy.manifests.tenant import tenant
 
@@ -26,6 +31,8 @@ __all__ = [
     "postgres",
     "redis",
     "service",
+    "static_buildkit_job",
+    "static_dockerfile",
     "storage",
     "tenant",
 ]

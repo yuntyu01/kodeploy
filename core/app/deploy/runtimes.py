@@ -13,6 +13,9 @@
 RUNTIME_RESOURCES: dict[str, dict[str, int]] = {
     "python":   {"req_cpu": 50,  "lim_cpu": 300, "req_mem": 200, "lim_mem": 600,  "req_eph": 100, "lim_eph": 1024},
     "java":     {"req_cpu": 150, "lim_cpu": 500, "req_mem": 700, "lim_mem": 1024, "req_eph": 100, "lim_eph": 1024},
+    # static = nginx-unprivileged가 빌드 산출물(정적 파일)을 서빙. 유저 코드 실행 없음 —
+    # idle nginx 실측 한 자릿수 MB라 요청값 최소. eph는 nginx temp 파일 방어용 소량.
+    "static":   {"req_cpu": 10,  "lim_cpu": 50,  "req_mem": 16,  "lim_mem": 64,   "req_eph": 50,  "lim_eph": 256},
     "mysql":    {"req_cpu": 50,  "lim_cpu": 200, "req_mem": 300, "lim_mem": 500},
     "postgres": {"req_cpu": 50,  "lim_cpu": 200, "req_mem": 250, "lim_mem": 500},
     "redis":    {"req_cpu": 25,  "lim_cpu": 100, "req_mem": 64,  "lim_mem": 192},
@@ -20,7 +23,7 @@ RUNTIME_RESOURCES: dict[str, dict[str, int]] = {
 
 # 사용자가 선택 가능한 런타임 목록 (UI dropdown 등). mysql 같은 의존성은 제외.
 # node는 template 미연결 — 추가 시 RUNTIME_RESOURCES + runtimes/node.yaml.j2 + 여기 같이 추가.
-SELECTABLE_RUNTIMES = ("python", "java")
+SELECTABLE_RUNTIMES = ("python", "java", "static")
 
 
 def get_resources(component: str) -> dict[str, int]:
@@ -29,20 +32,6 @@ def get_resources(component: str) -> dict[str, int]:
     return RUNTIME_RESOURCES[component]
 
 
-# tenant ResourceQuota(ns 총량 상한)에 들어가는 키 — cpu/mem만.
-# ephemeral-storage는 quota에 넣지 않는다(넣으면 ns의 모든 Pod이 eph 선언을 강제당해
-# admission 거부됨). eph 방어는 런타임 컨테이너 spec의 resources.limits.ephemeral-storage로
-# 한다(runtimes/*.yaml.j2). 따라서 합산 대상도 quota 키로 한정 — 새 키가 늘어도 quota엔
-# 의도한 것만 들어가고, tenant()에 누락되면 KeyError로 시끄럽게 터진다(silent no-op 방지).
-_QUOTA_KEYS = ("req_cpu", "lim_cpu", "req_mem", "lim_mem")
-
-
-# 컴포넌트 합산 → tenant ResourceQuota 값 계산. quota 키만 합산(eph 등은 제외).
-def compute_quota(components: list[str]) -> dict[str, int]:
-    total: dict[str, int] = {k: 0 for k in _QUOTA_KEYS}
-    for c in components:
-        res = get_resources(c)
-        for k in _QUOTA_KEYS:
-            total[k] += res.get(k, 0)
-    total["lim_mem"] += 100
-    return total
+# (ResourceQuota 합산은 제거됨 — API-mediated 구조에선 컴포넌트 종류·limit이 고정이라
+#  테넌트 상한이 구조적으로 결정되고, quota는 슬롯별 배포에서 덮어쓰기 사고만 만들었음.
+#  유저가 replicas/리소스를 직접 조절하는 기능이 생기면 그때 ns 상한으로 재도입.)

@@ -4,9 +4,13 @@ import { ChevronDown, Eye, EyeOff, GitBranch, Plus, Trash2 } from "lucide-react"
 import { createDeploy, CUSTOM_DOMAIN_CNAME_TARGET, getEnvVars, listBuilds, RUNTIMES, setDomain, stageDump } from "../api/deploy.js";
 import { useAuth } from "../contexts/AuthContext.jsx";
 
+// 서버 슬롯 선택지 — RUNTIMES(python/java) + "none"(서버 없음, 정적 단독)
+const SERVER_CHOICES = [...RUNTIMES, "none"];
+
 const RUNTIME_META = {
   python: { name: "Python", tag: "FastAPI · uvicorn" },
   java: { name: "Java", tag: "Spring Boot · JDK 17+" },
+  none: { name: "사용 안 함", tag: "정적 사이트 단독" },
 };
 
 // runtime별 기본 listen 포트
@@ -27,6 +31,13 @@ export default function DeployForm({ onRequestGuide }) {
   const [buildMode, setBuildMode] = useState("auto");
   const [dockerfilePath, setDockerfilePath] = useState("Dockerfile");
   const [projectPath, setProjectPath] = useState("");
+  // 정적 슬롯 — 토글 + 빌드 입력. repo/branch 비우면 서버 repo/branch 사용.
+  const [useStatic, setUseStatic] = useState(false);
+  const [staticRepoUrl, setStaticRepoUrl] = useState("");
+  const [staticBranch, setStaticBranch] = useState("");
+  const [staticProjectPath, setStaticProjectPath] = useState("");
+  const [buildCmd, setBuildCmd] = useState("npm ci && npm run build");
+  const [outputDir, setOutputDir] = useState("dist");
   const [dbType, setDbType] = useState("none");
   const [useRedis, setUseRedis] = useState(false);
   const [useStorage, setUseStorage] = useState(false);
@@ -59,24 +70,57 @@ export default function DeployForm({ onRequestGuide }) {
       try {
         const [builds, envData] = await Promise.all([listBuilds(), getEnvVars()]);
         if (cancelled) return;
-        const latest = builds.find((b) => b.kind !== "env_change");
-        if (latest) {
-          setRepoUrl(latest.repo_url.replace(/\.git$/, ""));
-          setBranch(latest.branch || "main");
-          setRuntime(RUNTIMES.includes(latest.runtime) ? latest.runtime : RUNTIMES[0]);
-          setDbType(latest.db_type || "none");
-          setUseRedis(latest.use_redis || false);
-          setUseStorage(latest.use_storage || false);
-          setBuildMode(latest.build_mode || "auto");
-          if (latest.build_mode === "dockerfile") {
-            setDockerfilePath(latest.dockerfile_path || "Dockerfile");
+        // 슬롯별 최신 빌드 — 서버(runtime≠static)와 정적을 따로 복원
+        const serverLatest = builds.find(
+          (b) => b.kind !== "env_change" && b.runtime !== "static",
+        );
+        const staticLatest = builds.find(
+          (b) => b.kind !== "env_change" && b.runtime === "static",
+        );
+        if (serverLatest) {
+          setRepoUrl(serverLatest.repo_url.replace(/\.git$/, ""));
+          setBranch(serverLatest.branch || "main");
+          setRuntime(
+            RUNTIMES.includes(serverLatest.runtime) ? serverLatest.runtime : RUNTIMES[0],
+          );
+          setDbType(serverLatest.db_type || "none");
+          setUseRedis(serverLatest.use_redis || false);
+          setUseStorage(serverLatest.use_storage || false);
+          setBuildMode(
+            ["dockerfile", "auto"].includes(serverLatest.build_mode)
+              ? serverLatest.build_mode
+              : "auto",
+          );
+          if (serverLatest.build_mode === "dockerfile") {
+            setDockerfilePath(serverLatest.dockerfile_path || "Dockerfile");
           }
-          if (latest.build_mode === "auto" && latest.project_path) {
-            setProjectPath(latest.project_path);
+          if (serverLatest.build_mode === "auto" && serverLatest.project_path) {
+            setProjectPath(serverLatest.project_path);
           }
-          setPort(latest.port || DEFAULT_PORTS[latest.runtime] || 80);
-          restoredRef.current = true;
+          setPort(serverLatest.port || DEFAULT_PORTS[serverLatest.runtime] || 80);
+        } else if (user?.site_enabled) {
+          // 정적 단독 구성 — 서버 "사용 안 함" 복원
+          setRuntime("none");
         }
+        // 정적 토글은 user.site_enabled(선언값)가 진실원 — 토글 off 후에도
+        // 빌드 히스토리에 static 빌드가 남아 있으므로 히스토리로 판단하면 안 됨.
+        setUseStatic(!!user?.site_enabled);
+        if (staticLatest) {
+          if (!serverLatest) {
+            // 메인 repo 입력이 곧 정적 repo (정적 단독)
+            setRepoUrl(staticLatest.repo_url.replace(/\.git$/, ""));
+            setBranch(staticLatest.branch || "main");
+          } else if (staticLatest.repo_url !== serverLatest.repo_url) {
+            setStaticRepoUrl(staticLatest.repo_url.replace(/\.git$/, ""));
+            if (staticLatest.branch !== serverLatest.branch) {
+              setStaticBranch(staticLatest.branch || "");
+            }
+          }
+          setStaticProjectPath(staticLatest.project_path || "");
+          setBuildCmd(staticLatest.build_cmd ?? ""); // ""도 유효(빌드 없음) — ||로 덮으면 안 됨
+          setOutputDir(staticLatest.output_dir || "dist");
+        }
+        restoredRef.current = true;
         const entries = Object.entries(envData.env || {});
         if (entries.length) {
           setEnvRows(
@@ -149,8 +193,9 @@ export default function DeployForm({ onRequestGuide }) {
 
   // Dockerfile 모드 + 해당 runtime 변경 시 우측 가이드 패널 자동 표시.
   // auto 모드면 패널 닫기. X 버튼으로 닫아도 buildMode/runtime이 안 바뀌면 다시 안 열림.
+  // 서버 사용 안 함이면 빌드 방식 자체가 없으므로 항상 닫기.
   useEffect(() => {
-    onRequestGuide?.(buildMode === "dockerfile" ? runtime : null);
+    onRequestGuide?.(buildMode === "dockerfile" && runtime !== "none" ? runtime : null);
   }, [buildMode, runtime, onRequestGuide]);
 
   // runtime 변경 시 default 포트 자동 적용. 초기 복원 중에는 skip.
@@ -161,7 +206,9 @@ export default function DeployForm({ onRequestGuide }) {
     if (def) setPort(def);
   }, [runtime]);
 
-  const disabled = !repoUrl.trim() || submitting;
+  const serverNone = runtime === "none";
+  // 서버도 정적도 없으면 배포할 게 없음
+  const disabled = !repoUrl.trim() || submitting || (serverNone && !useStatic);
 
   const handleSubmit = async (e) => {
     e?.preventDefault?.();
@@ -180,10 +227,12 @@ export default function DeployForm({ onRequestGuide }) {
       if (!k) continue;
       envDict[k] = value;
     }
+    // 서버 사용 안 함이면 서버 전용 옵션(DB/캐시/스토리지/환경변수)은 무의미 — 폼 상태에 남은 옛 값 무시.
+    const effectiveDbType = serverNone ? "none" : dbType;
     try {
       // 초기 DB 덤프가 있으면 먼저 stage → 토큰 발급 (mysql/postgres 선택 시에만 의미 있음).
       let initDumpToken = null;
-      if ((dbType === "mysql" || dbType === "postgres") && initDumpFile) {
+      if ((effectiveDbType === "mysql" || effectiveDbType === "postgres") && initDumpFile) {
         const staged = await stageDump(initDumpFile);
         initDumpToken = staged.token;
       }
@@ -193,15 +242,22 @@ export default function DeployForm({ onRequestGuide }) {
         name: isFirstDeploy ? name.trim() || undefined : undefined,
         branch: branch.trim() || "main",
         port: Number(port) || 80,
-        runtime,
-        dbType,
-        useRedis,
-        useStorage,
-        buildMode,
+        runtime,                                   // "python" | "java" | "none"
+        dbType: effectiveDbType,
+        useRedis: serverNone ? false : useRedis,
+        useStorage: serverNone ? false : useStorage,
+        buildMode: serverNone ? "auto" : buildMode, // 서버 없으면 미사용 — 스키마 통과용 placeholder
         dockerfilePath:
-          buildMode === "dockerfile" ? dockerfilePath.trim() || "Dockerfile" : "Dockerfile",
-        projectPath: buildMode === "auto" ? projectPath.trim().replace(/^\/+|\/+$/g, "") : "",
-        env: envDict,
+          !serverNone && buildMode === "dockerfile" ? dockerfilePath.trim() || "Dockerfile" : "Dockerfile",
+        projectPath:
+          !serverNone && buildMode === "auto" ? projectPath.trim().replace(/^\/+|\/+$/g, "") : "",
+        useStatic,
+        staticRepoUrl: useStatic ? staticRepoUrl.trim() : "",
+        staticBranch: useStatic ? staticBranch.trim() : "",
+        staticProjectPath: useStatic ? staticProjectPath.trim().replace(/^\/+|\/+$/g, "") : "",
+        buildCmd: useStatic ? buildCmd.trim() : "",
+        outputDir: useStatic ? outputDir.trim() : "",
+        env: serverNone ? {} : envDict,
         initDumpToken,
       });
       // 첫 배포면 user.app_name이 백엔드에 박혔으니 AuthContext 갱신 — Dashboard에서 즉시 반영
@@ -319,16 +375,16 @@ export default function DeployForm({ onRequestGuide }) {
         </div>
       )}
 
-      {/* Runtime */}
+      {/* 서버 슬롯 — python/java/사용 안 함(정적 단독) */}
       <div className="mb-5">
         <div
           className="text-[10.5px] tracking-[0.08em] text-fg-3 mb-2.5"
           style={{ fontWeight: 590 }}
         >
-          런타임
+          서버 런타임
         </div>
         <div className="flex gap-1.5">
-          {RUNTIMES.map((r) => {
+          {SERVER_CHOICES.map((r) => {
             const meta = RUNTIME_META[r] || { name: r, tag: "" };
             const active = runtime === r;
             return (
@@ -352,7 +408,179 @@ export default function DeployForm({ onRequestGuide }) {
         </div>
       </div>
 
-      {/* DB — 한 앱에 한 DB만 (mysql/postgres 동시 사용 X) */}
+      {/* 정적 슬롯 — 켜면 {app}.kodeploy.com이 정적 사이트, 서버는 {app}-api로 */}
+      <div className="mb-5">
+        <div className="flex items-center justify-between mb-2.5">
+          <div
+            className="text-[10.5px] tracking-[0.08em] text-fg-3"
+            style={{ fontWeight: 590 }}
+          >
+            정적 사이트
+          </div>
+          {useStatic && (
+            <button
+              type="button"
+              onClick={() => onRequestGuide?.("static")}
+              className="text-[11px] text-fg-3 hover:text-fg-1 transition-colors"
+              style={{ fontWeight: 510 }}
+            >
+              가이드 보기
+            </button>
+          )}
+        </div>
+        <div className="flex gap-1.5">
+          {[
+            { id: false, name: "선택 안 함" },
+            { id: true, name: "정적 사이트" },
+          ].map((s) => {
+            const active = useStatic === s.id;
+            return (
+              <button
+                key={String(s.id)}
+                type="button"
+                onClick={() => setUseStatic(s.id)}
+                className="flex-1 h-10 rounded-lg text-[13px] transition-colors flex items-center justify-center"
+                style={{
+                  background: active ? "rgba(129,139,224,0.12)" : "rgba(255,255,255,0.03)",
+                  border: `1px solid ${active ? "rgba(129,139,224,0.25)" : "rgba(255,255,255,0.06)"}`,
+                  color: active ? "#818be0" : "#8a8f98",
+                  fontWeight: 510,
+                }}
+                disabled={submitting}
+              >
+                {s.name}
+              </button>
+            );
+          })}
+        </div>
+        {useStatic && (
+          <>
+            {!serverNone && (
+              <p className="text-[11px] text-fg-4 mt-2" style={{ fontWeight: 450, lineHeight: 1.5 }}>
+                정적 사이트가 <span className="text-fg-3">{(user?.app_name || name.trim() || "앱이름")}.kodeploy.com</span>을
+                받고, 서버는 <span className="text-fg-3">{(user?.app_name || name.trim() || "앱이름")}-api.kodeploy.com</span>으로
+                제공돼요. 커스텀 도메인도 정적 사이트에 연결됩니다.
+              </p>
+            )}
+            <div className="mt-3 flex gap-3">
+              <div className="flex-1">
+                <div
+                  className="text-[10.5px] tracking-[0.08em] text-fg-3 mb-2"
+                  style={{ fontWeight: 590 }}
+                >
+                  정적 저장소 (선택)
+                </div>
+                <input
+                  value={staticRepoUrl}
+                  onChange={(e) => setStaticRepoUrl(e.target.value)}
+                  placeholder="비우면 위 저장소 사용"
+                  spellCheck={false}
+                  className="w-full bg-transparent outline-none text-fg-1 text-[14px] rounded-md px-3 py-2 placeholder:text-fg-3"
+                  style={{
+                    border: "1px solid rgba(255,255,255,0.09)",
+                    background: "rgba(255,255,255,0.02)",
+                    fontWeight: 510,
+                  }}
+                  disabled={submitting}
+                />
+              </div>
+              <div className="w-28 shrink-0">
+                <div
+                  className="text-[10.5px] tracking-[0.08em] text-fg-3 mb-2"
+                  style={{ fontWeight: 590 }}
+                >
+                  브랜치
+                </div>
+                <input
+                  value={staticBranch}
+                  onChange={(e) => setStaticBranch(e.target.value)}
+                  placeholder={branch.trim() || "main"}
+                  className="w-full bg-transparent outline-none text-fg-1 text-[14px] rounded-md px-3 py-2 placeholder:text-fg-3"
+                  style={{
+                    border: "1px solid rgba(255,255,255,0.09)",
+                    background: "rgba(255,255,255,0.02)",
+                    fontWeight: 510,
+                  }}
+                  disabled={submitting}
+                />
+              </div>
+            </div>
+            <div className="mt-3 flex gap-3">
+              <div className="flex-1">
+                <div
+                  className="text-[10.5px] tracking-[0.08em] text-fg-3 mb-2"
+                  style={{ fontWeight: 590 }}
+                >
+                  빌드 커맨드
+                </div>
+                <input
+                  value={buildCmd}
+                  onChange={(e) => setBuildCmd(e.target.value)}
+                  placeholder="npm ci && npm run build"
+                  spellCheck={false}
+                  className="w-full bg-transparent outline-none text-fg-1 text-[14px] rounded-md px-3 py-2 placeholder:text-fg-3"
+                  style={{
+                    border: "1px solid rgba(255,255,255,0.09)",
+                    background: "rgba(255,255,255,0.02)",
+                    fontWeight: 510,
+                  }}
+                  disabled={submitting}
+                />
+              </div>
+              <div className="w-32 shrink-0">
+                <div
+                  className="text-[10.5px] tracking-[0.08em] text-fg-3 mb-2"
+                  style={{ fontWeight: 590 }}
+                >
+                  출력 디렉토리
+                </div>
+                <input
+                  value={outputDir}
+                  onChange={(e) => setOutputDir(e.target.value)}
+                  placeholder="dist"
+                  spellCheck={false}
+                  className="w-full bg-transparent outline-none text-fg-1 text-[14px] rounded-md px-3 py-2 placeholder:text-fg-3"
+                  style={{
+                    border: "1px solid rgba(255,255,255,0.09)",
+                    background: "rgba(255,255,255,0.02)",
+                    fontWeight: 510,
+                  }}
+                  disabled={submitting}
+                />
+              </div>
+            </div>
+            <p className="text-[11px] text-fg-3 mt-2" style={{ fontWeight: 450, lineHeight: 1.55 }}>
+              빌드 결과물(출력 디렉토리)만 서빙돼요 — Vite는{" "}
+              <span style={{ color: "#d0d6e0" }}>dist</span>, CRA는{" "}
+              <span style={{ color: "#d0d6e0" }}>build</span>. 커맨드를 비우면
+              빌드 없이 저장소 파일을 그대로 서빙합니다 (순수 HTML).
+            </p>
+            <div className="mt-3">
+              <div
+                className="text-[10.5px] tracking-[0.08em] text-fg-3 mb-2"
+                style={{ fontWeight: 590 }}
+              >
+                정적 앱 디렉토리 (선택)
+              </div>
+              <input
+                value={staticProjectPath}
+                onChange={(e) => setStaticProjectPath(e.target.value)}
+                placeholder="모노레포면 프론트 폴더 (예: frontend)"
+                className="w-full bg-transparent outline-none text-fg-1 text-[14px] rounded-md px-3 py-2 placeholder:text-fg-3"
+                style={{
+                  border: "1px solid rgba(255,255,255,0.09)",
+                  background: "rgba(255,255,255,0.02)",
+                  fontWeight: 510,
+                }}
+                disabled={submitting}
+              />
+            </div>
+          </>
+        )}
+      </div>
+
+      {/* DB — 한 앱에 한 DB만 (mysql/postgres 동시 사용 X). 서버 없으면 숨김. */}
+      {!serverNone && (
       <div className="mb-5">
         <div
           className="text-[10.5px] tracking-[0.08em] text-fg-3 mb-2.5"
@@ -387,8 +615,10 @@ export default function DeployForm({ onRequestGuide }) {
           })}
         </div>
       </div>
+      )}
 
-      {/* Build mode */}
+      {/* Build mode — 서버 빌드 방식. 서버 없으면 숨김. */}
+      {!serverNone && (
       <div className="mb-6">
         <div className="flex gap-3">
           <div className={buildMode === "dockerfile" ? "flex-1" : "w-full"}>
@@ -505,6 +735,7 @@ export default function DeployForm({ onRequestGuide }) {
           </div>
         )}
       </div>
+      )}
 
       {/* Domain — 첫 배포에만 표시. 두 번째부터는 user.app_name fix되어 변경 불가 (안내만). */}
       <div className="mb-6">
@@ -568,7 +799,7 @@ export default function DeployForm({ onRequestGuide }) {
             고급 옵션
           </span>
           <span className="text-[11px] text-fg-4" style={{ fontWeight: 450 }}>
-            캐시 · 환경변수
+            {serverNone ? "커스텀 도메인" : "캐시 · 환경변수"}
           </span>
         </button>
 
@@ -580,7 +811,9 @@ export default function DeployForm({ onRequestGuide }) {
               background: "rgba(255,255,255,0.015)",
             }}
           >
-            {/* 캐시 */}
+            {/* 캐시 + 스토리지 — 서버 없으면 숨김 */}
+            {!serverNone && (
+            <>
             <div>
               <div
                 className="text-[10.5px] tracking-[0.08em] text-fg-3 mb-2.5"
@@ -649,6 +882,8 @@ export default function DeployForm({ onRequestGuide }) {
                 })}
               </div>
             </div>
+            </>
+            )}
 
             {/* 커스텀 도메인 — 서브도메인 전용(CNAME). 배포 직후 setDomain 호출. */}
             <div>
@@ -692,7 +927,8 @@ export default function DeployForm({ onRequestGuide }) {
               </p>
             </div>
 
-            {/* 환경변수 */}
+            {/* 환경변수 — 서버 슬롯 전용 (정적 nginx는 안 읽음) */}
+            {!serverNone && (
             <div>
               <div
                 className="text-[10.5px] tracking-[0.08em] text-fg-3 mb-2.5"
@@ -776,9 +1012,10 @@ export default function DeployForm({ onRequestGuide }) {
                 빈 KEY row는 무시돼요. 빈 값으로 두면 환경변수 변경 없이 빌드만 트리거.
               </p>
             </div>
+            )}
 
             {/* 초기 데이터 — DB(mysql/postgres) 선택 시에만. 배포 후 DB Ready되면 자동 복원 (마이그레이션용). */}
-            {(dbType === "mysql" || dbType === "postgres") && (
+            {!serverNone && (dbType === "mysql" || dbType === "postgres") && (
               <div>
                 <div
                   className="text-[10.5px] tracking-[0.08em] text-fg-3 mb-2.5"

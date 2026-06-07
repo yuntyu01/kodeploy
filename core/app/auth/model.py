@@ -3,7 +3,7 @@
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import BigInteger, DateTime, ForeignKey, Index, String, Text, Uuid
+from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Index, String, Text, Uuid
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.shared.db import Base
@@ -26,6 +26,11 @@ class User(Base):
     app_name: Mapped[str | None] = mapped_column(
         String(50), nullable=True, unique=True
     )
+    # 정적 사이트 슬롯 선언 (desired state) — 배포 제출 시 토글값으로 set.
+    # true면 {app}.kodeploy.com=정적 / {app}-api.kodeploy.com=서버, 커스텀 도메인은 정적에.
+    # false면 서버가 {app}·{app}-api 둘 다. 라우팅 규칙의 유일한 진실원 (K8s 상태 아님 —
+    # 동시 빌드 중에도 결정적이어야 해서 DB 선언값 사용).
+    site_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
     # 커스텀 도메인 (유저가 자기 도메인을 앱에 연결 — CF for SaaS custom hostname).
     # 1유저=1앱이라 도메인도 1개 → 별도 테이블 없이 User에 직접. None이면 미설정.
     custom_domain: Mapped[str | None] = mapped_column(

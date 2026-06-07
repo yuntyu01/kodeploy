@@ -26,9 +26,11 @@ class Build(Base):
     use_redis: Mapped[bool] = mapped_column(Boolean, default=False)
     use_storage: Mapped[bool] = mapped_column(Boolean, default=False)  # R2 오브젝트 스토리지(앱당 버킷) 토글
     kind: Mapped[str] = mapped_column(String(20), default="build")  # "build"=일반 빌드 / "env_change"=환경변수 변경 이벤트
-    build_mode: Mapped[str] = mapped_column(String(20), default="dockerfile")  # "dockerfile" | "auto"(nixpacks)
+    build_mode: Mapped[str] = mapped_column(String(20), default="dockerfile")  # "dockerfile" | "auto"(nixpacks) | "static"(runtime=static이면 서버가 강제)
     dockerfile_path: Mapped[str] = mapped_column(String(200), default="Dockerfile")  # dockerfile 모드 — BuildKit filename
-    project_path: Mapped[str] = mapped_column(String(200), default="")  # auto 모드 — repo root 기준 서브디렉토리 (빈 값=root)
+    project_path: Mapped[str] = mapped_column(String(200), default="")  # auto/static 모드 — repo root 기준 서브디렉토리 (빈 값=root)
+    build_cmd: Mapped[str] = mapped_column(String(300), default="")  # static 전용 — node 빌드 스테이지 커맨드. 빈 값=빌드 없이 repo 그대로 서빙
+    output_dir: Mapped[str] = mapped_column(String(200), default="")  # static 전용 — 빌드 산출물 디렉토리 (예: "dist"). build_cmd 없으면 무시
     dockerfile_content: Mapped[str | None] = mapped_column(LONGTEXT, nullable=True)  # 실제 빌드에 쓰인 Dockerfile 텍스트. UI 노출 + AI 분석용
     status: Mapped[str] = mapped_column(String(20), default="queued")
     error: Mapped[str | None] = mapped_column(Text, nullable=True)

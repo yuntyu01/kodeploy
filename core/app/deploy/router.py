@@ -14,6 +14,7 @@ from app.deploy.model import Build
 from app import config
 from app.deploy.schemas import (
     DbQueryRequest,
+    DeployBuildRef,
     DeployRequest,
     DeployResponse,
     DomainRequest,
@@ -43,6 +44,8 @@ def _to_status(build: Build) -> StatusResponse:
         kind=build.kind or "build",
         dockerfile_path=build.dockerfile_path or "Dockerfile",
         project_path=build.project_path or "",
+        build_cmd=build.build_cmd or "",
+        output_dir=build.output_dir or "",
         dockerfile_content=build.dockerfile_content,
         error=build.error,
         analysis=build.analysis,
@@ -52,7 +55,7 @@ def _to_status(build: Build) -> StatusResponse:
     )
 
 
-# 빌드 트리거 엔드포인트 (즉시 build_id 반환, 빌드는 백그라운드)
+# 배포 제출 — 스택 선언(서버+정적 슬롯)을 받아 슬롯별 빌드를 백그라운드로 시작.
 @router.post("", response_model=DeployResponse)
 async def create_deploy(
     req: DeployRequest,
@@ -60,11 +63,11 @@ async def create_deploy(
     user: User = Depends(get_current_user),
 ) -> DeployResponse:
     try:
-        build = await service.start_build(
+        builds = await service.start_deploy(
             db,
+            user=user,
             repo_url=str(req.repo_url),
             runtime=req.runtime,
-            user=user,
             name=req.name,
             branch=req.branch,
             port=req.port,
@@ -76,15 +79,21 @@ async def create_deploy(
             project_path=req.project_path,
             env_vars=req.env,
             init_dump_token=req.init_dump_token,
+            use_static=req.use_static,
+            static_repo_url=req.static_repo_url,
+            static_branch=req.static_branch,
+            static_project_path=req.static_project_path,
+            build_cmd=req.build_cmd,
+            output_dir=req.output_dir,
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     return DeployResponse(
-        build_id=build.build_id,
-        status=build.status,
-        repo_url=build.repo_url,
-        app_name=build.app_name,
-        runtime=build.runtime,
+        app_name=user.app_name,
+        builds=[
+            DeployBuildRef(build_id=b.build_id, runtime=b.runtime, status=b.status)
+            for b in builds
+        ],
     )
 
 

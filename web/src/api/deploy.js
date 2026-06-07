@@ -20,7 +20,8 @@ async function request(path, options = {}) {
   return res.json();
 }
 
-// 백엔드 schemas.Runtime과 sync (python/java). 추가 시 UI dropdown도 같이.
+// 서버 슬롯 런타임 (백엔드 schemas.ServerRuntime의 "none" 제외분과 sync).
+// 정적 사이트는 런타임이 아니라 별도 슬롯(use_static 토글).
 export const RUNTIMES = ["python", "java"];
 // 백엔드 schemas.BuildMode와 sync ("dockerfile"=유저 Dockerfile / "auto"=nixpacks 자동)
 export const BUILD_MODES = ["dockerfile", "auto"];
@@ -39,6 +40,12 @@ export function createDeploy({
   buildMode = "dockerfile",
   dockerfilePath = "Dockerfile",
   projectPath = "",
+  useStatic = false,
+  staticRepoUrl = "",
+  staticBranch = "",
+  staticProjectPath = "",
+  buildCmd = "",
+  outputDir = "",
   env = {},
   initDumpToken = null,
 }) {
@@ -48,14 +55,21 @@ export function createDeploy({
       repo_url: repoUrl,
       branch,
       port,
-      runtime,
+      runtime,                                    // "python" | "java" | "none"(서버 없음 — 정적 단독)
       name: name?.trim() || null,
       db_type: dbType,
       use_redis: useRedis,
       use_storage: useStorage,                    // R2 오브젝트 스토리지(앱당 버킷) 토글
       build_mode: buildMode,
       dockerfile_path: dockerfilePath || "Dockerfile",
-      project_path: projectPath || "",            // auto 모드 — 서브디렉토리. 빈 값=repo root
+      project_path: projectPath || "",            // 서버 auto 모드 — 서브디렉토리. 빈 값=repo root
+      // --- 정적 슬롯 ---
+      use_static: useStatic,                      // off면 기존 사이트 teardown (DB 토글과 동일 철학)
+      static_repo_url: staticRepoUrl || "",       // 빈 값=서버 repo 사용
+      static_branch: staticBranch || "",          // 빈 값=서버 branch 사용
+      static_project_path: staticProjectPath || "",
+      build_cmd: buildCmd,                        // 빈 값이면 빌드 없이 repo 그대로 서빙
+      output_dir: outputDir,                      // 빌드 산출물 디렉토리 (기본 dist)
       env,                                        // 첫 배포: Secret 생성. 재배포: replace. 빈 dict면 backend가 무시.
       init_dump_token: initDumpToken,             // 초기 DB .sql(.gz) stage 토큰. mysql Ready 후 자동 복원.
     }),

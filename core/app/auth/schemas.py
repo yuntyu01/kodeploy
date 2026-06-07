@@ -15,5 +15,6 @@ class UserOut(BaseModel):
     email: str | None = None
     avatar_url: str | None = None
     app_name: str | None = None                          # 첫 배포 후에만 값 — 클라이언트가 DeployForm name 입력란 분기에 사용
+    site_enabled: bool = False                           # 정적 사이트 슬롯 선언 — DeployForm 정적 토글 prefill에 사용
     role: str = "user"                                   # "user" | "admin" | "root" — TopBar 관리자 링크 노출 분기에 사용
     created_at: datetime

@@ -28,3 +28,8 @@ def render_all(template_name: str, **vars) -> list[dict]:
     template = _env.get_template(template_name)
     rendered = template.render(**vars)
     return [doc for doc in yaml.safe_load_all(rendered) if doc]
+
+
+# YAML 아닌 텍스트 템플릿 렌더 (static_dockerfile.j2 — Dockerfile 본문)
+def render_text(template_name: str, **vars) -> str:
+    return _env.get_template(template_name).render(**vars)

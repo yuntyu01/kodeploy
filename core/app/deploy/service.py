@@ -18,7 +18,7 @@ from sqlalchemy.orm import Session
 
 from app import config
 from app.auth.model import User
-from app.deploy import crud, domains, env as env_module, manifests, r2, runtimes, snapshots
+from app.deploy import crud, domains, env as env_module, manifests, r2, snapshots
 from app.deploy.model import Build, BuildRecord
 from app.shared import k8s
 from app.shared.db import SessionLocal
@@ -76,6 +76,10 @@ _NAME_MAX_LENGTH = 40
 def _validate_name_format(name: str) -> None:
     if name.startswith("app-"):
         raise ValueError("'app-' prefix는 자동 생성용으로 예약돼 있음")
+    if name.endswith("-api"):
+        # {app}-api.kodeploy.com이 서버 슬롯 파생 호스트라 — 남의 "foo" 앱의 서버 주소와
+        # "foo-api"라는 새 앱 이름이 충돌하지 않게 suffix 자체를 금지.
+        raise ValueError("'-api'로 끝나는 이름은 서버 주소용으로 예약돼 있음")
     if name in RESERVED_NAMES:
         raise ValueError(f"예약 이름: {name}")
     if len(name) > _NAME_MAX_LENGTH:
@@ -203,15 +207,26 @@ def get_app_status(user: User) -> dict:
         return {"status": "missing", "started_at": None}
     tenant_id = f"tenant-{user.id.hex[:8]}"
     core = k8s.core_v1()
-    try:
-        pods = core.list_namespaced_pod(
-            namespace=tenant_id, label_selector=f"app={user.app_name}",
-        )
-    except ApiException as e:
-        if e.status == 404:
-            return {"status": "missing", "started_at": None}
-        raise
-    if not pods.items:
+
+    # 서버 슬롯 우선, 서버 Pod이 없으면(정적 단독 구성) 정적 슬롯으로 폴백 —
+    # 헤더 상태 뱃지는 "대표 워크로드 하나"를 보여주는 용도.
+    selectors = [f"app={user.app_name}"]
+    if user.site_enabled:
+        selectors.append(f"app={user.app_name}-static")
+    pods = None
+    for selector in selectors:
+        try:
+            found = core.list_namespaced_pod(
+                namespace=tenant_id, label_selector=selector,
+            )
+        except ApiException as e:
+            if e.status == 404:
+                return {"status": "missing", "started_at": None}
+            raise
+        if found.items:
+            pods = found
+            break
+    if pods is None:
         return {"status": "missing", "started_at": None}
 
     pod = max(
@@ -301,7 +316,7 @@ def delete_app(db: Session, user: User) -> None:
         except domains.DomainError:
             pass
 
-    # DB: builds 히스토리 + user.app_name/custom_domain 리셋. 다음 배포는 첫 배포 흐름으로 진입.
+    # DB: builds 히스토리 + user.app_name/custom_domain/슬롯 선언 리셋. 다음 배포는 첫 배포 흐름.
     # build_records(빌드 행위 영구 기록)는 운영 분석용 append-only라 의도적으로 보존.
     # extra_hostnames도 클리어 — 옛 앱용 hostname이 다음(다른) 앱 route에 자동 주입되면 안 됨.
     db.query(Build).filter(Build.user_id == user.id).delete()
@@ -309,6 +324,7 @@ def delete_app(db: Session, user: User) -> None:
     user.custom_domain = None
     user.custom_domain_status = None
     user.extra_hostnames = None
+    user.site_enabled = False
     db.commit()
 
 
@@ -382,11 +398,18 @@ def fetch_recent_commits(
 _ACTIVE_STATUSES = {"queued", "building", "built", "deploying"}
 
 
-def _cancel_stale_builds(db: Session, user_id: uuid.UUID) -> None:
-    stale = db.query(Build).filter(
+# slot="server"|"static" — 그 슬롯의 활성 빌드만 취소.
+# 두 슬롯이 한 제출에서 동시에 빌드되므로 유저 전체 취소면 서로 죽인다.
+def _cancel_stale_builds(db: Session, user_id: uuid.UUID, slot: str) -> None:
+    q = db.query(Build).filter(
         Build.user_id == user_id,
         Build.status.in_(_ACTIVE_STATUSES),
-    ).all()
+    )
+    if slot == "static":
+        q = q.filter(Build.runtime == "static")
+    else:
+        q = q.filter(Build.runtime != "static")
+    stale = q.all()
     if not stale:
         return
     for build in stale:
@@ -408,13 +431,33 @@ def _cleanup_build_job(build_id: str, user_id_str: str) -> None:
             raise
 
 
-# Build row 생성 + 백그라운드 빌드 태스크 등록.
+# static 빌드 입력 검증/정규화. 보안 경계 아님(유저는 어차피 자기 이미지 빌드 내용을 전부
+# 통제) — 개행 등으로 생성 Dockerfile이 조용히 깨져 정체불명 빌드 에러가 되는 걸 막는 친절벨트.
+_OUTPUT_DIR_PATTERN = re.compile(r"^[A-Za-z0-9._/-]+$")
+
+
+def _validate_static_fields(build_cmd: str, output_dir: str) -> tuple[str, str]:
+    build_cmd = (build_cmd or "").strip()
+    if "\n" in build_cmd or "\r" in build_cmd:
+        raise ValueError("빌드 커맨드에 줄바꿈은 쓸 수 없습니다 (&&로 이어주세요)")
+    if len(build_cmd) > 300:
+        raise ValueError("빌드 커맨드가 너무 깁니다 (최대 300자)")
+    output_dir = (output_dir or "").strip().strip("/")
+    if output_dir and (not _OUTPUT_DIR_PATTERN.match(output_dir) or ".." in output_dir):
+        raise ValueError("출력 디렉토리 경로가 올바르지 않습니다 (예: dist, build)")
+    if build_cmd and not output_dir:
+        output_dir = "dist"
+    return build_cmd, output_dir
+
+
+# 배포 제출 — 원하는 스택(서버 슬롯 + 정적 슬롯)을 선언받아 슬롯별 빌드/teardown을 spawn.
 # user 객체로 받음 — _resolve_app_name이 user.app_name을 읽고/쓰기 위해.
-async def start_build(
+# 반환: 이 제출이 만든 Build row들 (슬롯당 최대 1개).
+async def start_deploy(
     db: Session,
-    repo_url: str,
-    runtime: str,
     user: User,
+    repo_url: str,
+    runtime: str,                          # "python" | "java" | "none"(서버 없음)
     name: str | None = None,
     branch: str = "main",
     port: int = 80,
@@ -426,36 +469,166 @@ async def start_build(
     project_path: str = "",
     env_vars: dict[str, str] | None = None,
     init_dump_token: str | None = None,
-) -> Build:
+    use_static: bool = False,
+    static_repo_url: str = "",
+    static_branch: str = "",
+    static_project_path: str = "",
+    build_cmd: str = "",
+    output_dir: str = "",
+) -> list[Build]:
+    has_server = runtime != "none"
+    if not has_server and not use_static:
+        raise ValueError("서버 런타임이나 정적 사이트 중 하나는 선택해야 합니다")
+    if not has_server and (db_type != "none" or use_redis or use_storage):
+        raise ValueError("DB · Redis · 스토리지는 서버 런타임과 함께만 쓸 수 있습니다")
     # storage 토글은 R2 설정이 갖춰졌을 때만 — 빌드 시작 전에 친절히 거절.
     if use_storage and not r2.is_configured():
         raise ValueError("오브젝트 스토리지(R2)가 서버에 설정되지 않았습니다")
-    _cancel_stale_builds(db, user.id)
+    if use_static:
+        build_cmd, output_dir = _validate_static_fields(build_cmd, output_dir)
+
     repo_url = _normalize_repo_url(repo_url)
-    build_id = uuid.uuid4().hex[:8]
     app_name = _resolve_app_name(name, repo_url, user, db)
-    image = f"ghcr.io/{config.GHCR_USER}/{user.id.hex[:8]}/{app_name}:{build_id}"
 
-    build = Build(
-        build_id=build_id,
-        repo_url=repo_url,
-        branch=branch,
-        image=image,
-        app_name=app_name,
-        port=port,
-        runtime=runtime,
-        user_id=user.id,
-        db_type=db_type,
-        use_redis=use_redis,
-        use_storage=use_storage,
-        build_mode=build_mode,
-        dockerfile_path=dockerfile_path,
-        project_path=project_path.strip("/"),  # 앞뒤 슬래시 정리 — manifest에서 ${PROJECT_PATH:+/$PROJECT_PATH}로 결합
-    )
-    build = crud.create_build(db, build)
+    # 슬롯 선언 저장 — 라우팅 규칙(_slot_hostnames)의 진실원.
+    # 빌드 spawn 전에 확정해서 동시 빌드 둘 다 같은 desired state를 보게 한다.
+    user.site_enabled = use_static
+    db.commit()
 
-    asyncio.create_task(_run_build(build_id, env_vars or {}, init_dump_token))
-    return build
+    builds: list[Build] = []
+
+    # --- 서버 슬롯 ---
+    _cancel_stale_builds(db, user.id, slot="server")
+    if has_server:
+        build_id = uuid.uuid4().hex[:8]
+        image = f"ghcr.io/{config.GHCR_USER}/{user.id.hex[:8]}/{app_name}:{build_id}"
+        server_build = Build(
+            build_id=build_id,
+            repo_url=repo_url,
+            branch=branch,
+            image=image,
+            app_name=app_name,
+            port=port,
+            runtime=runtime,
+            user_id=user.id,
+            db_type=db_type,
+            use_redis=use_redis,
+            use_storage=use_storage,
+            build_mode=build_mode,
+            dockerfile_path=dockerfile_path,
+            project_path=project_path.strip("/"),  # 앞뒤 슬래시 정리 — manifest에서 ${PROJECT_PATH:+/$PROJECT_PATH}로 결합
+        )
+        builds.append(crud.create_build(db, server_build))
+        asyncio.create_task(_run_build(build_id, env_vars or {}, init_dump_token))
+    else:
+        # 서버 사용 안 함 — 기존 서버 리소스 + deps 정리 (PVC·버킷 보존). 매 제출마다
+        # spawn이라 직전 실패도 다음 제출에서 재시도되는 self-healing.
+        asyncio.create_task(_teardown_server(user.id))
+
+    # --- 정적 슬롯 ---
+    _cancel_stale_builds(db, user.id, slot="static")
+    if use_static:
+        site_name = f"{app_name}-static"               # K8s 리소스 이름 (호스트는 {app} — 슬롯 규칙)
+        s_repo = _normalize_repo_url(static_repo_url) if static_repo_url.strip() else repo_url
+        build_id = uuid.uuid4().hex[:8]
+        image = f"ghcr.io/{config.GHCR_USER}/{user.id.hex[:8]}/{site_name}:{build_id}"
+        static_build = Build(
+            build_id=build_id,
+            repo_url=s_repo,
+            branch=static_branch.strip() or branch,
+            image=image,
+            app_name=site_name,
+            port=8080,                                 # nginx-unprivileged 고정
+            runtime="static",
+            user_id=user.id,
+            db_type="none",
+            use_redis=False,
+            use_storage=False,
+            build_mode="static",
+            project_path=static_project_path.strip("/"),
+            build_cmd=build_cmd,
+            output_dir=output_dir,
+        )
+        builds.append(crud.create_build(db, static_build))
+        asyncio.create_task(_run_build(build_id))
+    else:
+        asyncio.create_task(_teardown_static(user.id))
+
+    return builds
+
+
+# 서버 슬롯 teardown — Deployment/Service/Route 쌍 + deps(mysql/postgres/redis/r2) 정리.
+# PVC·버킷·Secret은 보존 (DB 토글 off와 동일 철학 — 다시 켜면 데이터 복원).
+# best-effort: 실패는 삼킴 — 슬롯 off인 제출마다 다시 spawn되므로 다음 기회에 재시도.
+async def _teardown_server(user_id: uuid.UUID) -> None:
+    db = SessionLocal()
+    try:
+        user = db.query(User).filter_by(id=user_id).first()
+        if not user or not user.app_name:
+            return
+        app_name = user.app_name
+        ns = f"tenant-{user_id.hex[:8]}"
+        apps = k8s.apps_v1()
+        core = k8s.core_v1()
+        custom = k8s.custom()
+        for call in (
+            lambda: apps.delete_namespaced_deployment(name=app_name, namespace=ns),
+            lambda: core.delete_namespaced_service(name=app_name, namespace=ns),
+            lambda: custom.delete_namespaced_custom_object(
+                group="gateway.networking.k8s.io", version="v1", namespace=ns,
+                plural="httproutes", name=app_name),
+            lambda: custom.delete_namespaced_custom_object(
+                group="gateway.networking.k8s.io", version="v1", namespace=ns,
+                plural="httproutes", name=f"{app_name}-redirect"),
+        ):
+            try:
+                call()
+            except ApiException as e:
+                if e.status != 404:
+                    raise
+        _teardown_one_db(ns, "mysql")
+        _teardown_one_db(ns, "postgres")
+        _teardown_redis(ns)
+        _teardown_storage(ns)
+    except ApiException:
+        pass
+    finally:
+        db.close()
+
+
+# 정적 슬롯 teardown — 사이트 Deployment/Service/Route 쌍 삭제 + 서버 hostnames 원복.
+async def _teardown_static(user_id: uuid.UUID) -> None:
+    db = SessionLocal()
+    try:
+        user = db.query(User).filter_by(id=user_id).first()
+        if not user or not user.app_name:
+            return
+        site_name = f"{user.app_name}-static"
+        ns = f"tenant-{user_id.hex[:8]}"
+        apps = k8s.apps_v1()
+        core = k8s.core_v1()
+        custom = k8s.custom()
+        for call in (
+            lambda: apps.delete_namespaced_deployment(name=site_name, namespace=ns),
+            lambda: core.delete_namespaced_service(name=site_name, namespace=ns),
+            lambda: custom.delete_namespaced_custom_object(
+                group="gateway.networking.k8s.io", version="v1", namespace=ns,
+                plural="httproutes", name=site_name),
+            lambda: custom.delete_namespaced_custom_object(
+                group="gateway.networking.k8s.io", version="v1", namespace=ns,
+                plural="httproutes", name=f"{site_name}-redirect"),
+        ):
+            try:
+                call()
+            except ApiException as e:
+                if e.status != 404:
+                    raise
+        # {app}.kodeploy.com·커스텀 도메인이 서버로 복귀 (site_enabled=false 기준 재계산)
+        _reconcile_route_hostnames(user)
+    except ApiException:
+        pass
+    finally:
+        db.close()
 
 
 # BuildKit Job 이름 (template과 동일 규칙 — _wait_for_job/로그 조회 시 사용)
@@ -518,7 +691,23 @@ async def _run_build(
             build.status = "building"
             db.commit()
 
-            if build.build_mode == "auto":
+            if build.runtime == "static":
+                # 플랫폼 생성 Dockerfile — repo엔 없음. 빌드 전에 DB 보존 (UI 노출 + 재현성).
+                dockerfile_text = manifests.static_dockerfile(
+                    build.build_cmd or "", build.output_dir or "",
+                )
+                build.dockerfile_content = dockerfile_text
+                db.commit()
+                job = manifests.static_buildkit_job(
+                    build_id=build.build_id,
+                    user_id=build.user_id_str,
+                    image=build.image,
+                    repo_url=build.repo_url,
+                    branch=build.branch,
+                    dockerfile_text=dockerfile_text,
+                    project_path=build.project_path,
+                )
+            elif build.build_mode == "auto":
                 job = manifests.nixpacks_buildkit_job(
                     build_id=build.build_id,
                     user_id=build.user_id_str,
@@ -575,6 +764,16 @@ async def _run_build(
                     if extracted:
                         build.dockerfile_content = extracted
                         db.commit()
+            elif build.runtime == "static":
+                # clone(init) 실패 시 main 로그가 비므로 둘 다 — auto 모드와 같은 이유.
+                init_logs = _get_init_container_logs(build.build_id, "clone")
+                main_logs = _get_job_logs(build.build_id)
+                parts = []
+                if init_logs:
+                    parts.append(f"=== clone (init) ===\n{init_logs}")
+                if main_logs:
+                    parts.append(f"=== buildkit (main) ===\n{main_logs}")
+                build.logs = "\n\n".join(parts) if parts else ""
             else:
                 build.logs = _get_job_logs(build.build_id)
 
@@ -593,50 +792,59 @@ async def _run_build(
             db.commit()
             _ensure_tenant_ns(build)
 
-            # 사용자가 폼에서 보낸 환경변수 — ns 만든 직후, Deployment apply 전.
-            # Deployment는 아직 없을 수 있어서 set_env 안의 annotation patch는 404 swallow.
-            # Pod이 새로 만들어질 때 Secret 자연 mount.
-            if initial_env:
-                try:
-                    env_module.set_env(build.tenant_id, build.app_name, initial_env)
-                except ValueError as e:
-                    build.error = f"환경변수 검증 실패: {e}"
-                    db.commit()
+            # deps(환경변수/DB/Redis/스토리지/초기 덤프)는 서버 슬롯 선언 — static 빌드가
+            # 건드리면 같은 ns의 서버 deps를 teardown해 버리므로 (db_type=none) 반드시 skip.
+            if build.runtime != "static":
+                # 사용자가 폼에서 보낸 환경변수 — ns 만든 직후, Deployment apply 전.
+                # Deployment는 아직 없을 수 있어서 set_env 안의 annotation patch는 404 swallow.
+                # Pod이 새로 만들어질 때 Secret 자연 mount.
+                if initial_env:
+                    try:
+                        env_module.set_env(build.tenant_id, build.app_name, initial_env)
+                    except ValueError as e:
+                        build.error = f"환경변수 검증 실패: {e}"
+                        db.commit()
 
-            # DB 토글 — 선택된 db (mysql/postgres) 프로비저닝 + 다른 db 정리.
-            # PVC/Secret은 보존 — 같은 db로 다시 토글 시 데이터 자연 복원.
-            _apply_db(build, build.db_type or "none")
-            _apply_redis(build)
-            _apply_storage(build)
+                # DB 토글 — 선택된 db (mysql/postgres) 프로비저닝 + 다른 db 정리.
+                # PVC/Secret은 보존 — 같은 db로 다시 토글 시 데이터 자연 복원.
+                _apply_db(build, build.db_type or "none")
+                _apply_redis(build)
+                _apply_storage(build)
 
-            # 초기 데이터 자동 복원 — 폼에서 .sql(.gz) 첨부 + DB(mysql/postgres) 선택 시.
-            # 앱이 채워진 DB 위에서 시작하도록 Deployment apply 전에 DB Ready 대기 후 복원.
-            if init_dump_token:
-                if build.db_type in ("mysql", "postgres"):
-                    if await snapshots.wait_db_ready(build.tenant_id, build.db_type):
-                        try:
-                            await snapshots.restore_staged(
-                                build.tenant_id, init_dump_token
-                            )
-                        except snapshots.SnapshotError as e:
-                            build.error = f"초기 데이터 복원 실패: {e}"
+                # 초기 데이터 자동 복원 — 폼에서 .sql(.gz) 첨부 + DB(mysql/postgres) 선택 시.
+                # 앱이 채워진 DB 위에서 시작하도록 Deployment apply 전에 DB Ready 대기 후 복원.
+                if init_dump_token:
+                    if build.db_type in ("mysql", "postgres"):
+                        if await snapshots.wait_db_ready(build.tenant_id, build.db_type):
+                            try:
+                                await snapshots.restore_staged(
+                                    build.tenant_id, init_dump_token
+                                )
+                            except snapshots.SnapshotError as e:
+                                build.error = f"초기 데이터 복원 실패: {e}"
+                                db.commit()
+                        else:
+                            snapshots.discard_staged(init_dump_token)
+                            build.error = "초기 데이터 복원 실패: DB 준비 타임아웃"
                             db.commit()
                     else:
+                        # DB 없는데 토큰만 온 경우 — 임시 파일만 정리.
                         snapshots.discard_staged(init_dump_token)
-                        build.error = "초기 데이터 복원 실패: DB 준비 타임아웃"
-                        db.commit()
-                else:
-                    # DB 없는데 토큰만 온 경우 — 임시 파일만 정리.
-                    snapshots.discard_staged(init_dump_token)
 
-            _apply_deployment(build)
-
-            # HTTPRoute hostnames reconcile — 템플릿 route는 기본 서브도메인만 갖고
-            # 생성되므로 DB의 커스텀 도메인·extra_hostnames를 배포 때마다 다시 주입.
-            # 수동 drift도 이 시점에 DB 상태로 복원된다 (DB가 유일한 진실원).
+            # 슬롯 규칙으로 이 빌드 route의 hostnames 계산 (User.site_enabled가 진실원).
             owner = db.query(User).filter_by(id=build.user_id).first()
-            if owner:
-                _set_app_route_hostnames(build.tenant_id, build.app_name, owner)
+            if not owner:
+                return  # 빌드 도중 유저 삭제 — 배포 의미 없음
+            if build.runtime == "static" and not owner.site_enabled:
+                return  # 빌드 도중 정적 슬롯 해제 — teardown이 정리 중, apply하면 부활시킴
+            server_hosts, site_hosts = _slot_hostnames(owner)
+            hostnames = site_hosts if build.runtime == "static" else server_hosts
+
+            _apply_deployment(build, hostnames)
+
+            # 전체 route(서버 쌍 + 정적 쌍) hostnames reconcile — 슬롯 전환·커스텀 도메인·
+            # 수동 drift가 이 시점에 DB 선언값으로 복원된다.
+            _reconcile_route_hostnames(owner)
 
             ready = await _wait_for_rollout(build.app_name, build.tenant_id)
             if _check_cancelled():
@@ -798,9 +1006,9 @@ def _extract_between(text: str, start: str, end: str) -> str | None:
     return text[s:e].strip("\n")
 
 
-# 테넌트 ns 프로비저닝 (Namespace + ResourceQuota + ghcr-auth).
-# Namespace/Secret은 idempotent create(409 skip), ResourceQuota는 patch로 갱신 가능.
-# 이유: db_type 변경에 따라 mysql/postgres 컴포넌트가 quota에 합산되거나 빠질 수 있어 재배포 시 갱신 필요.
+# 테넌트 ns 프로비저닝 (Namespace + ghcr-auth Secret). idempotent create(409 skip).
+# ResourceQuota는 제거됨 — API-mediated 구조에선 컴포넌트·limit이 고정이라 ns 상한이
+# 구조적으로 결정되고, 슬롯별 배포에서 quota 덮어쓰기 사고만 만들었음 (runtimes.py 주석).
 def _ensure_tenant_ns(build: Build) -> None:
     if build.user_id is None:
         return
@@ -828,16 +1036,9 @@ def _ensure_tenant_ns(build: Build) -> None:
     )
     dockerconfigjson_b64 = secret.data[".dockerconfigjson"]
 
-    # 선택된 db도 quota에 합산 — 재배포 시마다 현재 상태 반영
-    db_type = build.db_type or "none"
-    components = [build.runtime] + ([db_type] if db_type in ("mysql", "postgres") else [])
-    if build.use_redis:
-        components.append("redis")
-    quota = runtimes.compute_quota(components)
     docs = manifests.tenant(
         tenant_id=ns,
         user_id=build.user_id_str,
-        **quota,
         dockerconfigjson_b64=dockerconfigjson_b64,
     )
 
@@ -846,23 +1047,19 @@ def _ensure_tenant_ns(build: Build) -> None:
         try:
             if kind == "Namespace":
                 core.create_namespace(body=doc)
-            elif kind == "ResourceQuota":
-                # 재배포 시 db_type 변경 반영: 있으면 patch, 없으면 create
-                try:
-                    core.read_namespaced_resource_quota(name=ns, namespace=ns)
-                    core.patch_namespaced_resource_quota(
-                        name=ns, namespace=ns, body={"spec": doc["spec"]}
-                    )
-                    continue  # 외부 except로 떨어지지 않도록
-                except ApiException as e:
-                    if e.status != 404:
-                        raise
-                    core.create_namespaced_resource_quota(namespace=ns, body=doc)
             elif kind == "Secret":
                 core.create_namespaced_secret(namespace=ns, body=doc)
         except ApiException as e:
             if e.status != 409:
                 raise
+
+    # 옛 ResourceQuota 잔재 정리 — 라이브 테넌트에 남은 quota가 admission을 계속 물면
+    # 정체불명 배포 실패가 되므로, 배포마다 멱등 delete (테넌트별 자가 정리).
+    try:
+        core.delete_namespaced_resource_quota(name=ns, namespace=ns)
+    except ApiException as e:
+        if e.status != 404:
+            raise
 
 
 # 선택된 db (mysql / postgres) 같은 ns에 프로비저닝. 409(이미 존재)는 skip.
@@ -896,10 +1093,10 @@ def _ensure_one_db(build: Build, db_type: str) -> None:
 
 # 특정 db의 StatefulSet + Service만 삭제. PVC/Secret은 의도적으로 보존.
 # 다시 그 db로 토글하면 새 StatefulSet이 옛 PVC + 옛 Secret에 자동 바인딩 → 복원.
-def _teardown_one_db(build: Build, db_type: str) -> None:
+# ns 기반 — 서버 슬롯 teardown(_teardown_server)에서도 Build 없이 호출 가능.
+def _teardown_one_db(ns: str, db_type: str) -> None:
     apps = k8s.apps_v1()
     core = k8s.core_v1()
-    ns = build.tenant_id
     for delete_call in (
         lambda: apps.delete_namespaced_stateful_set(name=db_type, namespace=ns),
         lambda: core.delete_namespaced_service(name=db_type, namespace=ns),
@@ -917,38 +1114,43 @@ def _apply_db(build: Build, db_type: str) -> None:
         if candidate == db_type:
             _ensure_one_db(build, candidate)
         else:
-            _teardown_one_db(build, candidate)
+            _teardown_one_db(build.tenant_id, candidate)
+
+
+def _teardown_redis(ns: str) -> None:
+    apps = k8s.apps_v1()
+    core = k8s.core_v1()
+    for delete_call in (
+        lambda: apps.delete_namespaced_deployment(name="redis", namespace=ns),
+        lambda: core.delete_namespaced_service(name="redis", namespace=ns),
+    ):
+        try:
+            delete_call()
+        except ApiException as e:
+            if e.status != 404:
+                raise
 
 
 def _apply_redis(build: Build) -> None:
+    ns = build.tenant_id
+    if not build.use_redis:
+        _teardown_redis(ns)
+        return
     apps = k8s.apps_v1()
     core = k8s.core_v1()
-    ns = build.tenant_id
-
-    if build.use_redis:
-        docs = manifests.redis(tenant_id=ns, user_id=build.user_id_str)
-        for doc in docs:
-            kind = doc["kind"]
-            try:
-                if kind == "Secret":
-                    core.create_namespaced_secret(namespace=ns, body=doc)
-                elif kind == "Service":
-                    core.create_namespaced_service(namespace=ns, body=doc)
-                elif kind == "Deployment":
-                    apps.create_namespaced_deployment(namespace=ns, body=doc)
-            except ApiException as e:
-                if e.status != 409:
-                    raise
-    else:
-        for delete_call in (
-            lambda: apps.delete_namespaced_deployment(name="redis", namespace=ns),
-            lambda: core.delete_namespaced_service(name="redis", namespace=ns),
-        ):
-            try:
-                delete_call()
-            except ApiException as e:
-                if e.status != 404:
-                    raise
+    docs = manifests.redis(tenant_id=ns, user_id=build.user_id_str)
+    for doc in docs:
+        kind = doc["kind"]
+        try:
+            if kind == "Secret":
+                core.create_namespaced_secret(namespace=ns, body=doc)
+            elif kind == "Service":
+                core.create_namespaced_service(namespace=ns, body=doc)
+            elif kind == "Deployment":
+                apps.create_namespaced_deployment(namespace=ns, body=doc)
+        except ApiException as e:
+            if e.status != 409:
+                raise
 
 
 # r2-secret(테넌트 ns)에서 S3 자격증명 env를 dict로 읽음. storage 미활성이면 None.
@@ -1002,6 +1204,19 @@ def _read_r2_token_id(ns: str) -> str | None:
     return annotations.get("kodeploy.com/r2-token-id")
 
 
+# 스토리지 토글 off — r2-secret 삭제 + 토큰 revoke. 버킷(데이터)은 보존.
+# ns 기반 — 서버 슬롯 teardown에서도 호출.
+def _teardown_storage(ns: str) -> None:
+    old_token_id = _read_r2_token_id(ns)
+    try:
+        k8s.core_v1().delete_namespaced_secret(name="r2-secret", namespace=ns)
+    except ApiException as e:
+        if e.status != 404:
+            raise
+    if old_token_id:
+        r2.deprovision(old_token_id, bucket=None)
+
+
 # R2 스토리지 토글 — mysql/redis와 같은 철학이되 외부(CF) 리소스라 흐름이 다르다.
 # ON  : CF API로 버킷(idempotent) + 새 bucket-scoped 토큰 발급 → r2-secret 생성/교체.
 #       재배포마다 토큰을 새로 발급하고 옛 토큰은 revoke (자격증명 회전).
@@ -1009,44 +1224,38 @@ def _read_r2_token_id(ns: str) -> str | None:
 def _apply_storage(build: Build) -> None:
     if build.user_id is None:
         return
+    if not build.use_storage:
+        _teardown_storage(build.tenant_id)
+        return
     core = k8s.core_v1()
     ns = build.tenant_id
     old_token_id = _read_r2_token_id(ns)
 
-    if build.use_storage:
-        # CF API로 버킷+토큰 프로비저닝 (실패 시 R2Error → 배포 실패로 표면화).
-        env_vars, token_id = r2.provision(build.app_name)
-        docs = manifests.storage(
-            tenant_id=ns,
-            user_id=build.user_id_str,
-            env=env_vars,
-            token_id=token_id,
-        )
-        for doc in docs:  # Secret 1개
-            try:
-                core.read_namespaced_secret(name="r2-secret", namespace=ns)
-                core.replace_namespaced_secret(
-                    name="r2-secret", namespace=ns, body=doc
-                )
-            except ApiException as e:
-                if e.status != 404:
-                    raise
-                core.create_namespaced_secret(namespace=ns, body=doc)
-        # 자격증명 회전 — 옛 토큰이 새 것과 다르면 revoke (버킷은 그대로).
-        if old_token_id and old_token_id != token_id:
-            r2.deprovision(old_token_id, bucket=None)
-    else:
-        # 토글 off — Secret 제거 + 토큰 revoke. 버킷(데이터)은 보존.
+    # CF API로 버킷+토큰 프로비저닝 (실패 시 R2Error → 배포 실패로 표면화).
+    env_vars, token_id = r2.provision(build.app_name)
+    docs = manifests.storage(
+        tenant_id=ns,
+        user_id=build.user_id_str,
+        env=env_vars,
+        token_id=token_id,
+    )
+    for doc in docs:  # Secret 1개
         try:
-            core.delete_namespaced_secret(name="r2-secret", namespace=ns)
+            core.read_namespaced_secret(name="r2-secret", namespace=ns)
+            core.replace_namespaced_secret(
+                name="r2-secret", namespace=ns, body=doc
+            )
         except ApiException as e:
             if e.status != 404:
                 raise
-        if old_token_id:
-            r2.deprovision(old_token_id, bucket=None)
+            core.create_namespaced_secret(namespace=ns, body=doc)
+    # 자격증명 회전 — 옛 토큰이 새 것과 다르면 revoke (버킷은 그대로).
+    if old_token_id and old_token_id != token_id:
+        r2.deprovision(old_token_id, bucket=None)
 
 
-def _apply_deployment(build: Build) -> None:
+# hostnames: 이 슬롯 route에 걸 호스트 목록 (_slot_hostnames로 계산해 전달).
+def _apply_deployment(build: Build, hostnames: list[str]) -> None:
     apps = k8s.apps_v1()
     core = k8s.core_v1()
     ns = build.tenant_id
@@ -1066,29 +1275,43 @@ def _apply_deployment(build: Build) -> None:
         port=build.port,
     )
 
-    # Deployment: strategic merge patch (containers는 name 키로 매칭)
-    deploy_patch = {
-        "spec": {
-            "template": {
+    # Deployment 동기화:
+    # - 같은 런타임·포트 재배포(대부분): image만 strategic merge patch — 최소 변경.
+    # - 런타임/포트가 바뀐 재배포: patch는 probe·리소스에 옛 템플릿이 남아
+    #   (예: python 8000 probe인 채 nginx 8080 컨테이너 → 기동 불능) 새 manifest로 통째 replace.
+    try:
+        existing = apps.read_namespaced_deployment(name=build.app_name, namespace=ns)
+        existing_runtime = (existing.metadata.labels or {}).get("runtime")
+        containers = existing.spec.template.spec.containers or []
+        existing_ports = containers[0].ports if containers else None
+        existing_port = existing_ports[0].container_port if existing_ports else None
+        if existing_runtime != build.runtime or existing_port != build.port:
+            # replace(PUT)는 optimistic concurrency용 resourceVersion 필수
+            deploy["metadata"]["resourceVersion"] = existing.metadata.resource_version
+            apps.replace_namespaced_deployment(
+                name=build.app_name, namespace=ns, body=deploy,
+            )
+        else:
+            deploy_patch = {
                 "spec": {
-                    "containers": [
-                        {
-                            "name": "app",
-                            "image": build.image,
-                            "ports": [{"containerPort": build.port}],
+                    "template": {
+                        "spec": {
+                            "containers": [
+                                {
+                                    "name": "app",
+                                    "image": build.image,
+                                    "ports": [{"containerPort": build.port}],
+                                }
+                            ]
                         }
-                    ]
+                    }
                 }
             }
-        }
-    }
-    try:
-        apps.read_namespaced_deployment(name=build.app_name, namespace=ns)
-        apps.patch_namespaced_deployment(
-            name=build.app_name,
-            namespace=ns,
-            body=deploy_patch,
-        )
+            apps.patch_namespaced_deployment(
+                name=build.app_name,
+                namespace=ns,
+                body=deploy_patch,
+            )
     except ApiException as e:
         if e.status != 404:
             raise
@@ -1118,12 +1341,15 @@ def _apply_deployment(build: Build) -> None:
             raise
         core.create_namespaced_service(namespace=ns, body=svc)
 
-    # HTTPRoute: {app_name}.kodeploy.com → Service (재배포 시 변경 없으므로 create only)
+    # HTTPRoute: {app_name}.kodeploy.com → Service. 없으면 create, 있으면 rules만 동기화 —
+    # backendRef 포트(런타임 전환 시 변경)·origin-verify 헤더매칭 드리프트가 현재 렌더값으로 복원된다.
+    # hostnames는 건드리지 않음 (_set_app_route_hostnames의 reconcile이 별도 관리).
     routes = manifests.httproute(
         app_name=build.app_name,
         tenant_id=build.tenant_id,
         user_id=build.user_id_str,
         port=build.port,
+        hostnames=hostnames,
     )
     custom = k8s.custom()
     for route in routes:
@@ -1138,6 +1364,14 @@ def _apply_deployment(build: Build) -> None:
         except ApiException as e:
             if e.status != 409:
                 raise
+            custom.patch_namespaced_custom_object(
+                group="gateway.networking.k8s.io",
+                version="v1",
+                namespace=ns,
+                plural="httproutes",
+                name=route["metadata"]["name"],
+                body={"spec": {"rules": route["spec"]["rules"]}},
+            )
 
     # Calico NetworkPolicy (per-tenant): 같은 ns + Envoy ingress 허용.
     # GlobalNetworkPolicy(order 200)가 DNS허용 + 사설대역Deny + 인터넷허용 담당.
@@ -1185,17 +1419,46 @@ def _extra_hostnames(user: User) -> list[str]:
     return [h.strip().lower() for h in raw.split(",") if h.strip()]
 
 
-# 앱 HTTPRoute(+redirect)의 hostnames를 DB 기준으로 통째 set (authoritative reconcile).
-# 구성: 기본 서브도메인 + extra_hostnames(운영자 DB 등록 — apex 등 기능 밖 케이스)
-#       + custom_domain(유저 기능). DB가 유일한 진실원 — kubectl 수동 drift는
-#       다음 갱신 때 DB 상태로 복원된다. 특수 hostname이 필요하면 patch가 아니라
-#       extra_hostnames에 등록할 것.
-def _set_app_route_hostnames(tenant_id: str, app_name: str, user: User) -> None:
-    hostnames = [f"{app_name}.kodeploy.com", *_extra_hostnames(user)]
-    if user.custom_domain:
-        hostnames.append(user.custom_domain)
+# 슬롯 규칙에 따른 hostname 분배 — (서버 호스트들, 정적 호스트들) 반환.
+# 정적 있음: {app}=정적(+커스텀 도메인+extra), {app}-api=서버
+# 정적 없음: 서버가 {app}+{app}-api(+커스텀 도메인+extra), 정적은 빈 리스트
+# -api를 정적 유무와 무관하게 항상 걸어두는 이유: 나중에 정적을 켜서 {app}이 정적으로
+# 넘어가도 서버 주소({app}-api)는 처음부터 유효했던 주소라 API 소비자가 안 깨진다.
+def _slot_hostnames(user: User) -> tuple[list[str], list[str]]:
+    app = user.app_name
+    extras = _extra_hostnames(user)
+    custom_domain = [user.custom_domain] if user.custom_domain else []
+    if user.site_enabled:
+        return (
+            [f"{app}-api.kodeploy.com"],
+            [f"{app}.kodeploy.com", *extras, *custom_domain],
+        )
+    return (
+        [f"{app}.kodeploy.com", f"{app}-api.kodeploy.com", *extras, *custom_domain],
+        [],
+    )
+
+
+# 앱의 모든 route(서버 쌍 + 정적 쌍) hostnames를 슬롯 규칙으로 통째 set (authoritative
+# reconcile). DB(User)가 유일한 진실원 — kubectl 수동 drift는 다음 갱신 때 복원된다.
+# 특수 hostname이 필요하면 patch가 아니라 extra_hostnames에 등록할 것.
+# 없는 route는 404 skip (해당 슬롯 미배포/teardown 중 — 정상).
+def _reconcile_route_hostnames(user: User) -> None:
+    if not user.app_name:
+        return
+    tenant_id = f"tenant-{user.id.hex[:8]}"
+    server_hosts, site_hosts = _slot_hostnames(user)
+    site_name = f"{user.app_name}-static"
+    targets = [
+        (user.app_name, server_hosts),
+        (f"{user.app_name}-redirect", server_hosts),
+        (site_name, site_hosts),
+        (f"{site_name}-redirect", site_hosts),
+    ]
     custom = k8s.custom()
-    for route_name in (app_name, f"{app_name}-redirect"):
+    for route_name, hostnames in targets:
+        if not hostnames:
+            continue  # 정적 슬롯 비활성 — 그 route는 _teardown_static이 삭제 (빈 hostnames patch는 invalid)
         try:
             custom.patch_namespaced_custom_object(
                 group="gateway.networking.k8s.io",
@@ -1206,7 +1469,7 @@ def _set_app_route_hostnames(tenant_id: str, app_name: str, user: User) -> None:
                 body={"spec": {"hostnames": hostnames}},
             )
         except ApiException as e:
-            if e.status != 404:  # 첫 배포 전이면 route 없음 — 정상
+            if e.status != 404:
                 raise
 
 
@@ -1248,8 +1511,9 @@ def set_custom_domain(db: Session, user: User, domain: str) -> dict:
     user.custom_domain_status = "active" if summary.get("status") == "active" else "pending"
     db.commit()
 
-    # DB 갱신 후 reconcile — 옛 도메인은 리스트에서 빠지는 걸로 자연 제거됨
-    _set_app_route_hostnames(f"tenant-{user.id.hex[:8]}", user.app_name, user)
+    # DB 갱신 후 reconcile — 슬롯 규칙대로 정적(있으면) 또는 서버 route에 주입.
+    # 옛 도메인은 리스트에서 빠지는 걸로 자연 제거됨.
+    _reconcile_route_hostnames(user)
     return {
         "domain": user.custom_domain,
         "status": user.custom_domain_status,
@@ -1288,7 +1552,7 @@ def clear_custom_domain(db: Session, user: User) -> None:
     db.commit()
     if user.app_name:
         try:
-            _set_app_route_hostnames(f"tenant-{user.id.hex[:8]}", user.app_name, user)
+            _reconcile_route_hostnames(user)
         except ApiException:
             pass
     domains.delete(domain)

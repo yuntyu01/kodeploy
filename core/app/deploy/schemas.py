@@ -6,36 +6,49 @@ from typing import Literal
 from pydantic import BaseModel, HttpUrl
 
 
-# 사용자 선택 가능한 런타임 (runtimes.SELECTABLE_RUNTIMES와 손으로 동기화)
-Runtime = Literal["python", "java"]
+# 서버 슬롯 런타임 — "none"이면 서버 없음 (정적 사이트 단독).
+# static은 별도 슬롯(use_static)으로 분리 — 런타임 선택지가 아님.
+ServerRuntime = Literal["python", "java", "none"]
 BuildMode = Literal["dockerfile", "auto"]                # "auto"는 nixpacks 자동 Dockerfile 생성
 DbType = Literal["none", "mysql", "postgres"]            # 한 앱에 한 DB만 — 동시 사용 X
 
 
-# POST /deploy 요청 입력
+# POST /deploy 요청 입력 — 원하는 스택 전체를 선언 (서버 슬롯 + 정적 슬롯).
+# 슬롯 규칙: 정적 있으면 {app}=정적·{app}-api=서버·커스텀 도메인→정적,
+#           없으면 서버가 {app}·{app}-api 둘 다 + 커스텀 도메인.
 class DeployRequest(BaseModel):
-    repo_url: HttpUrl
+    repo_url: HttpUrl                                    # 서버 repo. 정적 단독이면 정적 repo로도 사용(static_repo_url 비었을 때)
     branch: str = "main"
     port: int = 80
-    runtime: Runtime                                     # 자동 감지 X — 유저가 명시적으로 선택
+    runtime: ServerRuntime                               # 서버 슬롯 — "none"이면 서버 없음(정적 필수)
     name: str | None = None                              # K8s 리소스 이름 + 서브도메인. None이면 서버가 app-<hex8> 자동 생성
-    db_type: DbType = "none"                             # "none" | "mysql" | "postgres"
+    db_type: DbType = "none"                             # "none" | "mysql" | "postgres" (서버 슬롯 전용)
     use_redis: bool = False
     use_storage: bool = False                            # R2 오브젝트 스토리지(앱당 버킷 + S3 자격증명 주입)
-    build_mode: BuildMode = "dockerfile"                 # "dockerfile"=유저 Dockerfile / "auto"=nixpacks 자동 생성
+    build_mode: BuildMode = "dockerfile"                 # 서버 슬롯 — "dockerfile"=유저 Dockerfile / "auto"=nixpacks
     dockerfile_path: str = "Dockerfile"                  # dockerfile 모드일 때 — "Dockerfile.multi", "subdir/Dockerfile" 등
-    project_path: str = ""                               # auto 모드일 때 — 서브디렉토리 (예: "backend"). 빈 값=repo root
-    env: dict[str, str] = {}                             # 첫 배포 시 Secret 생성, 재배포면 replace. 빈 dict면 set_env 호출 안 함.
+    project_path: str = ""                               # 서버 auto 모드 — 서브디렉토리 (예: "backend"). 빈 값=repo root
+    env: dict[str, str] = {}                             # 서버 슬롯 — 첫 배포 시 Secret 생성, 재배포면 replace
     init_dump_token: str | None = None                   # /deploy/db/stage-dump가 발급한 토큰. DB Ready 후 자동 복원.
+    # --- 정적 슬롯 ---
+    use_static: bool = False                             # 정적 사이트 토글 — off면 기존 사이트 teardown (DB 토글과 동일 철학)
+    static_repo_url: str = ""                            # 빈 값이면 repo_url 사용 (모노레포/단일 repo)
+    static_branch: str = ""                              # 빈 값이면 branch 사용
+    static_project_path: str = ""                        # 정적 빌드 기준 서브디렉토리 (모노레포 프론트 폴더)
+    build_cmd: str = ""                                  # 정적 빌드 커맨드. 빈 값=빌드 없이 repo 그대로 서빙
+    output_dir: str = ""                                 # 산출물 디렉토리. build_cmd 있고 빈 값이면 "dist"
 
 
-# POST /deploy 직후 응답 (build_id 반환)
-class DeployResponse(BaseModel):
+# POST /deploy 직후 응답 — 제출이 만든 빌드들 (서버/정적 슬롯당 최대 1개)
+class DeployBuildRef(BaseModel):
     build_id: str
+    runtime: str                                         # "python" | "java" | "static"
     status: str
-    repo_url: str
+
+
+class DeployResponse(BaseModel):
     app_name: str
-    runtime: str
+    builds: list[DeployBuildRef]
 
 
 # POST /deploy/app/db/query 입력 — DB 콘솔에서 실행할 단발 SQL.
@@ -75,6 +88,8 @@ class StatusResponse(BaseModel):
     kind: str = "build"                                  # "build" | "env_change". 옛 row는 기본 "build".
     dockerfile_path: str = "Dockerfile"
     project_path: str = ""
+    build_cmd: str = ""                                  # static 전용 — 재배포 폼 prefill용
+    output_dir: str = ""                                 # static 전용 — 재배포 폼 prefill용
     dockerfile_content: str | None = None                # 실제 빌드에 쓰인 Dockerfile. UI에서 코드 블록으로 표시.
     error: str | None = None
     analysis: str | None = None

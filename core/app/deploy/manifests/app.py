@@ -9,6 +9,7 @@ from app.deploy.runtimes import get_resources
 _RUNTIME_TEMPLATES = {
     "python": "runtimes/python.yaml.j2",
     "java": "runtimes/java.yaml.j2",
+    "static": "runtimes/static.yaml.j2",
 }
 
 
@@ -48,15 +49,20 @@ def service(app_name: str, tenant_id: str, user_id: str, port: int) -> dict:
     )
 
 
-# 앱 서브도메인 라우팅 (HTTPS + HTTP→HTTPS redirect)
+# 앱 라우팅 (HTTPS + HTTP→HTTPS redirect).
+# hostnames는 호출자가 슬롯 규칙(service._route_hostnames)으로 계산해 주입 —
+# 리소스 이름(app_name)과 hostname이 더 이상 1:1이 아님 (정적 슬롯이 {app}을 가져갈 수 있음).
 # origin_verify_secret 있으면 https route에 X-Origin-Verify 헤더매칭 주입 (origin-lock Layer B′).
-def httproute(app_name: str, tenant_id: str, user_id: str, port: int) -> list[dict]:
+def httproute(
+    app_name: str, tenant_id: str, user_id: str, port: int, hostnames: list[str],
+) -> list[dict]:
     return render_all(
         "httproute.yaml.j2",
         app_name=app_name,
         tenant_id=tenant_id,
         user_id=user_id,
         port=port,
+        hostnames=hostnames,
         origin_verify_secret=config.ORIGIN_VERIFY_SECRET,
     )
 

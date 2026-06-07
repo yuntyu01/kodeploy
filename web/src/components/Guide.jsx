@@ -1,10 +1,11 @@
 // 가이드 페이지 — 좌측 사이드바(가이드 목록) + 우측 가이드 내용(탭 + 본문).
 // 가이드 단위로 GUIDES에 추가. 각 가이드는 자체 탭(sub-section)을 가짐.
-// URL deep-link: /guide(dockerfile/기본), /guide/python, /guide/java, /guide/custom-domain.
+// URL deep-link: /guide(dockerfile/기본), /guide/python, /guide/java, /guide/static, /guide/custom-domain.
 import { Link, useParams } from "react-router-dom";
 import Basics from "./guide/Basics.jsx";
 import Java from "./guide/Java.jsx";
 import Python from "./guide/Python.jsx";
+import Static from "./guide/Static.jsx";
 import CustomDomain from "./guide/CustomDomain.jsx";
 
 // 가이드 목록 — 미래 가이드 추가 시 항목만 추가. 첫 탭 path가 사이드바 링크.
@@ -18,6 +19,15 @@ const GUIDES = [
       { id: "basics", label: "기본 규칙", path: "/guide", Component: Basics },
       { id: "python", label: "Python", path: "/guide/python", Component: Python },
       { id: "java", label: "Java", path: "/guide/java", Component: Java },
+    ],
+  },
+  {
+    id: "static",
+    label: "정적 사이트 배포",
+    title: "정적 사이트 배포",
+    desc: "React · Vue · 순수 HTML을 서버 없이 호스팅해요. 빌드 커맨드와 출력 디렉토리만 알면 됩니다.",
+    tabs: [
+      { id: "static", label: "개요", path: "/guide/static", Component: Static },
     ],
   },
   {
