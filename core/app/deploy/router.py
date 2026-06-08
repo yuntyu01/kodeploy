@@ -2,7 +2,6 @@ from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, WebSock
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
-import asyncio
 import json
 import uuid
 from datetime import datetime, timezone
@@ -170,10 +169,10 @@ async def env_put(
     db.commit()
 
     # Pod이 새 env로 부팅했는지 백그라운드 폴링 → 이 event row의 status를 running/failed로 갱신.
-    asyncio.create_task(
-        service.watch_env_change_rollout(
-            user.id, user.app_name, tenant_id, event.build_id,
-        )
+    # 동기 K8s 클라이언트를 쓰므로 메인 루프 대신 전용 스레드에서 (service.spawn_background).
+    service.spawn_background(
+        service.watch_env_change_rollout,
+        user.id, user.app_name, tenant_id, event.build_id,
     )
     return EnvVarsResponse(env=req.env)
 

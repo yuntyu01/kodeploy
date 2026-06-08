@@ -5,6 +5,7 @@ import base64
 import json
 import os.path
 import re
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -22,6 +23,19 @@ from app.deploy import crud, domains, env as env_module, manifests, r2, snapshot
 from app.deploy.model import Build, BuildRecord
 from app.shared import k8s
 from app.shared.db import SessionLocal
+
+
+# 백그라운드 오케스트레이션을 전용 daemon 스레드의 자체 이벤트 루프에서 실행.
+# _run_build 등은 async지만 내부에서 동기 K8s/DB 클라이언트 + _ensure_tenant_ns의
+# time.sleep(최대 60초)을 쓴다. uvicorn 워커 1개 = 메인 루프 1개라, 메인 루프에 올리면
+# 빌드 도는 동안 /healthz 포함 전 유저 요청이 멈춘다. 스레드마다 asyncio.run으로 독립
+# 루프를 띄워 블로킹을 그 스레드에 격리 — 코루틴 로직(빌드→배포→대기)은 그대로 보존.
+# 빌드는 I/O 바운드라 빌드당 스레드 1개로 충분. create_task와 달리 GC로 사라질 위험도 없음.
+def spawn_background(coro_func, *args) -> None:
+    threading.Thread(
+        target=lambda: asyncio.run(coro_func(*args)),
+        daemon=True,
+    ).start()
 
 
 # repo URL 정규화 (BuildKit이 요구하는 .git 접미사 보장)
@@ -545,11 +559,11 @@ async def start_deploy(
             project_path=project_path.strip("/"),  # 앞뒤 슬래시 정리 — manifest에서 ${PROJECT_PATH:+/$PROJECT_PATH}로 결합
         )
         builds.append(crud.create_build(db, server_build))
-        asyncio.create_task(_run_build(build_id, env_vars or {}, init_dump_token))
+        spawn_background(_run_build, build_id, env_vars or {}, init_dump_token)
     else:
         # 서버 사용 안 함 — 기존 서버 리소스 + deps 정리 (PVC·버킷 보존). 매 제출마다
         # spawn이라 직전 실패도 다음 제출에서 재시도되는 self-healing.
-        asyncio.create_task(_teardown_server(user.id))
+        spawn_background(_teardown_server, user.id)
 
     # --- 정적 슬롯 ---
     _cancel_stale_builds(db, user.id, slot="static")
@@ -577,9 +591,9 @@ async def start_deploy(
             build_env=json.dumps(static_env) if static_env else None,
         )
         builds.append(crud.create_build(db, static_build))
-        asyncio.create_task(_run_build(build_id))
+        spawn_background(_run_build, build_id)
     else:
-        asyncio.create_task(_teardown_static(user.id))
+        spawn_background(_teardown_static, user.id)
 
     return builds
 
