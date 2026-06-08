@@ -1,72 +1,162 @@
-// 랜딩 페이지 ("/") — 미로그인/로그인 모두 진입.
-// 미로그인 CTA → LoginModal, 로그인 CTA → /deploy.
-// 톤: 기존 DeployForm/Guide와 동일 다크 + #6672d5 액센트.
+// 랜딩 페이지 ("/").
+// 흐름: Hero → 지그재그(패널 UI) → Included(인프라) → How it works(3단계) → CTA.
+// 모션: 스크롤 시 각 블록이 fade + slide-up (useReveal), 지그재그 이미지 hover lift.
+import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import {
-  ArrowRight,
+  Activity,
   Database,
-  GitBranch,
   Globe,
-  Shield,
-  Sparkles,
+  HardDrive,
+  LayoutTemplate,
+  Lock,
+  Server,
+  ShieldCheck,
   Zap,
 } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext.jsx";
+import monitoringImg from "../assets/monitoring.webp";
+import terminalImg from "../assets/db_terminel.webp";
+import logImg from "../assets/log.webp";
+import storageImg from "../assets/storage.webp";
 
+// Included 그리드 — 배포 한 번에 따라오는 제공 인프라.
+const PROVIDED = [
+  { icon: Server, title: "서버 런타임", body: "Python · Java 자동 실행" },
+  { icon: LayoutTemplate, title: "정적 호스팅", body: "SPA · 정적 사이트 서빙" },
+  { icon: Database, title: "데이터베이스", body: "MySQL · PostgreSQL 토글" },
+  { icon: Zap, title: "캐시", body: "Redis 인메모리" },
+  { icon: HardDrive, title: "오브젝트 스토리지", body: "앱당 R2 버킷 + S3 키" },
+  { icon: Globe, title: "도메인", body: "서브도메인 + 커스텀 도메인" },
+  { icon: Lock, title: "TLS · HTTPS", body: "인증서 자동 발급" },
+  { icon: ShieldCheck, title: "엣지 · WAF", body: "Cloudflare 프록시 · DDoS" },
+  { icon: Activity, title: "모니터링", body: "메트릭 · 로그 · 상태" },
+];
+
+// 지그재그 — 실제 패널 UI. 순서: 모니터링 → 터미널 → 로그 → 스토리지.
 const FEATURES = [
   {
-    icon: Sparkles,
-    title: "자동 빌드",
+    title: "메트릭 모니터링",
     body:
-      "Dockerfile이 없어도 nixpacks가 코드를 분석해 Dockerfile을 자동 생성합니다. Python · Java 등 표준 프레임워크 그대로.",
-    color: "#818be0",
+      "CPU · 메모리 · 요청량(RPS) · 응답시간(p95) · 재시작 / OOM을 시계열 차트로. 15분부터 30일까지 구간을 골라 봅니다",
+    image: monitoringImg,
   },
   {
-    icon: Database,
-    title: "데이터베이스 토글",
+    title: "브라우저에서 바로 터미널",
     body:
-      "MySQL 토글 한 번으로 같은 네임스페이스에 자동 프로비저닝. 끄면 PVC는 보존돼 데이터가 살아남아요.",
-    color: "#a78bfa",
+      "앱 Pod 쉘과 DB 쉘(mysql · psql)에 설치 없이 접속. SQL을 그 자리에서 실행하고 결과를 바로 확인합니다",
+    image: terminalImg,
   },
   {
-    icon: Globe,
-    title: "HTTPS 도메인 자동",
+    title: "실시간 로그, 한 곳에서",
     body:
-      "your-app.kodeploy.com 서브도메인 + TLS 인증서가 배포 직후 자동 활성화. 추가 설정 0.",
-    color: "#047857",
+      "현재 · 이전 인스턴스 런타임 로그에 빌드 로그와 실제 Dockerfile까지. 크래시 원인을 한 화면에서 추적합니다",
+    image: logImg,
   },
   {
-    icon: Shield,
-    title: "격리된 실행 환경",
+    title: "오브젝트 스토리지",
     body:
-      "유저당 독립된 K8s 네임스페이스 + ResourceQuota로 자원 보장. PSS Restricted로 강화된 보안 프로파일.",
-    color: "#f59e0b",
+      "앱당 R2 버킷에 올린 객체를 썸네일로 한눈에. 이미지 미리보기 · 공개 URL · 삭제까지 브라우저에서",
+    image: storageImg,
   },
 ];
 
+// How it works — 3단계 (CTA 직전).
 const STEPS = [
-  {
-    n: "01",
-    title: "GitHub 연결",
-    body: "GitHub 계정으로 로그인 한 번이면 끝.",
-  },
-  {
-    n: "02",
-    title: "저장소 입력",
-    body: "URL · 런타임 · 브랜치만 지정하면 빌드 시작.",
-  },
-  {
-    n: "03",
-    title: "도메인 받기",
-    body: "빌드 완료 직후 HTTPS 도메인으로 바로 접속.",
-  },
+  { n: "01", title: "GitHub 연결", body: "GitHub 계정으로 로그인 한 번이면 끝" },
+  { n: "02", title: "저장소 입력", body: "URL · 런타임 · 브랜치만 지정하면 빌드 시작" },
+  { n: "03", title: "도메인 받기", body: "빌드 완료 직후 HTTPS 도메인으로 바로 접속" },
 ];
+
+// 뷰포트에 들어오면 한 번 표시 토글. prefers-reduced-motion이면 즉시 표시(모션 생략).
+function useReveal() {
+  const ref = useRef(null);
+  const [shown, setShown] = useState(false);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    if (window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches) {
+      setShown(true);
+      return;
+    }
+    const io = new IntersectionObserver(
+      ([e]) => {
+        if (e.isIntersecting) {
+          setShown(true);
+          io.disconnect();
+        }
+      },
+      { threshold: 0.12, rootMargin: "0px 0px -8% 0px" }
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, []);
+  return [ref, shown];
+}
+
+// 스크롤 등장 래퍼 — 자식을 fade + slide-up. className/style은 래퍼 div에 그대로 적용
+// (그래서 grid 컨테이너 자체를 Reveal로 쓸 수도 있음).
+function Reveal({ children, className, style }) {
+  const [ref, shown] = useReveal();
+  return (
+    <div
+      ref={ref}
+      className={className}
+      style={{
+        ...style,
+        opacity: shown ? 1 : 0,
+        transform: shown ? "none" : "translateY(28px)",
+        transition:
+          "opacity 0.7s ease, transform 0.7s cubic-bezier(0.22, 1, 0.36, 1)",
+        willChange: "opacity, transform",
+      }}
+    >
+      {children}
+    </div>
+  );
+}
+
+// 섹션 헤더 (eyebrow + h2) 공통 — 등장 애니메이션 포함.
+function SectionHead({ eyebrow, title }) {
+  const [ref, shown] = useReveal();
+  return (
+    <div
+      ref={ref}
+      className="text-center mb-12"
+      style={{
+        opacity: shown ? 1 : 0,
+        transform: shown ? "none" : "translateY(20px)",
+        transition:
+          "opacity 0.6s ease, transform 0.6s cubic-bezier(0.22, 1, 0.36, 1)",
+      }}
+    >
+      <div
+        className="text-[10.5px] tracking-[0.12em] text-[#818be0] mb-3 uppercase"
+        style={{ fontWeight: 590 }}
+      >
+        {eyebrow}
+      </div>
+      <h2
+        className="text-fg-1"
+        style={{
+          fontSize: "clamp(26px, 4vw, 36px)",
+          fontWeight: 590,
+          letterSpacing: -0.8,
+          lineHeight: 1.15,
+          wordBreak: "keep-all",
+        }}
+      >
+        {title}
+      </h2>
+    </div>
+  );
+}
 
 export default function Home() {
   const navigate = useNavigate();
   const { user, openLogin } = useAuth();
 
-  // 미로그인은 모달, 로그인은 폼으로 — CTA 두 위치에서 공유
+  // 미로그인은 로그인 모달, 로그인은 배포 폼으로 — CTA 두 곳에서 공유
   const handleStart = () => {
     if (user) navigate("/deploy");
     else openLogin?.();
@@ -74,9 +164,7 @@ export default function Home() {
 
   return (
     <div className="flex-1 overflow-auto scroll-thin relative">
-      {/* Aurora — fixed viewport-relative blobs (Linear/Vercel 풍 ambient). */}
-      {/* 큰 radial-gradient + blur로 보라 빛이 잔잔하게 깔리는 효과. */}
-      {/* pointer-events:none이라 클릭 영향 X. Home unmount 시 자동 사라짐. */}
+      {/* Aurora — fixed viewport-relative blobs (ambient 보라 빛). pointer-events:none. */}
       <div
         aria-hidden
         className="pointer-events-none fixed inset-0"
@@ -106,404 +194,284 @@ export default function Home() {
             filter: "blur(90px)",
           }}
         />
-        <div
-          className="absolute"
-          style={{
-            top: "55%",
-            left: "20%",
-            width: 800,
-            height: 560,
-            background:
-              "radial-gradient(ellipse, rgba(94,106,210,0.18) 0%, rgba(94,106,210,0) 65%)",
-            filter: "blur(110px)",
-          }}
-        />
       </div>
 
-      {/* Content layer (aurora 위로 떠 있음) */}
+      {/* Content layer */}
       <div className="relative" style={{ zIndex: 1 }}>
-      {/* Hero */}
-      <section
-        className="relative kd-fade-in px-6"
-        style={{ padding: "12vh 24px 8vh" }}
-      >
-        <div className="mx-auto text-center" style={{ maxWidth: 760 }}>
-          <div
-            className="inline-flex items-center gap-2 px-3 py-1 rounded-full mb-8"
-            style={{
-              background:
-                "linear-gradient(135deg, rgba(129,139,224,0.14), rgba(167,139,250,0.08))",
-              border: "1px solid rgba(129,139,224,0.22)",
-              boxShadow: "0 0 24px rgba(129,139,224,0.15)",
-              backdropFilter: "blur(8px)",
-              WebkitBackdropFilter: "blur(8px)",
-            }}
-          >
-            <Zap size={11} strokeWidth={2} className="text-[#818be0]" />
-            <span
-              className="text-[11.5px] text-[#c7cbf3]"
-              style={{ fontWeight: 510, letterSpacing: 0.2 }}
-            >
-              git push 한 번이면 배포 완료
-            </span>
-          </div>
-
-          <h1
-            className="text-fg-1"
-            style={{
-              fontSize: "clamp(36px, 6vw, 60px)",
-              fontWeight: 590,
-              letterSpacing: -1.5,
-              lineHeight: 1.05,
-            }}
-          >
-            GitHub 저장소를
-            <br />
-            <span
+        {/* ── Hero: 헤드라인 + 한 줄 설명 + 버튼 ── */}
+        <section className="kd-fade-in px-6" style={{ padding: "16vh 24px 2vh" }}>
+          <div className="mx-auto text-center" style={{ maxWidth: 820 }}>
+            <h1
+              className="text-fg-1"
               style={{
-                background:
-                  "linear-gradient(120deg, #6672d5 0%, #a78bfa 45%, #d8b4fe 75%, #818be0 100%)",
-                WebkitBackgroundClip: "text",
-                WebkitTextFillColor: "transparent",
-                backgroundClip: "text",
+                fontSize: "clamp(34px, 6vw, 60px)",
+                fontWeight: 590,
+                letterSpacing: -1.5,
+                lineHeight: 1.1,
+                wordBreak: "keep-all",
+                textWrap: "balance",
               }}
             >
-              한 번에 배포
-            </span>
-            합니다
-          </h1>
-
-          <p
-            className="mt-6 text-fg-3 mx-auto"
-            style={{
-              fontSize: 16,
-              fontWeight: 450,
-              lineHeight: 1.6,
-              maxWidth: 560,
-            }}
-          >
-            Dockerfile이 있으면 그대로, 없으면 자동 생성. KoDeploy가 빌드 ·
-            배포 · HTTPS 도메인까지 처리합니다.
-          </p>
-
-          <div className="mt-10 flex items-center justify-center gap-3 flex-wrap">
-            <button
-              onClick={handleStart}
-              className="flex items-center gap-2 px-5 py-3 rounded-md text-[14px] text-white transition-all"
-              style={{
-                background:
-                  "linear-gradient(135deg, #6672d5 0%, #7d6dd5 100%)",
-                fontWeight: 510,
-                boxShadow:
-                  "0 8px 24px rgba(102,114,213,0.35), 0 0 0 1px rgba(255,255,255,0.06) inset",
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.background =
-                  "linear-gradient(135deg, #828fff 0%, #9e8aff 100%)";
-                e.currentTarget.style.boxShadow =
-                  "0 12px 32px rgba(130,143,255,0.5), 0 0 0 1px rgba(255,255,255,0.1) inset";
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.background =
-                  "linear-gradient(135deg, #6672d5 0%, #7d6dd5 100%)";
-                e.currentTarget.style.boxShadow =
-                  "0 8px 24px rgba(102,114,213,0.35), 0 0 0 1px rgba(255,255,255,0.06) inset";
-              }}
-            >
-              {user ? "배포하기" : "GitHub으로 시작"}
-              <ArrowRight size={14} strokeWidth={2} />
-            </button>
-            <Link
-              to="/guide"
-              className="px-5 py-3 rounded-md text-[14px] text-fg-2 hover:text-fg-1 transition-colors no-underline"
-              style={{
-                fontWeight: 510,
-                background: "rgba(255,255,255,0.02)",
-                border: "1px solid rgba(255,255,255,0.1)",
-                backdropFilter: "blur(8px)",
-                WebkitBackdropFilter: "blur(8px)",
-              }}
-            >
-              가이드 보기
-            </Link>
-          </div>
-
-          {/* Pseudo-terminal preview — frosted glass (aurora 비치게) */}
-          <div
-            className="mt-16 mx-auto rounded-xl overflow-hidden text-left"
-            style={{
-              maxWidth: 680,
-              background: "rgba(15,16,17,0.55)",
-              border: "1px solid rgba(255,255,255,0.08)",
-              boxShadow:
-                "0 30px 80px rgba(0,0,0,0.45), 0 0 0 1px rgba(129,139,224,0.06) inset, 0 0 60px rgba(102,114,213,0.08)",
-              backdropFilter: "blur(24px) saturate(140%)",
-              WebkitBackdropFilter: "blur(24px) saturate(140%)",
-            }}
-          >
-            <div
-              className="flex items-center gap-1.5 px-4 py-2.5"
-              style={{
-                borderBottom: "1px solid rgba(255,255,255,0.06)",
-                background: "rgba(0,0,0,0.25)",
-              }}
-            >
+              GitHub 저장소를
+              <br />
               <span
-                className="w-2.5 h-2.5 rounded-full"
-                style={{ background: "#ff5f56" }}
-              />
-              <span
-                className="w-2.5 h-2.5 rounded-full"
-                style={{ background: "#ffbd2e" }}
-              />
-              <span
-                className="w-2.5 h-2.5 rounded-full"
-                style={{ background: "#27c93f" }}
-              />
-              <span
-                className="ml-3 text-[11px] text-fg-4"
-                style={{ fontWeight: 450 }}
-              >
-                kodeploy.com
-              </span>
-            </div>
-            <div className="p-5 text-[12.5px] leading-relaxed">
-              <Line prompt="$" color="#047857">
-                <span className="text-fg-2">kodeploy deploy</span>{" "}
-                <span className="text-[#818be0]">github.com/me/api</span>
-              </Line>
-              <Line>
-                <span className="text-fg-3">→ cloning · detecting runtime</span>
-                <span className="text-[#818be0]"> · python</span>
-              </Line>
-              <Line>
-                <span className="text-fg-3">→ building image (nixpacks)</span>
-              </Line>
-              <Line>
-                <span className="text-fg-3">→ deploying to K8s</span>
-              </Line>
-              <Line prompt="✓" color="#047857">
-                <span className="text-fg-1">https://api.kodeploy.com</span>{" "}
-                <span className="text-fg-4">· 47s</span>
-              </Line>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* Features */}
-      <section className="mx-auto px-6" style={{ maxWidth: 1080, paddingBottom: "10vh" }}>
-        <div className="text-center mb-12">
-          <div
-            className="text-[10.5px] tracking-[0.12em] text-[#818be0] mb-3 uppercase"
-            style={{ fontWeight: 590 }}
-          >
-            Features
-          </div>
-          <h2
-            className="text-fg-1"
-            style={{
-              fontSize: "clamp(28px, 4vw, 38px)",
-              fontWeight: 590,
-              letterSpacing: -0.8,
-              lineHeight: 1.15,
-            }}
-          >
-            배포에 필요한 것들을
-            <br />
-            기본으로 챙겨드려요
-          </h2>
-        </div>
-
-        <div
-          className="grid gap-4"
-          style={{
-            gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",
-          }}
-        >
-          {FEATURES.map((f) => {
-            const Icon = f.icon;
-            return (
-              <div
-                key={f.title}
-                className="p-6 rounded-xl transition-all"
                 style={{
-                  background: "rgba(20,21,24,0.55)",
-                  border: "1px solid rgba(255,255,255,0.06)",
-                  backdropFilter: "blur(16px)",
-                  WebkitBackdropFilter: "blur(16px)",
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.background = "rgba(28,29,33,0.7)";
-                  e.currentTarget.style.borderColor = `${f.color}33`;
-                  e.currentTarget.style.boxShadow = `0 12px 36px rgba(0,0,0,0.3), 0 0 36px ${f.color}1a`;
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.background = "rgba(20,21,24,0.55)";
-                  e.currentTarget.style.borderColor = "rgba(255,255,255,0.06)";
-                  e.currentTarget.style.boxShadow = "none";
+                  background:
+                    "linear-gradient(120deg, #6672d5 0%, #a78bfa 45%, #d8b4fe 75%, #818be0 100%)",
+                  WebkitBackgroundClip: "text",
+                  WebkitTextFillColor: "transparent",
+                  backgroundClip: "text",
                 }}
               >
+                한 번에 배포
+              </span>
+              합니다
+            </h1>
+
+            <p
+              className="mt-6 text-fg-3 mx-auto"
+              style={{
+                fontSize: 17,
+                fontWeight: 450,
+                lineHeight: 1.6,
+                maxWidth: 560,
+                wordBreak: "keep-all",
+                textWrap: "pretty",
+              }}
+            >
+              Dockerfile이 없어도 자동 빌드 - 빌드부터 배포 · 운영까지 한 곳에서
+            </p>
+
+            <div className="mt-9 flex items-center justify-center gap-3 flex-wrap">
+              <CtaButton onClick={handleStart}>배포하기</CtaButton>
+              <Link
+                to="/guide"
+                className="inline-flex items-center justify-center min-w-[130px] px-6 py-3 rounded-md text-[14px] text-fg-2 hover:text-fg-1 transition-colors no-underline"
+                style={{
+                  fontWeight: 510,
+                  background: "rgba(255,255,255,0.02)",
+                  border: "1px solid rgba(255,255,255,0.1)",
+                  backdropFilter: "blur(8px)",
+                  WebkitBackdropFilter: "blur(8px)",
+                }}
+              >
+                가이드 보기
+              </Link>
+            </div>
+          </div>
+        </section>
+
+        {/* ── 패널 UI 지그재그 (각 행 스크롤 등장) ── */}
+        <section
+          className="mx-auto px-6"
+          style={{ maxWidth: 1120, padding: "0 24px 4vh" }}
+        >
+          {FEATURES.map((f, i) => (
+            <Reveal key={f.title}>
+              <FeatureRow {...f} reverse={i % 2 === 1} />
+            </Reveal>
+          ))}
+        </section>
+
+        {/* ── Included: 제공 인프라 그리드 ── */}
+        <section
+          className="mx-auto px-6"
+          style={{ maxWidth: 1080, padding: "10vh 24px 0" }}
+        >
+          <SectionHead eyebrow="Included" title="앱에 필요한 인프라, 전부 포함" />
+          <Reveal
+            className="grid gap-3"
+            style={{ gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))" }}
+          >
+            {PROVIDED.map((p) => {
+              const Icon = p.icon;
+              return (
                 <div
-                  className="w-9 h-9 rounded-lg flex items-center justify-center mb-4"
+                  key={p.title}
+                  className="p-5 rounded-xl transition-all"
                   style={{
-                    background: `${f.color}1c`,
-                    border: `1px solid ${f.color}40`,
+                    background: "rgba(20,21,24,0.55)",
+                    border: "1px solid rgba(255,255,255,0.06)",
+                    backdropFilter: "blur(16px)",
+                    WebkitBackdropFilter: "blur(16px)",
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.borderColor = "rgba(129,139,224,0.3)";
+                    e.currentTarget.style.background = "rgba(28,29,33,0.7)";
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.borderColor = "rgba(255,255,255,0.06)";
+                    e.currentTarget.style.background = "rgba(20,21,24,0.55)";
                   }}
                 >
-                  <Icon size={17} strokeWidth={1.6} style={{ color: f.color }} />
+                  <div
+                    className="w-8 h-8 rounded-lg flex items-center justify-center mb-3"
+                    style={{
+                      background: "rgba(129,139,224,0.12)",
+                      border: "1px solid rgba(129,139,224,0.3)",
+                    }}
+                  >
+                    <Icon size={15} strokeWidth={1.7} style={{ color: "#a7adf0" }} />
+                  </div>
+                  <h3
+                    className="text-[14px] text-fg-1 mb-1"
+                    style={{ fontWeight: 590 }}
+                  >
+                    {p.title}
+                  </h3>
+                  <p
+                    className="text-[12px] text-fg-3"
+                    style={{ fontWeight: 450, lineHeight: 1.5 }}
+                  >
+                    {p.body}
+                  </p>
+                </div>
+              );
+            })}
+          </Reveal>
+        </section>
+
+        {/* ── How it works: 3단계 (CTA 직전) ── */}
+        <section
+          className="mx-auto px-6"
+          style={{ maxWidth: 900, padding: "12vh 24px 4vh" }}
+        >
+          <SectionHead eyebrow="How it works" title="3단계면 충분합니다" />
+          <Reveal className="grid gap-8 md:grid-cols-3">
+            {STEPS.map((s) => (
+              <div key={s.n}>
+                <div
+                  className="text-[12px] text-[#818be0] mb-3 tracking-[0.1em]"
+                  style={{ fontWeight: 700 }}
+                >
+                  {s.n}
                 </div>
                 <h3
-                  className="text-[15px] text-fg-1 mb-1.5"
+                  className="text-[16px] text-fg-1 mb-2"
                   style={{ fontWeight: 590 }}
                 >
-                  {f.title}
+                  {s.title}
                 </h3>
                 <p
-                  className="text-[13px] text-fg-3"
-                  style={{ fontWeight: 450, lineHeight: 1.55 }}
+                  className="text-[13.5px] text-fg-3"
+                  style={{ fontWeight: 450, lineHeight: 1.55, wordBreak: "keep-all" }}
                 >
-                  {f.body}
+                  {s.body}
                 </p>
               </div>
-            );
-          })}
-        </div>
-      </section>
+            ))}
+          </Reveal>
+        </section>
 
-      {/* Steps */}
-      <section className="mx-auto px-6" style={{ maxWidth: 900, paddingBottom: "12vh" }}>
-        <div className="text-center mb-10">
-          <div
-            className="text-[10.5px] tracking-[0.12em] text-[#818be0] mb-3 uppercase"
-            style={{ fontWeight: 590 }}
-          >
-            How it works
-          </div>
-          <h2
-            className="text-fg-1"
-            style={{
-              fontSize: "clamp(28px, 4vw, 38px)",
-              fontWeight: 590,
-              letterSpacing: -0.8,
-              lineHeight: 1.15,
-            }}
-          >
-            3단계면 충분합니다
-          </h2>
-        </div>
-
-        <div className="grid gap-6 md:grid-cols-3">
-          {STEPS.map((s) => (
-            <div key={s.n}>
-              <div
-                className="text-[11px] text-fg-4 mb-3 tracking-[0.1em]"
-                style={{ fontWeight: 590 }}
-              >
-                {s.n}
-              </div>
-              <h3
-                className="text-[16px] text-fg-1 mb-2"
-                style={{ fontWeight: 590 }}
-              >
-                {s.title}
-              </h3>
-              <p
-                className="text-[13px] text-fg-3"
-                style={{ fontWeight: 450, lineHeight: 1.55 }}
-              >
-                {s.body}
-              </p>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      {/* Bottom CTA */}
-      <section className="px-6 pb-20 relative">
-        <div
-          className="mx-auto rounded-2xl text-center px-6 py-14 relative overflow-hidden"
-          style={{
-            maxWidth: 880,
-            background:
-              "radial-gradient(circle at 50% 0%, rgba(129,139,224,0.22), transparent 70%), rgba(15,16,17,0.6)",
-            border: "1px solid rgba(129,139,224,0.22)",
-            boxShadow:
-              "0 30px 80px rgba(0,0,0,0.4), 0 0 80px rgba(129,139,224,0.08)",
-            backdropFilter: "blur(20px)",
-            WebkitBackdropFilter: "blur(20px)",
-          }}
-        >
-          <GitBranch
-            size={28}
-            strokeWidth={1.3}
-            className="mx-auto mb-5 text-[#818be0]"
-          />
-          <h2
-            className="text-fg-1 mb-3"
-            style={{
-              fontSize: "clamp(24px, 3.5vw, 32px)",
-              fontWeight: 590,
-              letterSpacing: -0.6,
-              lineHeight: 1.2,
-            }}
-          >
-            지금 저장소를 배포해 보세요
-          </h2>
-          <p
-            className="text-fg-3 mb-7 mx-auto"
-            style={{
-              fontSize: 14,
-              fontWeight: 450,
-              maxWidth: 460,
-              lineHeight: 1.55,
-            }}
-          >
-            GitHub 로그인 후 URL만 붙여넣으면 끝.
-          </p>
-          <button
-            onClick={handleStart}
-            className="inline-flex items-center gap-2 px-6 py-3 rounded-md text-[14px] text-white transition-all"
-            style={{
-              background: "linear-gradient(135deg, #6672d5 0%, #7d6dd5 100%)",
-              fontWeight: 510,
-              boxShadow:
-                "0 8px 24px rgba(102,114,213,0.35), 0 0 0 1px rgba(255,255,255,0.06) inset",
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.background =
-                "linear-gradient(135deg, #828fff 0%, #9e8aff 100%)";
-              e.currentTarget.style.boxShadow =
-                "0 12px 32px rgba(130,143,255,0.5), 0 0 0 1px rgba(255,255,255,0.1) inset";
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.background =
-                "linear-gradient(135deg, #6672d5 0%, #7d6dd5 100%)";
-              e.currentTarget.style.boxShadow =
-                "0 8px 24px rgba(102,114,213,0.35), 0 0 0 1px rgba(255,255,255,0.06) inset";
-            }}
-          >
-            {user ? "배포하기" : "GitHub으로 시작"}
-            <ArrowRight size={14} strokeWidth={2} />
-          </button>
-        </div>
-      </section>
-      </div>{/* /content layer */}
+        {/* ── 하단 CTA ── */}
+        <section className="px-6 pt-[8vh] pb-24">
+          <Reveal className="mx-auto text-center" style={{ maxWidth: 560 }}>
+            <h2
+              className="text-fg-1 mb-3"
+              style={{
+                fontSize: "clamp(24px, 3.5vw, 32px)",
+                fontWeight: 590,
+                letterSpacing: -0.6,
+                lineHeight: 1.2,
+                wordBreak: "keep-all",
+              }}
+            >
+              지금 저장소를 배포해 보세요
+            </h2>
+            <p
+              className="text-fg-3 mb-7 mx-auto"
+              style={{ fontSize: 14, fontWeight: 450, lineHeight: 1.55, maxWidth: 420 }}
+            >
+              GitHub 로그인 후 URL만 붙여넣으면 끝
+            </p>
+            <CtaButton onClick={handleStart}>배포하기</CtaButton>
+          </Reveal>
+        </section>
+      </div>
     </div>
   );
 }
 
-// 한 줄짜리 가짜 터미널 라인 (prompt 색 + 본문 children)
-function Line({ prompt, color, children }) {
+// 지그재그 한 행 — 데스크톱은 reverse로 좌우 번갈아, 이미지를 텍스트보다 넓게 + hover lift.
+function FeatureRow({ title, body, image, reverse }) {
   return (
-    <div className="flex items-start gap-3">
-      <span
-        className="shrink-0 w-3"
-        style={{ color: color || "#5e6772", fontWeight: 510 }}
-      >
-        {prompt || " "}
-      </span>
-      <span className="min-w-0 flex-1 break-all">{children}</span>
+    <div
+      className={`flex flex-col items-center gap-8 md:gap-16 py-12 ${
+        reverse ? "md:flex-row-reverse" : "md:flex-row"
+      }`}
+    >
+      <div className="w-full md:flex-[1.5]">
+        <img
+          src={image}
+          alt={title}
+          className="block w-full rounded-xl"
+          style={{
+            border: "1px solid rgba(255,255,255,0.07)",
+            boxShadow: "0 20px 50px rgba(0,0,0,0.4)",
+            transition: "transform 0.4s ease, box-shadow 0.4s ease",
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.transform = "translateY(-6px)";
+            e.currentTarget.style.boxShadow =
+              "0 30px 70px rgba(0,0,0,0.5), 0 0 60px rgba(102,114,213,0.18)";
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.transform = "none";
+            e.currentTarget.style.boxShadow = "0 20px 50px rgba(0,0,0,0.4)";
+          }}
+        />
+      </div>
+      <div className="w-full md:flex-1">
+        <h3
+          className="text-fg-1"
+          style={{
+            fontSize: "clamp(20px, 2.6vw, 27px)",
+            fontWeight: 590,
+            letterSpacing: -0.5,
+            lineHeight: 1.2,
+            wordBreak: "keep-all",
+          }}
+        >
+          {title}
+        </h3>
+        <p
+          className="mt-3 text-fg-3"
+          style={{ fontSize: 15, fontWeight: 450, lineHeight: 1.6, wordBreak: "keep-all" }}
+        >
+          {body}
+        </p>
+      </div>
     </div>
+  );
+}
+
+// 그라데이션 primary 버튼 (Hero + 하단 CTA 공용)
+function CtaButton({ children, onClick }) {
+  return (
+    <button
+      onClick={onClick}
+      className="inline-flex items-center justify-center min-w-[130px] px-6 py-3 rounded-md text-[14px] text-white transition-all"
+      style={{
+        background: "linear-gradient(135deg, #6672d5 0%, #7d6dd5 100%)",
+        fontWeight: 510,
+        border: "1px solid transparent",
+        boxShadow:
+          "0 8px 24px rgba(102,114,213,0.35), 0 0 0 1px rgba(255,255,255,0.06) inset",
+      }}
+      onMouseEnter={(e) => {
+        e.currentTarget.style.background =
+          "linear-gradient(135deg, #828fff 0%, #9e8aff 100%)";
+        e.currentTarget.style.boxShadow =
+          "0 12px 32px rgba(130,143,255,0.5), 0 0 0 1px rgba(255,255,255,0.1) inset";
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.background =
+          "linear-gradient(135deg, #6672d5 0%, #7d6dd5 100%)";
+        e.currentTarget.style.boxShadow =
+          "0 8px 24px rgba(102,114,213,0.35), 0 0 0 1px rgba(255,255,255,0.06) inset";
+      }}
+    >
+      {children}
+    </button>
   );
 }

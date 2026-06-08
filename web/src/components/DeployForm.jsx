@@ -940,7 +940,7 @@ export default function DeployForm({ onRequestGuide }) {
         </div>
         <div className="flex gap-1.5">
           {[
-            { id: false, name: "선택 안 함" },
+            { id: false, name: "사용 안 함" },
             { id: true, name: "정적 사이트" },
           ].map((s) => {
             const active = useStatic === s.id;

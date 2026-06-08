@@ -70,7 +70,7 @@ CRA                npm ci && npm run build   →   build`}</CodeBlock>
           <Code>빌드 타임 변수</Code>에 입력하세요 — 빌드 중 번들에 박혀 브라우저에
           공개되는 값이라 <Code>시크릿은 금지</Code>입니다 (서버 환경변수와 별개).
         </Bullet>
-        <Bullet>정적 사이트를 <Code>선택 안 함</Code>으로 돌리면 사이트가 내려가고 도메인이 서버로 돌아갑니다.</Bullet>
+        <Bullet>정적 사이트를 <Code>사용 안 함</Code>으로 돌리면 사이트가 내려가고 도메인이 서버로 돌아갑니다.</Bullet>
       </Section>
     </>
   );
