@@ -205,9 +205,20 @@ def app_metrics(
     return metrics.fetch_app_metrics(tenant_id, user.app_name, range)
 
 
+# WebSocket은 CORS·SameSite 보호 밖이라(브라우저가 자동 차단 안 함) Origin을 서버가
+# 직접 검증해야 한다. 허용 목록(CORS와 동일)에 없으면 핸드셰이크 거절 — CSWSH(교차사이트
+# WebSocket 하이재킹) 방지. 브라우저는 WS에 Origin을 항상 붙이고 JS가 위조 못 하므로
+# Origin 없음(비-브라우저)도 거절 — 이 WS는 web 프론트 전용.
+def _ws_origin_allowed(ws: WebSocket) -> bool:
+    return ws.headers.get("origin") in config.ALLOWED_ORIGINS
+
+
 # Pod exec WebSocket — xterm.js 프론트와 양방향. cookie로 인증.
 @router.websocket("/app/terminal")
 async def app_terminal(ws: WebSocket):
+    if not _ws_origin_allowed(ws):
+        await ws.close(code=4403, reason="origin not allowed")
+        return
     sid = ws.cookies.get("kd_session")
     if not sid:
         await ws.close(code=4001, reason="인증 필요")
@@ -233,6 +244,9 @@ async def app_terminal(ws: WebSocket):
 # DB Pod exec WebSocket — mysql/psql CLI. cookie 인증.
 @router.websocket("/app/db-terminal")
 async def app_db_terminal(ws: WebSocket):
+    if not _ws_origin_allowed(ws):
+        await ws.close(code=4403, reason="origin not allowed")
+        return
     sid = ws.cookies.get("kd_session")
     if not sid:
         await ws.close(code=4001, reason="인증 필요")
