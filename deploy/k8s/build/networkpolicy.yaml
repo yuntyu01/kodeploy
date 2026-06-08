@@ -1,0 +1,34 @@
+# Calico NetworkPolicy — kodeploy-build ns egress 펜스.
+# 빌드 Job은 유저가 올린 repo/Dockerfile의 RUN을 그대로 실행하므로 유저 통제 코드 실행 환경이다.
+# 이 ns엔 tenant 라벨이 없어 tenant-egress GlobalNetworkPolicy가 안 걸린다(의도적 — 빌드를
+# tenant로 위장하지 않음). 그래서 같은 egress 펜스를 여기 전용 정책으로 둔다.
+#   허용: DNS(53) + 공인 인터넷 (git clone·nixpacks 다운로드·base image pull·GHCR push 전부 공인)
+#   차단: 사설망(RFC1918) + 메타데이터(169.254) → 타 워크로드·컨트롤플레인 DB·K8s API·OCI IMDS 도달 차단
+# DNAT 전 평가라 Service ClusterIP(10.96.x)도 53 외엔 막힌다 (tenant-egress와 동일 원리).
+apiVersion: projectcalico.org/v3
+kind: NetworkPolicy
+metadata:
+  name: build-egress
+  namespace: kodeploy-build
+spec:
+  order: 100
+  selector: all()                   # ns 안 모든 빌드 Pod
+  types:
+    - Egress
+  egress:
+    - action: Allow                 # 1) DNS 먼저 — CoreDNS(10.96.x:53)가 아래 RFC1918 deny에 안 걸리게
+      protocol: UDP
+      destination:
+        ports: [53]
+    - action: Allow
+      protocol: TCP
+      destination:
+        ports: [53]
+    - action: Deny                  # 2) 사설망 + 메타데이터 차단
+      destination:
+        nets:
+          - 10.0.0.0/8
+          - 172.16.0.0/12
+          - 192.168.0.0/16
+          - 169.254.0.0/16
+    - action: Allow                 # 3) 나머지(공인) — github / registry
