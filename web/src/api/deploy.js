@@ -121,6 +121,12 @@ export function listRecentCommits() {
   return request("/deploy/commits");
 }
 
+// 연결된 GitHub App installation이 접근 가능한 repo 목록 (private repo 선택용). 미연결이면 [].
+// 응답: [{full_name, html_url, private, default_branch}, ...]
+export function listGithubRepos() {
+  return request("/deploy/github/repos");
+}
+
 // 사용자 앱 환경변수 — {app_name}-env Secret을 진실원으로 GET/PUT.
 // 첫 배포 전이거나 한 번도 설정 안 했으면 빈 dict.
 export function getEnvVars() {

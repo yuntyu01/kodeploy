@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 
 from app.auth.deps import get_current_user
 from app.auth.model import User
-from app.auth import service as auth_service
+from app.auth import github_app, service as auth_service
 from app.deploy import dbquery, env, logs, metrics, service, snapshots, terminal
 from app.deploy.model import Build
 from app import config
@@ -388,6 +388,13 @@ def list_recent_commits(
         return []
     latest = builds[0]
     return service.fetch_recent_commits(latest.repo_url, latest.branch)
+
+
+# 연결된 GitHub App installation이 접근 가능한 repo 목록 — 배포 폼 private repo 선택 드롭다운용.
+# 미연결(installation_id 없음)/미설정이면 빈 리스트. /{build_id} GET보다 위에 등록해야 "github"가 build_id로 안 잡힘.
+@router.get("/github/repos")
+def github_repos(user: User = Depends(get_current_user)) -> list[dict]:
+    return github_app.list_installation_repos(user.github_installation_id)
 
 
 # DB 스냅샷 추출 — 현재 앱 MySQL을 mysqldump → .sql.gz 다운로드 스트림.

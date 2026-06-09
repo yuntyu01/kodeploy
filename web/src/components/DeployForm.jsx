@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ChevronDown, Eye, EyeOff, GitBranch, Plus, Trash2 } from "lucide-react";
-import { createDeploy, CUSTOM_DOMAIN_CNAME_TARGET, getEnvVars, listBuilds, RUNTIMES, setDomain, stageDump } from "../api/deploy.js";
+import { createDeploy, CUSTOM_DOMAIN_CNAME_TARGET, getEnvVars, listBuilds, listGithubRepos, RUNTIMES, setDomain, stageDump } from "../api/deploy.js";
 import { GITHUB_INSTALL_URL } from "../api/auth.js";
 import { useAuth } from "../contexts/AuthContext.jsx";
 
@@ -28,6 +28,7 @@ export default function DeployForm({ onRequestGuide }) {
   // 1유저=1앱 — user.app_name이 있으면 첫 배포 끝난 상태. 이름 입력란 숨기고 그 이름 재사용.
   const isFirstDeploy = !user?.app_name;
   const [repoUrl, setRepoUrl] = useState("");
+  const [ghRepos, setGhRepos] = useState([]);            // 연결된 installation repo 목록 (private 선택 드롭다운)
   const [name, setName] = useState("");
   const [branch, setBranch] = useState("main");
   const [port, setPort] = useState(DEFAULT_PORTS[RUNTIMES[0]] ?? 80);
@@ -183,6 +184,21 @@ export default function DeployForm({ onRequestGuide }) {
     }, 500);
     return () => clearTimeout(timer);
   }, [repoUrl, branch]);
+
+  // 연결됨(installation 있음)이면 접근 가능한 repo 목록 받아 드롭다운 채움. 미연결/실패면 빈 배열.
+  useEffect(() => {
+    if (!user?.github_connected) {
+      setGhRepos([]);
+      return;
+    }
+    let cancelled = false;
+    listGithubRepos()
+      .then((repos) => !cancelled && setGhRepos(repos || []))
+      .catch(() => !cancelled && setGhRepos([]));
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.github_connected]);
 
   const addStaticEnvRow = () =>
     setStaticEnvRows((r) => [...r, { key: "", value: "" }]);
@@ -412,7 +428,41 @@ export default function DeployForm({ onRequestGuide }) {
       {user && (
         <div className="-mt-2 mb-5 text-[11px]" style={{ fontWeight: 450 }}>
           {user.github_connected ? (
-            <span className="text-fg-4">🔒 Private 저장소 연결됨 ✓</span>
+            ghRepos.length > 0 ? (
+              <span className="inline-flex items-center gap-2 text-fg-4">
+                <span>🔒 연결된 저장소</span>
+                <select
+                  defaultValue=""
+                  onChange={(e) => {
+                    const r = ghRepos.find((x) => x.html_url === e.target.value);
+                    if (r) {
+                      setRepoUrl(r.html_url);
+                      setBranch(r.default_branch || "main");
+                    }
+                  }}
+                  disabled={submitting}
+                  className="rounded-md px-2 py-1 text-[11px] outline-none"
+                  style={{
+                    border: "1px solid rgba(255,255,255,0.09)",
+                    background: "rgba(255,255,255,0.04)",
+                    color: "#c8cdd6",
+                    fontWeight: 510,
+                  }}
+                >
+                  <option value="" disabled>
+                    골라서 채우기…
+                  </option>
+                  {ghRepos.map((r) => (
+                    <option key={r.full_name} value={r.html_url}>
+                      {r.full_name}
+                      {r.private ? " · private" : ""}
+                    </option>
+                  ))}
+                </select>
+              </span>
+            ) : (
+              <span className="text-fg-4">🔒 Private 저장소 연결됨 ✓</span>
+            )
           ) : (
             <span className="text-fg-4">
               🔒 Private 저장소예요?{" "}

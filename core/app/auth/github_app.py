@@ -111,3 +111,43 @@ def get_clone_token(installation_id: int | None) -> str | None:
     with _lock:
         _cache[installation_id] = (token, _parse_expiry(data.get("expires_at"), now))
     return token
+
+
+# installation이 접근 가능한 repo 목록 — 배포 폼의 private repo 선택 드롭다운용.
+# installation 토큰으로 GET /installation/repositories. 미설정/없음/실패면 빈 리스트.
+# (per_page=100 단일 페이지 — 보통 충분. 그 이상이면 페이지네이션 추가)
+def list_installation_repos(installation_id: int | None) -> list[dict]:
+    token = get_clone_token(installation_id)
+    if not token:
+        return []
+    try:
+        with httpx.Client(timeout=15.0) as client:
+            resp = client.get(
+                f"{_API}/installation/repositories",
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "Accept": "application/vnd.github+json",
+                    "X-GitHub-Api-Version": "2022-11-28",
+                },
+                params={"per_page": 100},
+            )
+    except httpx.HTTPError:
+        return []
+    if resp.status_code != 200:
+        return []
+    try:
+        data = resp.json()
+    except ValueError:
+        return []
+    out = [
+        {
+            "full_name": r.get("full_name"),
+            "html_url": r.get("html_url"),
+            "private": bool(r.get("private")),
+            "default_branch": r.get("default_branch") or "main",
+        }
+        for r in data.get("repositories", [])
+        if r.get("html_url")
+    ]
+    out.sort(key=lambda r: r["full_name"] or "")
+    return out
