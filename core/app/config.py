@@ -81,6 +81,15 @@ GITHUB_CLIENT_SECRET = os.getenv("GITHUB_CLIENT_SECRET", "")
 GITHUB_OAUTH_REDIRECT_URI = os.getenv(
     "GITHUB_OAUTH_REDIRECT_URI", "http://localhost:8000/auth/github/callback"
 )
+# App ID + private key(PEM) — private repo clone용 installation token 서명에 사용 (auth/github_app.py).
+# OAuth(CLIENT_ID/SECRET)는 '로그인'용, 이건 '빌드가 repo에 접근'하는 server-to-server용. 둘 다 같은 App.
+# 비어 있으면 private repo 기능 비활성(github_app.is_configured()=False) — public repo만 빌드.
+# PRIVATE_KEY는 멀티라인 PEM이라 Secret으로 주입(\n 포함 통째).
+GITHUB_APP_ID = os.getenv("GITHUB_APP_ID", "")
+GITHUB_APP_PRIVATE_KEY = os.getenv("GITHUB_APP_PRIVATE_KEY", "")
+# App 공개 슬러그(App URL의 이름) — private repo 연결 시 설치 페이지로 보내는 데 사용(시크릿 아님).
+# /auth/github/install이 https://github.com/apps/{slug}/installations/new 로 redirect.
+GITHUB_APP_SLUG = os.getenv("GITHUB_APP_SLUG", "")
 # 로그인 성공 후 사용자를 돌려보낼 web 기본 URL.
 WEB_BASE_URL = os.getenv("WEB_BASE_URL", "http://localhost:5173")
 

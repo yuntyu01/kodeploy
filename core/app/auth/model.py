@@ -22,6 +22,10 @@ class User(Base):
     login: Mapped[str] = mapped_column(String(100))
     email: Mapped[str | None] = mapped_column(String(255), nullable=True)
     avatar_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    # GitHub App을 자기 repo에 설치하면 OAuth 콜백에 실려오는 installation id (BigInteger).
+    # 빌드 시점에 이 installation의 access token(1h, repo-scoped)을 발급해 private repo를 clone한다.
+    # None이면 App 미설치 → public repo만. 토큰이 이 installation에 스코프되므로 남의 private repo는 못 받음.
+    github_installation_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     # 1유저=1앱 — 첫 배포 시 결정되어 fix. 서브도메인이라 unique. None이면 아직 배포 안 함.
     app_name: Mapped[str | None] = mapped_column(
         String(50), nullable=True, unique=True
@@ -51,6 +55,12 @@ class User(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, default=_utcnow, onupdate=_utcnow
     )
+
+    # private repo 연결 여부 (UI 분기용) — App 설치로 installation_id가 잡혔으면 True.
+    # 컬럼 아닌 property — installation_id가 진실원, UserOut이 from_attributes로 읽어 노출.
+    @property
+    def github_connected(self) -> bool:
+        return self.github_installation_id is not None
 
 
 # 세션 ID 자체가 secrets.token_urlsafe(48) (64자) — cookie에 그대로 담기고 DB lookup으로 검증.

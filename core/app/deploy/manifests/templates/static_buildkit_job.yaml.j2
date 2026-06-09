@@ -31,10 +31,21 @@ spec:
               value: "{{ branch }}"
             - name: DOCKERFILE_B64
               value: "{{ dockerfile_b64 }}"
+{% if git_auth_secret %}
+            - name: GIT_AUTH_TOKEN                        # private repo clone용 (빌드별 Secret, etcd 암호화됨)
+              valueFrom:
+                secretKeyRef:
+                  name: {{ git_auth_secret }}
+                  key: GIT_AUTH_TOKEN
+{% endif %}
           args:
             - |
               set -eu
               echo "[1/2] cloning ${REPO_URL} (${BRANCH})..."
+              # private repo: 토큰을 URL rewrite로 주입 — REPO_URL/로그엔 토큰 안 보임(set -x 꺼짐)
+              if [ -n "${GIT_AUTH_TOKEN:-}" ]; then
+                git config --global url."https://x-access-token:${GIT_AUTH_TOKEN}@github.com/".insteadOf "https://github.com/"
+              fi
               git clone --depth 1 -b "$BRANCH" "$REPO_URL" /workspace/src
               echo "[2/2] writing generated Dockerfile..."
               mkdir -p /workspace/df

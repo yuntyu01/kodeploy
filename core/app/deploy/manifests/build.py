@@ -17,6 +17,7 @@ def buildkit_job(
     branch: str,
     dockerfile_subdir: str = "",
     dockerfile_filename: str = "Dockerfile",
+    git_auth_secret: str = "",            # private repo: GIT_AUTH_TOKEN 담은 빌드별 Secret 이름 (없으면 public clone)
 ) -> dict:
     return render(
         "buildkit_job.yaml.j2",
@@ -29,6 +30,7 @@ def buildkit_job(
         dockerfile_filename=dockerfile_filename,
         buildkit_image=config.BUILDKIT_IMAGE,
         ghcr_auth_secret=config.GHCR_AUTH_SECRET_NAME,
+        git_auth_secret=git_auth_secret,
     )
 
 
@@ -43,6 +45,7 @@ def nixpacks_buildkit_job(
     branch: str,
     project_path: str = "",
     build_args: dict[str, str] | None = None,
+    git_auth_secret: str = "",            # private repo: GIT_AUTH_TOKEN 담은 빌드별 Secret 이름
 ) -> dict:
     return render(
         "nixpacks_buildkit_job.yaml.j2",
@@ -55,6 +58,7 @@ def nixpacks_buildkit_job(
         build_args=build_args or {},
         buildkit_image=config.BUILDKIT_IMAGE,
         ghcr_auth_secret=config.GHCR_AUTH_SECRET_NAME,
+        git_auth_secret=git_auth_secret,
     )
 
 
@@ -93,6 +97,7 @@ def static_buildkit_job(
     branch: str,
     dockerfile_text: str,
     project_path: str = "",
+    git_auth_secret: str = "",            # private repo: GIT_AUTH_TOKEN 담은 빌드별 Secret 이름
 ) -> dict:
     return render(
         "static_buildkit_job.yaml.j2",
@@ -105,4 +110,5 @@ def static_buildkit_job(
         dockerfile_b64=base64.b64encode(dockerfile_text.encode("utf-8")).decode("ascii"),
         buildkit_image=config.BUILDKIT_IMAGE,
         ghcr_auth_secret=config.GHCR_AUTH_SECRET_NAME,
+        git_auth_secret=git_auth_secret,
     )

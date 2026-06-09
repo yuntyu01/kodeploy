@@ -34,6 +34,13 @@ spec:
               value: "{{ project_path }}"
             - name: NIXPACKS_VERSION
               value: "v1.41.0"
+{% if git_auth_secret %}
+            - name: GIT_AUTH_TOKEN                                     # private repo clone용 (빌드별 Secret, etcd 암호화됨)
+              valueFrom:
+                secretKeyRef:
+                  name: {{ git_auth_secret }}
+                  key: GIT_AUTH_TOKEN
+{% endif %}
           args:
             - |
               set -eu
@@ -50,6 +57,10 @@ spec:
                 | tar xz -C /usr/local/bin
 
               echo "[2/5] cloning ${REPO_URL} (${BRANCH})..."
+              # private repo: 토큰을 URL rewrite(insteadOf)로 주입 — REPO_URL/로그엔 토큰 안 보임(set -x 꺼짐)
+              if [ -n "${GIT_AUTH_TOKEN:-}" ]; then
+                git config --global url."https://x-access-token:${GIT_AUTH_TOKEN}@github.com/".insteadOf "https://github.com/"
+              fi
               git clone --depth 1 -b "$BRANCH" "$REPO_URL" /workspace/src
 
               # PROJECT_PATH 결정 — 사용자 명시값이 있으면 그대로, 없으면 자동 탐색.

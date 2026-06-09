@@ -5,6 +5,10 @@ const API_BASE = (import.meta.env.VITE_API_BASE || "").replace(/\/$/, "");
 // (XHR로 호출하면 redirect를 따라가버려 cookie/state 세팅이 깨짐 → 반드시 location 이동.)
 export const GITHUB_LOGIN_URL = `${API_BASE}/auth/github/login`;
 
+// private repo 연결 — GitHub App 설치 페이지로. login과 동일하게 full-page navigation으로 호출.
+// 설치 후 백엔드 콜백이 installation_id를 저장하고 web으로 돌려보낸다.
+export const GITHUB_INSTALL_URL = `${API_BASE}/auth/github/install`;
+
 async function jsonRequest(path, options = {}) {
   const res = await fetch(`${API_BASE}${path}`, {
     credentials: "include",

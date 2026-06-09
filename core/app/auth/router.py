@@ -71,12 +71,42 @@ def github_login():
     return response
 
 
+# private repo 연결 — GitHub App 설치 페이지로 redirect (유저가 repo 선택해서 설치).
+# App 설정 "Request user authorization (OAuth) during installation" ON이면, 설치 후
+# 콜백에 code+state+installation_id가 함께 와서 기존 /github/callback이 로그인+installation_id
+# 저장을 한 흐름으로 처리한다. (full-page navigation — login과 동일하게 location 이동으로 호출)
+@router.get("/github/install")
+def github_install():
+    if not config.GITHUB_APP_SLUG:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="GitHub App slug 미구성 (GITHUB_APP_SLUG)",
+        )
+    state = secrets.token_urlsafe(32)
+    response = RedirectResponse(
+        url=f"https://github.com/apps/{config.GITHUB_APP_SLUG}/installations/new?state={state}",
+        status_code=302,
+    )
+    response.set_cookie(
+        key=config.OAUTH_STATE_COOKIE_NAME,
+        value=state,
+        max_age=config.OAUTH_STATE_TTL_SECONDS,
+        httponly=True,
+        secure=config.SESSION_COOKIE_SECURE,
+        samesite="lax",
+        path="/",
+    )
+    return response
+
+
 @router.get("/github/callback")
 async def github_callback(
     request: Request,
     code: str | None = None,
     state: str | None = None,
     error: str | None = None,
+    installation_id: int | None = None,   # App 설치를 통해 들어오면 GitHub이 함께 보냄 (private repo clone용)
+    setup_action: str | None = None,      # "install"/"update" 등 — 현재는 installation_id 저장에만 관심
     db: SASession = Depends(get_db),
 ):
     # 사용자가 GitHub 동의 거부 시 — 그냥 web으로 돌려보냄 (UI에서 알림)
@@ -98,6 +128,13 @@ async def github_callback(
         raise HTTPException(status_code=502, detail=f"GitHub 인증 실패: {e}")
 
     user = auth_service.upsert_user(db, gh_user)
+
+    # App 설치 경유면 installation_id 저장 — 빌드가 이 installation의 토큰으로 private repo를 clone.
+    # 일반 로그인(installation_id 없음)에선 기존 값 보존 (덮어쓰지 않음).
+    if installation_id is not None:
+        user.github_installation_id = installation_id
+        db.commit()
+
     sess = auth_service.create_session(
         db,
         user,

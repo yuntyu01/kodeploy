@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ChevronDown, Eye, EyeOff, GitBranch, Plus, Trash2 } from "lucide-react";
 import { createDeploy, CUSTOM_DOMAIN_CNAME_TARGET, getEnvVars, listBuilds, RUNTIMES, setDomain, stageDump } from "../api/deploy.js";
+import { GITHUB_INSTALL_URL } from "../api/auth.js";
 import { useAuth } from "../contexts/AuthContext.jsx";
 
 // 서버 슬롯 선택지 — RUNTIMES(python/java) + "none"(서버 없음, 정적 단독)
@@ -401,6 +402,31 @@ export default function DeployForm({ onRequestGuide }) {
           {repoCheck.state === "error" && (
             <span className="text-fg-4">
               확인 실패{repoCheck.code ? ` (${repoCheck.code})` : ""}
+            </span>
+          )}
+        </div>
+      )}
+
+      {/* private repo 연결 — 로그인 상태에서만. 연결 안 됐으면 GitHub App 설치로 보냄(1회).
+          연결 후엔 재배포마다 서버가 토큰 자동 발급 — 유저 재작업 없음. */}
+      {user && (
+        <div className="-mt-2 mb-5 text-[11px]" style={{ fontWeight: 450 }}>
+          {user.github_connected ? (
+            <span className="text-fg-4">🔒 Private 저장소 연결됨 ✓</span>
+          ) : (
+            <span className="text-fg-4">
+              🔒 Private 저장소예요?{" "}
+              <button
+                type="button"
+                onClick={() => {
+                  window.location.href = GITHUB_INSTALL_URL;
+                }}
+                className="underline hover:text-fg-1 transition-colors"
+                style={{ color: "#818be0", fontWeight: 510 }}
+              >
+                GitHub 연결하기
+              </button>{" "}
+              <span className="text-fg-4">한 번 연결하면 재배포는 자동이에요.</span>
             </span>
           )}
         </div>

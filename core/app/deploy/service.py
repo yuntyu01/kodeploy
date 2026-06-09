@@ -18,6 +18,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app import config
+from app.auth import github_app
 from app.auth.model import User
 from app.deploy import crud, domains, env as env_module, manifests, r2, snapshots
 from app.deploy.model import Build, BuildRecord
@@ -444,6 +445,63 @@ def _cleanup_build_job(build_id: str, user_id_str: str) -> None:
     except ApiException as e:
         if e.status != 404:
             raise
+    _cleanup_git_auth(build_id)
+
+
+# --- private repo clone 인증 (GitHub App installation token) -------------------
+# 빌드별 Secret에 토큰을 담아 잡이 마운트, 빌드 후 삭제. 토큰은 그 유저 installation에 스코프돼
+# 남의 private repo는 GitHub이 거부 — 격리 자동. See app/auth/github_app.py.
+
+def _git_auth_secret_name(build_id: str) -> str:
+    return f"git-auth-{build_id}"
+
+
+# build의 user가 App 설치(installation_id)했고 App이 설정돼 있으면 installation token을 발급해
+# kodeploy-build ns의 Secret에 담고 그 이름을 반환. 토큰 없으면(미설치/미설정/실패) "" → public clone.
+def _provision_git_auth(build: Build) -> str:
+    if build.user_id is None or not github_app.is_configured():
+        return ""
+    db = SessionLocal()
+    try:
+        owner = db.query(User).filter_by(id=build.user_id).first()
+        installation_id = owner.github_installation_id if owner else None
+    finally:
+        db.close()
+    token = github_app.get_clone_token(installation_id)
+    if not token:
+        return ""
+    name = _git_auth_secret_name(build.build_id)
+    body = {
+        "apiVersion": "v1",
+        "kind": "Secret",
+        "metadata": {
+            "name": name,
+            "namespace": config.BUILD_NAMESPACE,
+            "labels": {"app": "kodeploy-build", "build-id": build.build_id},
+        },
+        "type": "Opaque",
+        "stringData": {"GIT_AUTH_TOKEN": token},
+    }
+    core = k8s.core_v1()
+    try:
+        core.create_namespaced_secret(namespace=config.BUILD_NAMESPACE, body=body)
+    except ApiException as e:
+        if e.status != 409:  # 재시도 등으로 이미 있으면 최신 토큰으로 교체
+            raise
+        core.replace_namespaced_secret(
+            name=name, namespace=config.BUILD_NAMESPACE, body=body
+        )
+    return name
+
+
+def _cleanup_git_auth(build_id: str) -> None:
+    try:
+        k8s.core_v1().delete_namespaced_secret(
+            name=_git_auth_secret_name(build_id), namespace=config.BUILD_NAMESPACE
+        )
+    except ApiException as e:
+        if e.status != 404:
+            raise
 
 
 # static 빌드 입력 검증/정규화. 보안 경계 아님(유저는 어차피 자기 이미지 빌드 내용을 전부
@@ -770,6 +828,9 @@ async def _run_build(
             build.status = "building"
             db.commit()
 
+            # private repo면 이 빌드용 git 토큰 Secret 발급 (public이거나 App 미설정/미설치면 "" → 토큰 없이 clone).
+            git_auth_secret = _provision_git_auth(build)
+
             if build.runtime == "static":
                 # 플랫폼 생성 Dockerfile — repo엔 없음. 빌드 전에 DB 보존 (UI 노출 + 재현성).
                 dockerfile_text = manifests.static_dockerfile(
@@ -787,6 +848,7 @@ async def _run_build(
                     branch=build.branch,
                     dockerfile_text=dockerfile_text,
                     project_path=build.project_path,
+                    git_auth_secret=git_auth_secret,
                 )
             elif build.build_mode == "auto":
                 job = manifests.nixpacks_buildkit_job(
@@ -796,6 +858,7 @@ async def _run_build(
                     repo_url=build.repo_url,
                     branch=build.branch,
                     project_path=build.project_path,
+                    git_auth_secret=git_auth_secret,
                 )
             else:
                 # dockerfile_path를 subdir + filename으로 분리 (BuildKit context를 subdir로 좁힘).
@@ -810,6 +873,7 @@ async def _run_build(
                     branch=build.branch,
                     dockerfile_subdir=dockerfile_subdir,
                     dockerfile_filename=dockerfile_filename,
+                    git_auth_secret=git_auth_secret,
                 )
 
             k8s.batch_v1().create_namespaced_job(
@@ -957,6 +1021,11 @@ async def _run_build(
                 db.commit()
             except Exception:
                 db.rollback()
+            # private repo 토큰 Secret 정리 (어떤 경로로 끝나든 — 토큰 자체도 1h 만료라 이중 안전).
+            try:
+                _cleanup_git_auth(build_id)
+            except ApiException:
+                pass
     except Exception:
         pass
     finally:
