@@ -11,6 +11,8 @@ data:
   DB_NAME: "kodeploy"
   ALLOWED_ORIGINS: "https://app.kodeploy.com,https://kodeploy.pages.dev,http://localhost:5173,http://127.0.0.1:5173"
   GITHUB_OAUTH_REDIRECT_URI: "https://api.kodeploy.com/auth/github/callback"
+  GITHUB_APP_ID: "3794809"                               # GitHub App 숫자 ID — installation token JWT 서명(iss)용. 공개값
+  GITHUB_APP_SLUG: "kodeploy"                             # App 슬러그(github.com/apps/kodeploy) — private repo 연결 설치 페이지 링크용
   WEB_BASE_URL: "https://app.kodeploy.com"
   # app.kodeploy.com ↔ api.kodeploy.com = same-site → Lax + Domain 공유
   SESSION_COOKIE_SECURE: "true"
