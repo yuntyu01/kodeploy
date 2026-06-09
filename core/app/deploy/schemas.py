@@ -8,9 +8,14 @@ from pydantic import BaseModel, HttpUrl
 
 # 서버 슬롯 런타임 — "none"이면 서버 없음 (정적 사이트 단독).
 # static은 별도 슬롯(use_static)으로 분리 — 런타임 선택지가 아님.
-ServerRuntime = Literal["python", "java", "none"]
+ServerRuntime = Literal["python", "java", "php", "none"]
 BuildMode = Literal["dockerfile", "auto"]                # "auto"는 nixpacks 자동 Dockerfile 생성
 DbType = Literal["none", "mysql", "postgres"]            # 한 앱에 한 DB만 — 동시 사용 X
+# 영속 저장소 — 런타임 무관 공통 옵션. 단일 셀렉터로 상호배타.
+#   none   = ephemeral만 (기본)
+#   local  = 앱당 PVC를 mount_path에 추가 마운트 (ephemeral은 그대로)
+#   object = R2 오브젝트 스토리지(앱당 버킷 + S3 자격증명 주입) — 기존 use_storage 경로
+StorageMode = Literal["none", "local", "object"]
 
 
 # POST /deploy 요청 입력 — 원하는 스택 전체를 선언 (서버 슬롯 + 정적 슬롯).
@@ -24,7 +29,11 @@ class DeployRequest(BaseModel):
     name: str | None = None                              # K8s 리소스 이름 + 서브도메인. None이면 서버가 app-<hex8> 자동 생성
     db_type: DbType = "none"                             # "none" | "mysql" | "postgres" (서버 슬롯 전용)
     use_redis: bool = False
-    use_storage: bool = False                            # R2 오브젝트 스토리지(앱당 버킷 + S3 자격증명 주입)
+    # 영속 저장소(런타임 무관) — 단일 셀렉터. object=R2 / local=PVC / none=ephemeral.
+    storage: StorageMode = "none"
+    volume_mount_path: str = ""                          # local 전용 — PVC 마운트 절대경로 (예: /var/www/html/data)
+    volume_storage_class: str = "local-path"             # local 전용 — 동적 프로비저너 이름
+    volume_size: str = "5Gi"                             # local 전용 — PVC 요청 용량
     build_mode: BuildMode = "dockerfile"                 # 서버 슬롯 — "dockerfile"=유저 Dockerfile / "auto"=nixpacks
     dockerfile_path: str = "Dockerfile"                  # dockerfile 모드일 때 — "Dockerfile.multi", "subdir/Dockerfile" 등
     project_path: str = ""                               # 서버 auto 모드 — 서브디렉토리 (예: "backend"). 빈 값=repo root
@@ -85,7 +94,11 @@ class StatusResponse(BaseModel):
     port: int = 80
     db_type: str = "none"                                # "none" | "mysql" | "postgres"
     use_redis: bool = False
-    use_storage: bool = False                            # R2 오브젝트 스토리지 토글
+    use_storage: bool = False                            # R2 오브젝트 스토리지 토글 (storage=="object"와 동치)
+    storage: str = "none"                                # "none" | "local" | "object" — 재배포 폼 prefill용 (use_storage/volume_mount_path에서 파생)
+    volume_mount_path: str = ""                          # local 전용 — 재배포 폼 prefill용
+    volume_storage_class: str = "local-path"             # local 전용 — 재배포 폼 prefill용
+    volume_size: str = "5Gi"                             # local 전용 — 재배포 폼 prefill용
     kind: str = "build"                                  # "build" | "env_change". 옛 row는 기본 "build".
     dockerfile_path: str = "Dockerfile"
     project_path: str = ""

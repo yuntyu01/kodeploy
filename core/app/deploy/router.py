@@ -41,6 +41,14 @@ def _to_status(build: Build) -> StatusResponse:
         db_type=build.db_type or "none",
         use_redis=build.use_redis or False,
         use_storage=build.use_storage or False,
+        # 영속저장소 모드 파생 — object(R2) 우선, 아니면 local(PVC) 있으면 local, 둘 다 없으면 none.
+        storage=(
+            "object" if build.use_storage
+            else ("local" if build.volume_mount_path else "none")
+        ),
+        volume_mount_path=build.volume_mount_path or "",
+        volume_storage_class=build.volume_storage_class or "local-path",
+        volume_size=build.volume_size or "5Gi",
         kind=build.kind or "build",
         dockerfile_path=build.dockerfile_path or "Dockerfile",
         project_path=build.project_path or "",
@@ -74,7 +82,10 @@ async def create_deploy(
             port=req.port,
             db_type=req.db_type,
             use_redis=req.use_redis,
-            use_storage=req.use_storage,
+            storage=req.storage,
+            volume_mount_path=req.volume_mount_path,
+            volume_storage_class=req.volume_storage_class,
+            volume_size=req.volume_size,
             build_mode=req.build_mode,
             dockerfile_path=req.dockerfile_path,
             project_path=req.project_path,
@@ -161,6 +172,9 @@ async def env_put(
         db_type=latest.db_type if latest else "none",
         use_redis=latest.use_redis if latest else False,
         use_storage=latest.use_storage if latest else False,
+        volume_mount_path=latest.volume_mount_path if latest else "",
+        volume_storage_class=latest.volume_storage_class if latest else "local-path",
+        volume_size=latest.volume_size if latest else "5Gi",
         kind="env_change",
         status="applied",
         analysis=", ".join(entries),  # "KEY (추가), KEY2 (수정), KEY3 (삭제)"

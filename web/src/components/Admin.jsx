@@ -504,11 +504,12 @@ function TenantDetail({ detail }) {
   // 선택 스택 → chips. db "none"/redis off/storage off는 표시 안 함.
   const chips = [];
   if (cfg) {
-    chips.push({ label: cfg.runtime === "java" ? "Java" : "Python", color: "#a4abee" });
+    chips.push({ label: { python: "Python", java: "Java", php: "PHP" }[cfg.runtime] || cfg.runtime, color: "#a4abee" });
     if (cfg.db_type && cfg.db_type !== "none")
       chips.push({ label: cfg.db_type === "mysql" ? "MySQL" : "PostgreSQL", color: "#7fb6db" });
     if (cfg.use_redis) chips.push({ label: "Redis", color: "#f87171" });
     if (cfg.use_storage) chips.push({ label: "스토리지 (R2)", color: "#d8a657" });
+    if (cfg.volume_mount_path) chips.push({ label: "스토리지 (로컬)", color: "#d8a657" });
     chips.push({
       label: cfg.build_mode === "auto" ? "auto (nixpacks)" : "Dockerfile",
       color: "#8a8f98",

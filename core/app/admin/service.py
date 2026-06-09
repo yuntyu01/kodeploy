@@ -321,6 +321,7 @@ def user_tenant_detail(db: Session, user_id: uuid.UUID) -> dict:
             "db_type": latest.db_type or "none",
             "use_redis": bool(latest.use_redis),
             "use_storage": bool(latest.use_storage),
+            "volume_mount_path": latest.volume_mount_path or "",  # 영속저장소 local — 마운트 경로(있으면 "스토리지(로컬)" 칩)
             "build_mode": latest.build_mode,
             "port": latest.port,
             "repo_url": latest.repo_url,

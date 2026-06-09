@@ -9,11 +9,14 @@ from app.deploy.runtimes import get_resources
 _RUNTIME_TEMPLATES = {
     "python": "runtimes/python.yaml.j2",
     "java": "runtimes/java.yaml.j2",
+    "php": "runtimes/php.yaml.j2",
     "static": "runtimes/static.yaml.j2",
 }
 
 
 # 사용자 앱 Deployment (런타임별 템플릿 + RUNTIME_RESOURCES 자동 주입)
+# volume_mount_path 있으면(영속저장소 "local") 런타임 템플릿이 pvc_name PVC를 그 경로에 마운트.
+# 빈 값이면 마운트 블록이 렌더 안 됨 (static은 템플릿에 블록 자체가 없어 무시).
 def deployment(
     runtime: str,
     app_name: str,
@@ -22,6 +25,8 @@ def deployment(
     image: str,
     port: int,
     replicas: int = 1,
+    volume_mount_path: str = "",
+    pvc_name: str = "",
 ) -> dict:
     template_name = _RUNTIME_TEMPLATES[runtime]          # 미지원 runtime → KeyError (스키마가 막아주니까)
     res = get_resources(runtime)
@@ -34,6 +39,8 @@ def deployment(
         port=port,
         replicas=replicas,
         ghcr_auth_secret=config.GHCR_AUTH_SECRET_NAME,
+        volume_mount_path=volume_mount_path,             # "" 이면 템플릿이 마운트 블록 skip
+        pvc_name=pvc_name,
         **res,                                           # req_cpu/lim_cpu/req_mem/lim_mem
     )
 

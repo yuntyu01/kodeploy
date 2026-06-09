@@ -488,6 +488,29 @@ def _validate_static_fields(build_cmd: str, output_dir: str) -> tuple[str, str]:
     return build_cmd, output_dir
 
 
+# 로컬 볼륨 입력 검증/정규화 — 영속저장소 "local" 모드.
+# mount_path는 절대경로 belt(보안 경계 아님 — 유저가 자기 이미지를 통제), storage_class는 DNS 라벨,
+# size는 K8s quantity 형식. 형식이 깨져 PVC가 admission 거부되는 정체불명 실패를 사전 차단.
+_VOLUME_MOUNT_PATTERN = re.compile(r"^/[A-Za-z0-9._/-]+$")
+_STORAGE_CLASS_PATTERN = re.compile(r"^[a-z0-9]([-a-z0-9.]*[a-z0-9])?$")
+_VOLUME_SIZE_PATTERN = re.compile(r"^[1-9][0-9]*(Mi|Gi|Ti)$")
+
+
+def _validate_volume_fields(
+    mount_path: str, storage_class: str, size: str,
+) -> tuple[str, str, str]:
+    mp = (mount_path or "").strip().rstrip("/")  # 뒤 슬래시 정리 (앞 슬래시는 절대경로라 보존)
+    if not mp or ".." in mp or not _VOLUME_MOUNT_PATTERN.match(mp):
+        raise ValueError("마운트 경로는 절대경로여야 합니다 (예: /var/www/html/data)")
+    sc = (storage_class or "local-path").strip()
+    if not _STORAGE_CLASS_PATTERN.match(sc):
+        raise ValueError("storage class 이름 형식이 올바르지 않습니다 (예: local-path)")
+    sz = (size or "5Gi").strip()
+    if not _VOLUME_SIZE_PATTERN.match(sz):
+        raise ValueError("볼륨 크기 형식이 올바르지 않습니다 (예: 5Gi, 512Mi)")
+    return mp, sc, sz
+
+
 # 배포 제출 — 원하는 스택(서버 슬롯 + 정적 슬롯)을 선언받아 슬롯별 빌드/teardown을 spawn.
 # user 객체로 받음 — _resolve_app_name이 user.app_name을 읽고/쓰기 위해.
 # 반환: 이 제출이 만든 Build row들 (슬롯당 최대 1개).
@@ -501,7 +524,10 @@ async def start_deploy(
     port: int = 80,
     db_type: str = "none",
     use_redis: bool = False,
-    use_storage: bool = False,
+    storage: str = "none",                 # 영속저장소 — "none" | "local" | "object"
+    volume_mount_path: str = "",           # local 전용 — PVC 마운트 경로
+    volume_storage_class: str = "local-path",
+    volume_size: str = "5Gi",
     build_mode: str = "dockerfile",
     dockerfile_path: str = "Dockerfile",
     project_path: str = "",
@@ -518,11 +544,20 @@ async def start_deploy(
     has_server = runtime != "none"
     if not has_server and not use_static:
         raise ValueError("서버 런타임이나 정적 사이트 중 하나는 선택해야 합니다")
-    if not has_server and (db_type != "none" or use_redis or use_storage):
-        raise ValueError("DB · Redis · 스토리지는 서버 런타임과 함께만 쓸 수 있습니다")
-    # storage 토글은 R2 설정이 갖춰졌을 때만 — 빌드 시작 전에 친절히 거절.
+    # 영속저장소 셀렉터 → 내부 표현. object=R2(use_storage) / local=PVC(volume_mount_path 비어있지 않음).
+    # 한 앱에 둘 다는 없음 — 단일 셀렉터라 상호배타 (DB 한 개 정책과 동일 철학).
+    use_storage = storage == "object"
+    use_volume = storage == "local"
+    if not has_server and (db_type != "none" or use_redis or storage != "none"):
+        raise ValueError("DB · Redis · 저장소는 서버 런타임과 함께만 쓸 수 있습니다")
+    # object(R2)는 CF 설정이 갖춰졌을 때만 — 빌드 시작 전에 친절히 거절.
     if use_storage and not r2.is_configured():
         raise ValueError("오브젝트 스토리지(R2)가 서버에 설정되지 않았습니다")
+    # local(PVC) 입력 검증 — 정규화한 값으로 교체 (mount_path 절대경로 / class·size 형식).
+    if use_volume:
+        volume_mount_path, volume_storage_class, volume_size = _validate_volume_fields(
+            volume_mount_path, volume_storage_class, volume_size
+        )
     if use_static:
         build_cmd, output_dir = _validate_static_fields(build_cmd, output_dir)
         static_env = _validate_static_env(static_env or {})
@@ -554,6 +589,9 @@ async def start_deploy(
             db_type=db_type,
             use_redis=use_redis,
             use_storage=use_storage,
+            volume_mount_path=volume_mount_path if use_volume else "",  # local 아니면 "" = 볼륨 비활성
+            volume_storage_class=volume_storage_class,
+            volume_size=volume_size,
             build_mode=build_mode,
             dockerfile_path=dockerfile_path,
             project_path=project_path.strip("/"),  # 앞뒤 슬래시 정리 — manifest에서 ${PROJECT_PATH:+/$PROJECT_PATH}로 결합
@@ -853,6 +891,7 @@ async def _run_build(
                 _apply_db(build, build.db_type or "none")
                 _apply_redis(build)
                 _apply_storage(build)
+                _apply_volume(build)  # 영속저장소 local — PVC 생성(있을 때). Deployment apply 전에 (마운트 대상 보장)
 
                 # 초기 데이터 자동 복원 — 폼에서 .sql(.gz) 첨부 + DB(mysql/postgres) 선택 시.
                 # 앱이 채워진 DB 위에서 시작하도록 Deployment apply 전에 DB Ready 대기 후 복원.
@@ -1297,6 +1336,36 @@ def _apply_storage(build: Build) -> None:
         r2.deprovision(old_token_id, bucket=None)
 
 
+# 로컬 볼륨 PVC 이름 — 앱당 1개 (1유저=1앱). Deployment 볼륨 마운트가 이 이름을 참조.
+def _volume_pvc_name(app_name: str) -> str:
+    return f"{app_name}-data"
+
+
+# 로컬 영속 볼륨(PVC) 보장 — 영속저장소 "local" 모드. mysql/redis/storage와 같은 위치의 토글 함수.
+# 활성(volume_mount_path 있음)이면 PVC 생성(idempotent, 409 skip). 비활성이면 아무것도 안 함 —
+# PVC는 보존하고 Deployment 재렌더가 마운트를 떼낸다 (mysql PVC 보존과 동일 철학).
+# 삭제는 ns 삭제(delete_app)에 위임 — R2처럼 외부 리소스가 아니라 ns cascade로 정리됨.
+def _apply_volume(build: Build) -> None:
+    if build.user_id is None or not build.volume_mount_path:
+        return
+    docs = manifests.volume(
+        tenant_id=build.tenant_id,
+        user_id=build.user_id_str,
+        app_name=build.app_name,
+        storage_class=build.volume_storage_class or "local-path",
+        size=build.volume_size or "5Gi",
+    )
+    core = k8s.core_v1()
+    for doc in docs:  # PVC 1개
+        try:
+            core.create_namespaced_persistent_volume_claim(
+                namespace=build.tenant_id, body=doc
+            )
+        except ApiException as e:
+            if e.status != 409:  # 이미 존재 — 데이터 보존 (mysql StatefulSet 409 skip과 동일)
+                raise
+
+
 # hostnames: 이 슬롯 route에 걸 호스트 목록 (_slot_hostnames로 계산해 전달).
 def _apply_deployment(build: Build, hostnames: list[str]) -> None:
     apps = k8s.apps_v1()
@@ -1310,6 +1379,8 @@ def _apply_deployment(build: Build, hostnames: list[str]) -> None:
         user_id=build.user_id_str,
         image=build.image,
         port=build.port,
+        volume_mount_path=build.volume_mount_path or "",  # 영속저장소 local — 있으면 PVC 마운트 블록 렌더
+        pvc_name=_volume_pvc_name(build.app_name),
     )
     svc = manifests.service(
         app_name=build.app_name,
@@ -1328,7 +1399,18 @@ def _apply_deployment(build: Build, hostnames: list[str]) -> None:
         containers = existing.spec.template.spec.containers or []
         existing_ports = containers[0].ports if containers else None
         existing_port = existing_ports[0].container_port if existing_ports else None
-        if existing_runtime != build.runtime or existing_port != build.port:
+        # 로컬 볼륨 마운트 드리프트 감지 — 토글 on/off·mount_path 변경은 image-only patch로 반영
+        # 안 됨(strategic patch는 volume을 추가만 하고 제거를 못 함). 다르면 통째 replace로 정합.
+        existing_mount = next(
+            (vm.mount_path for vm in (containers[0].volume_mounts or []) if vm.name == "data"),
+            None,
+        ) if containers else None
+        desired_mount = build.volume_mount_path or None
+        if (
+            existing_runtime != build.runtime
+            or existing_port != build.port
+            or existing_mount != desired_mount
+        ):
             # replace(PUT)는 optimistic concurrency용 resourceVersion 필수
             deploy["metadata"]["resourceVersion"] = existing.metadata.resource_version
             apps.replace_namespaced_deployment(

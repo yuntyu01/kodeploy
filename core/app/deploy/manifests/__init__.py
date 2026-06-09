@@ -18,7 +18,7 @@ from app.deploy.manifests.build import (
     static_buildkit_job,
     static_dockerfile,
 )
-from app.deploy.manifests.dependencies import mysql, postgres, redis, storage
+from app.deploy.manifests.dependencies import mysql, postgres, redis, storage, volume
 from app.deploy.manifests.tenant import tenant
 
 __all__ = [
@@ -35,4 +35,5 @@ __all__ = [
     "static_dockerfile",
     "storage",
     "tenant",
+    "volume",
 ]

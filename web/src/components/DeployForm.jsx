@@ -10,6 +10,7 @@ const SERVER_CHOICES = [...RUNTIMES, "none"];
 const RUNTIME_META = {
   python: { name: "Python", tag: "FastAPI · uvicorn" },
   java: { name: "Java", tag: "Spring Boot · JDK 17+" },
+  php: { name: "PHP", tag: "Apache · PHP 8" },
   none: { name: "사용 안 함", tag: "정적 사이트 단독" },
 };
 
@@ -17,6 +18,7 @@ const RUNTIME_META = {
 const DEFAULT_PORTS = {
   python: 8000,
   java: 8080,
+  php: 8080,
 };
 
 export default function DeployForm({ onRequestGuide }) {
@@ -42,7 +44,9 @@ export default function DeployForm({ onRequestGuide }) {
   const [staticEnvRows, setStaticEnvRows] = useState([{ key: "", value: "" }]);
   const [dbType, setDbType] = useState("none");
   const [useRedis, setUseRedis] = useState(false);
-  const [useStorage, setUseStorage] = useState(false);
+  // 영속저장소(런타임 무관) — 단일 셀렉터. "none"=ephemeral / "local"=PVC / "object"=R2.
+  const [storage, setStorage] = useState("none");
+  const [volumeMountPath, setVolumeMountPath] = useState("/var/www/html/data");  // local 전용 — 그누보드 기본값
   const [runtime, setRuntime] = useState(RUNTIMES[0]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState(null);
@@ -87,7 +91,8 @@ export default function DeployForm({ onRequestGuide }) {
           );
           setDbType(serverLatest.db_type || "none");
           setUseRedis(serverLatest.use_redis || false);
-          setUseStorage(serverLatest.use_storage || false);
+          setStorage(serverLatest.storage || "none");
+          if (serverLatest.volume_mount_path) setVolumeMountPath(serverLatest.volume_mount_path);
           setBuildMode(
             ["dockerfile", "auto"].includes(serverLatest.build_mode)
               ? serverLatest.build_mode
@@ -269,7 +274,8 @@ export default function DeployForm({ onRequestGuide }) {
         runtime,                                   // "python" | "java" | "none"
         dbType: effectiveDbType,
         useRedis: serverNone ? false : useRedis,
-        useStorage: serverNone ? false : useStorage,
+        storage: serverNone ? "none" : storage,
+        volumeMountPath: !serverNone && storage === "local" ? volumeMountPath.trim() : "",
         buildMode: serverNone ? "auto" : buildMode, // 서버 없으면 미사용 — 스키마 통과용 placeholder
         dockerfilePath:
           !serverNone && buildMode === "dockerfile" ? dockerfilePath.trim() || "Dockerfile" : "Dockerfile",
@@ -702,25 +708,26 @@ export default function DeployForm({ onRequestGuide }) {
               </div>
             </div>
 
-            {/* 오브젝트 스토리지 — R2 앱당 버킷. 켜면 S3 호환 자격증명이 앱에 자동 주입됨. */}
+            {/* 영속 저장소 — 런타임 무관 공통 옵션. none=ephemeral / local=PVC(mount_path) / object=R2. */}
             <div>
               <div
                 className="text-[10.5px] tracking-[0.08em] text-fg-3 mb-2.5"
                 style={{ fontWeight: 590 }}
               >
-                오브젝트 스토리지
+                영속 저장소
               </div>
               <div className="flex gap-1.5">
                 {[
-                  { id: false, name: "사용 안 함" },
-                  { id: true, name: "R2 (S3 호환)" },
+                  { id: "none", name: "사용 안 함" },
+                  { id: "local", name: "로컬 (PVC)" },
+                  { id: "object", name: "오브젝트 (R2)" },
                 ].map((s) => {
-                  const active = useStorage === s.id;
+                  const active = storage === s.id;
                   return (
                     <button
-                      key={String(s.id)}
+                      key={s.id}
                       type="button"
-                      onClick={() => setUseStorage(s.id)}
+                      onClick={() => setStorage(s.id)}
                       className="flex-1 h-10 rounded-lg text-[13px] transition-colors flex items-center justify-center"
                       style={{
                         background: active ? "rgba(129,139,224,0.12)" : "rgba(255,255,255,0.03)",
@@ -735,6 +742,29 @@ export default function DeployForm({ onRequestGuide }) {
                   );
                 })}
               </div>
+              {storage === "local" && (
+                <div className="mt-2">
+                  <input
+                    value={volumeMountPath}
+                    onChange={(e) => setVolumeMountPath(e.target.value)}
+                    placeholder="/var/www/html/data"
+                    spellCheck={false}
+                    autoCapitalize="off"
+                    className="w-full px-2.5 py-1.5 rounded-md bg-transparent outline-none text-[12.5px] text-fg-1 placeholder:text-fg-4"
+                    style={{ border: "1px solid rgba(255,255,255,0.09)", fontWeight: 510 }}
+                    disabled={submitting}
+                  />
+                  <p className="text-[11px] text-fg-4 mt-1.5" style={{ lineHeight: 1.5 }}>
+                    이 <span className="text-fg-3">절대경로</span>에 영속 디스크(PVC)가 마운트돼요. 재시작·재배포에도 이 경로의
+                    데이터는 유지됩니다(예: 그누보드 <span className="text-fg-3">/var/www/html/data</span>).
+                  </p>
+                </div>
+              )}
+              {storage === "object" && (
+                <p className="text-[11px] text-fg-4 mt-2" style={{ lineHeight: 1.5 }}>
+                  앱당 R2 버킷이 생성되고 <span className="text-fg-3">S3 호환 자격증명</span>이 앱에 자동 주입돼요(이미지 등 오브젝트 저장).
+                </p>
+              )}
             </div>
             </>
             )}

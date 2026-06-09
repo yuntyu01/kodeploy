@@ -1,0 +1,22 @@
+# 로컬 영속 볼륨 — 앱 컨테이너의 mount_path에 붙는 단일 PVC (런타임 무관 공통 옵션 "local").
+# mysql처럼 워크로드가 아니라 PVC 1개뿐. service.py가 Deployment apply 전에 생성하고,
+# 런타임 템플릿(python/java/php)이 volume_mount_path 있으면 이 PVC를 마운트한다.
+# 토글 off / 재배포에도 보존 (mysql PVC 보존과 동일 정책) — 삭제는 ns 삭제(앱 완전 삭제)에 위임.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ app_name }}-data                               # 앱당 1개 (1유저=1앱). Pod 볼륨 이름은 "data"
+  namespace: {{ tenant_id }}                              # 테넌트 ns가 격리 단위
+  labels:
+    app: {{ app_name }}
+    component: volume
+    tenant: {{ tenant_id }}                               # 테넌트 라벨 (kubectl ... -l tenant=xxx 일괄 조회용)
+    user: "{{ user_id }}"                                 # 유저 라벨
+    managed-by: kodeploy
+spec:
+  accessModes:
+    - ReadWriteOnce                                       # 한 노드에서만 read/write. Deployment strategy=Recreate라 동시 마운트 없음
+  storageClassName: {{ storage_class | default("local-path") }}  # 동적 프로비저너 (Rancher local-path 기본, WaitForFirstConsumer)
+  resources:
+    requests:
+      storage: {{ size | default("5Gi") }}

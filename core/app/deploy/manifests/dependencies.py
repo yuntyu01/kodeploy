@@ -66,3 +66,23 @@ def storage(
         env=env,
         token_id=token_id,
     )
+
+
+# 로컬 영속 볼륨 PVC — 영속저장소 "local" 모드. mysql처럼 워크로드가 아니라 PVC 1개뿐.
+# Deployment(python/java/php 템플릿)가 volume_mount_path에 마운트한다. storage_class/size는
+# 런타임 무관 — 호출 측(service)이 Build의 volume_* 필드로 넘긴다 (mysql res 주입과 같은 위치).
+def volume(
+    tenant_id: str,
+    user_id: str,
+    app_name: str,
+    storage_class: str = "local-path",
+    size: str = "5Gi",
+) -> list[dict]:
+    return render_all(
+        "dependencies/pvc.yaml.j2",
+        tenant_id=tenant_id,
+        user_id=user_id,
+        app_name=app_name,
+        storage_class=storage_class,
+        size=size,
+    )

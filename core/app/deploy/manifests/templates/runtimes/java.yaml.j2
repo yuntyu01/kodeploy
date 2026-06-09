@@ -81,5 +81,16 @@ spec:
               port: {{ port | default(8080) }}
             periodSeconds: 5
             failureThreshold: 3                          # 연속 N회 실패 시 endpoint 제외 (15초)
+{% if volume_mount_path %}
+          volumeMounts:                                  # 영속저장소 "local" — 앱당 PVC를 mount_path에 추가 마운트 (ephemeral은 그대로)
+            - name: data
+              mountPath: {{ volume_mount_path }}
+{% endif %}
       imagePullSecrets:
         - name: {{ ghcr_auth_secret }}                   # private GHCR 이미지 pull용
+{% if volume_mount_path %}
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ pvc_name }}                     # {app}-data — 토글 off/재배포에도 보존, 삭제는 ns 삭제에 위임
+{% endif %}

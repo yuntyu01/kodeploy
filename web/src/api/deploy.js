@@ -22,7 +22,7 @@ async function request(path, options = {}) {
 
 // 서버 슬롯 런타임 (백엔드 schemas.ServerRuntime의 "none" 제외분과 sync).
 // 정적 사이트는 런타임이 아니라 별도 슬롯(use_static 토글).
-export const RUNTIMES = ["python", "java"];
+export const RUNTIMES = ["python", "java", "php"];
 // 백엔드 schemas.BuildMode와 sync ("dockerfile"=유저 Dockerfile / "auto"=nixpacks 자동)
 export const BUILD_MODES = ["dockerfile", "auto"];
 // 백엔드 schemas.DbType과 sync — 한 앱에 한 DB만
@@ -36,7 +36,10 @@ export function createDeploy({
   name,
   dbType = "none",
   useRedis = false,
-  useStorage = false,
+  storage = "none",                             // 영속저장소 — "none" | "local" | "object"
+  volumeMountPath = "",                         // local 전용 — PVC 마운트 경로
+  volumeStorageClass = "local-path",
+  volumeSize = "5Gi",
   buildMode = "dockerfile",
   dockerfilePath = "Dockerfile",
   projectPath = "",
@@ -60,7 +63,11 @@ export function createDeploy({
       name: name?.trim() || null,
       db_type: dbType,
       use_redis: useRedis,
-      use_storage: useStorage,                    // R2 오브젝트 스토리지(앱당 버킷) 토글
+      // 영속저장소(런타임 무관) — 단일 셀렉터. object=R2 / local=PVC / none=ephemeral.
+      storage,
+      volume_mount_path: volumeMountPath || "",   // local 전용 — 마운트 절대경로 (예: /var/www/html/data)
+      volume_storage_class: volumeStorageClass || "local-path",
+      volume_size: volumeSize || "5Gi",
       build_mode: buildMode,
       dockerfile_path: dockerfilePath || "Dockerfile",
       project_path: projectPath || "",            // 서버 auto 모드 — 서브디렉토리. 빈 값=repo root
