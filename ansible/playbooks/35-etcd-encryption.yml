@@ -1,0 +1,168 @@
+---
+# etcd 저장 시 Secret 암호화 (encryption at rest).
+# 기본 kubeadm은 Secret을 etcd에 base64로만 저장 → etcd 스냅샷·마스터 디스크 유출 시 평문 노출.
+# (테넌트 DB 비번·R2/CF 토큰·OAuth·TLS키·GitHub App private key 전부 해당)
+# secretbox provider로 apiserver가 쓰기 시 암호화하게 하고, 기존 Secret을 재암호화한다.
+#
+# ⚠️ kube-apiserver 정적 매니페스트를 수정 → apiserver가 잠깐 재시작됨(단일 마스터=짧은 컨트롤플레인 blip).
+#    매니페스트가 깨지면 apiserver가 안 뜨므로: 원본 백업 → 편집 → healthz 검증 → 실패 시 백업 자동 복원(rescue).
+#    마스터 콘솔(OCI 시리얼/SSH) 접근 가능한 상태에서 실행 권장.
+#
+# 멱등: 암호화 키는 최초 1회만 생성(재실행 시 기존 키 보존 — 안 그러면 기존 암호문 복호화 불가).
+- name: Enable etcd encryption at rest (Secrets, secretbox)
+  hosts: master
+  become: true
+  vars:
+    enc_dir: /etc/kubernetes/enc
+    enc_file: /etc/kubernetes/enc/enc.yaml
+    apiserver_manifest: /etc/kubernetes/manifests/kube-apiserver.yaml
+    # ⚠️ 백업은 반드시 정적 파드 경로(/etc/kubernetes/manifests) '밖'에 — kubelet이 그 디렉토리의
+    #    모든 파일을 매니페스트로 읽어, .bak가 안에 있으면 인자 없는 중복 apiserver를 띄운다.
+    apiserver_backup: /etc/kubernetes/kube-apiserver.yaml.pre-encryption.bak
+    kubeconfig: /etc/kubernetes/admin.conf
+
+  tasks:
+    - name: enc 디렉토리 생성 (root 전용 0700)
+      file:
+        path: "{{ enc_dir }}"
+        state: directory
+        owner: root
+        group: root
+        mode: '0700'
+
+    - name: 기존 EncryptionConfiguration 존재 확인
+      stat:
+        path: "{{ enc_file }}"
+      register: enc_stat
+
+    # 32바이트 랜덤 키 — 최초 1회만. 재실행 시 enc.yaml이 이미 있으면 건너뛰어 키 보존.
+    - name: 암호화 키 생성 (secretbox, 32 bytes base64)
+      shell: head -c 32 /dev/urandom | base64
+      register: enc_key
+      changed_when: true
+      when: not enc_stat.stat.exists
+
+    - name: EncryptionConfiguration 작성 (secretbox + identity fallback)
+      copy:
+        dest: "{{ enc_file }}"
+        owner: root
+        group: root
+        mode: '0600'
+        # 첫 provider가 쓰기(암호화)에 사용됨. identity를 뒤에 둬서 아직 평문인 기존 Secret도 읽히게.
+        content: |
+          apiVersion: apiserver.config.k8s.io/v1
+          kind: EncryptionConfiguration
+          resources:
+            - resources:
+                - secrets
+              providers:
+                - secretbox:
+                    keys:
+                      - name: key1
+                        secret: {{ enc_key.stdout }}
+                - identity: {}
+      when: not enc_stat.stat.exists
+
+    # --- apiserver 매니페스트 수정 (위험구간: 실패 시 rescue가 원본 복원) ---
+    - name: Patch kube-apiserver and verify
+      block:
+        - name: 매니페스트 원본 백업 (정적 파드 경로 밖, 최초 1회만 — 재실행 시 원본 유지)
+          copy:
+            src: "{{ apiserver_manifest }}"
+            dest: "{{ apiserver_backup }}"
+            remote_src: true
+            force: false
+
+        - name: '--encryption-provider-config 인자 추가 (멱등)'
+          lineinfile:
+            path: "{{ apiserver_manifest }}"
+            insertafter: '--etcd-servers='          # 항상 존재하는 안정적 앵커 (인자 블록 안)
+            line: '    - --encryption-provider-config={{ enc_file }}'
+            state: present
+          register: arg_patch
+
+        - name: enc volumeMount 추가 (멱등)
+          blockinfile:
+            path: "{{ apiserver_manifest }}"
+            marker: "    # {mark} kodeploy-enc-volumemount"
+            insertafter: 'volumeMounts:'
+            block: "    - mountPath: {{ enc_dir }}\n      name: enc\n      readOnly: true"
+          register: vm_patch
+
+        - name: enc volume 추가 (멱등)
+          blockinfile:
+            path: "{{ apiserver_manifest }}"
+            marker: "  # {mark} kodeploy-enc-volume"
+            insertafter: '^  volumes:'
+            block: "  - hostPath:\n      path: {{ enc_dir }}\n      type: DirectoryOrCreate\n    name: enc"
+          register: vol_patch
+
+        # 매니페스트 변경을 확실히 반영 — kubelet 재시작으로 정적 파드 강제 재read.
+        # (자연 파일워치만 의존하면 반영이 누락될 수 있어 결정적으로 재기동.)
+        - name: kubelet 재시작 (정적 파드 매니페스트 강제 재read)
+          systemd:
+            name: kubelet
+            state: restarted
+
+        # 재기동 후 healthz가 ok 될 때까지 폴링 (재시작 중 connection refused는 재시도로 흡수)
+        - name: apiserver healthz 대기 (최대 ~2.5분)
+          command: kubectl --kubeconfig {{ kubeconfig }} get --raw=/healthz
+          register: healthz
+          until: healthz.rc == 0 and healthz.stdout == "ok"
+          retries: 30
+          delay: 5
+          changed_when: false
+
+        # 진짜 검증: 실행 중 apiserver 프로세스에 암호화 플래그가 '실제로' 붙었는지 (/proc).
+        # healthz만으론 옛 스펙 apiserver도 통과하므로, 여기서 플래그 live를 확정한 뒤에야 재암호화로 넘어간다.
+        - name: apiserver에 encryption 플래그가 live인지 확인
+          shell: tr '\0' '\n' < /proc/$(pgrep -x kube-apiserver | head -1)/cmdline | grep -q encryption-provider-config
+          register: flag_live
+          until: flag_live.rc == 0
+          retries: 24
+          delay: 5
+          changed_when: false
+
+      rescue:
+        - name: '⚠️ apiserver 검증 실패 — 매니페스트 원본 복원'
+          copy:
+            src: "{{ apiserver_backup }}"
+            dest: "{{ apiserver_manifest }}"
+            remote_src: true
+
+        - name: 복원 후 kubelet 재시작 (원본 매니페스트 재read)
+          systemd:
+            name: kubelet
+            state: restarted
+
+        - name: 복원 후 healthz 재확인
+          command: kubectl --kubeconfig {{ kubeconfig }} get --raw=/healthz
+          register: healthz_restored
+          until: healthz_restored.rc == 0 and healthz_restored.stdout == "ok"
+          retries: 30
+          delay: 5
+          changed_when: false
+
+        - name: 실패로 중단 (암호화 미적용, 클러스터는 원복됨)
+          fail:
+            msg: >-
+              kube-apiserver가 암호화 설정으로 기동되지 않아 매니페스트를 원본({{ apiserver_manifest }}.pre-encryption.bak)으로
+              복원했습니다. 클러스터는 정상(암호화 미적용)입니다. 매니페스트 인자/볼륨 들여쓰기를 확인 후 재시도하세요.
+
+    # --- 여기부터는 apiserver가 암호화 설정으로 정상 기동된 경우만 ---
+    # 기존(평문) Secret을 전부 다시 써서 secretbox로 재암호화. 멱등(재실행 무해).
+    - name: 기존 Secret 재암호화 (get → replace)
+      shell: |
+        set -o pipefail
+        kubectl --kubeconfig {{ kubeconfig }} get secrets --all-namespaces -o json \
+          | kubectl --kubeconfig {{ kubeconfig }} replace -f -
+      args:
+        executable: /bin/bash
+      changed_when: true
+
+    - name: 완료 안내
+      debug:
+        msg:
+          - "etcd 암호화 활성화 완료 (secretbox). 신규·기존 Secret 모두 암호화됨."
+          - "검증: etcdctl로 raw 값을 읽으면 'k8s:enc:secretbox:v1:key1:' 프리픽스가 보여야 정상."
+          - "⚠️ 암호화 키({{ enc_file }})를 etcd 스냅샷과 '별도'로 안전 백업하세요 — 잃으면 암호화된 etcd 복구 불가."

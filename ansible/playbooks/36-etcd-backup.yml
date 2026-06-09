@@ -1,0 +1,150 @@
+---
+# etcd 스냅샷 백업 — 단일 마스터(stacked etcd)는 SPOF라 백업 없으면 마스터 장애 = 전체 상태 소실.
+# etcdctl로 주기 snapshot save → 로컬 보관(회전) + (선택) 오프사이트 업로드. systemd timer로 매일 실행.
+#
+# ⚠️ 스냅샷은 클러스터 전체 상태(모든 Secret 포함)를 담음 → 접근 통제된 저장소에만 보관(로컬 0700).
+#    35-etcd-encryption을 먼저 적용했다면 스냅샷 안 Secret도 암호화 상태(복원 시 enc 키 필요).
+- name: Schedule etcd snapshot backups
+  hosts: master
+  become: true
+  vars:
+    etcd_version: v3.5.16                 # etcdctl 핀. snapshot save는 3.5/3.6 서버 모두 호환. 클러스터 etcd 이미지 태그에 맞춰 bump 가능.
+    backup_dir: /var/backups/etcd
+    keep_snapshots: 7
+    # 오프사이트(선택): rclone remote(예: "r2:kodeploy-etcd-backups"). 비우면 로컬 보관만 (오프사이트는 마스터에 rclone+remote 설정 필요).
+    etcd_backup_rclone_remote: ""
+    arch_map:
+      x86_64: amd64
+      aarch64: arm64
+
+  tasks:
+    - name: 백업 디렉토리 생성 (root 전용 0700 — 스냅샷에 전체 Secret 포함)
+      file:
+        path: "{{ backup_dir }}"
+        state: directory
+        owner: root
+        group: root
+        mode: '0700'
+
+    - name: etcdctl 설치 여부 확인
+      stat:
+        path: /usr/local/bin/etcdctl
+      register: etcdctl_stat
+
+    - name: etcdctl 다운로드 + 설치 (핀 버전, arch 자동 — OCI ARM/x86 양쪽)
+      when: not etcdctl_stat.stat.exists
+      block:
+        - name: etcd 릴리스 tarball 다운로드
+          get_url:
+            url: "https://github.com/etcd-io/etcd/releases/download/{{ etcd_version }}/etcd-{{ etcd_version }}-linux-{{ arch_map[ansible_architecture] }}.tar.gz"
+            dest: "/tmp/etcd-{{ etcd_version }}.tar.gz"
+            mode: '0644'
+
+        - name: etcdctl 바이너리만 추출
+          unarchive:
+            src: "/tmp/etcd-{{ etcd_version }}.tar.gz"
+            dest: /usr/local/bin
+            remote_src: true
+            extra_opts:
+              - "--strip-components=1"
+              - "--wildcards"
+              - "*/etcdctl"
+
+        - name: etcdctl 실행권한 보장
+          file:
+            path: /usr/local/bin/etcdctl
+            mode: '0755'
+
+    - name: 스냅샷 스크립트 설치
+      copy:
+        dest: /usr/local/bin/etcd-snapshot.sh
+        owner: root
+        group: root
+        mode: '0750'
+        content: |
+          #!/bin/bash
+          # etcd 스냅샷 1회 + 무결성 확인 + 회전 (+ 선택 오프사이트). systemd timer가 호출.
+          set -euo pipefail
+          BACKUP_DIR={{ backup_dir }}
+          KEEP={{ keep_snapshots }}
+          TS=$(date +%Y%m%d-%H%M%S)
+          SNAP="$BACKUP_DIR/etcd-snapshot-$TS.db"
+
+          export ETCDCTL_API=3
+          /usr/local/bin/etcdctl snapshot save "$SNAP" \
+            --endpoints=https://127.0.0.1:2379 \
+            --cacert=/etc/kubernetes/pki/etcd/ca.crt \
+            --cert=/etc/kubernetes/pki/etcd/server.crt \
+            --key=/etc/kubernetes/pki/etcd/server.key
+
+          # 무결성(해시/리비전) 확인 — 깨진 스냅샷 조기 발견
+          /usr/local/bin/etcdctl --write-out=table snapshot status "$SNAP"
+
+          # 회전: 최신 KEEP개만 남기고 삭제
+          ls -1t "$BACKUP_DIR"/etcd-snapshot-*.db | tail -n +$((KEEP + 1)) | xargs -r rm -f
+
+          # 오프사이트(선택): rclone remote 설정 시 업로드 (스냅샷은 민감 — 통제된 원격에만)
+          if [ -n "${ETCD_BACKUP_RCLONE_REMOTE:-}" ]; then
+            if command -v rclone >/dev/null 2>&1; then
+              rclone copy "$SNAP" "$ETCD_BACKUP_RCLONE_REMOTE/" || echo "offsite 업로드 실패 (로컬 스냅샷은 유지)"
+            else
+              echo "rclone 미설치 — 오프사이트 건너뜀"
+            fi
+          fi
+          echo "snapshot ok: $SNAP"
+
+    - name: 오프사이트 설정 env 파일 (systemd service가 읽음)
+      copy:
+        dest: /etc/etcd-backup.env
+        owner: root
+        group: root
+        mode: '0600'
+        content: |
+          ETCD_BACKUP_RCLONE_REMOTE={{ etcd_backup_rclone_remote }}
+
+    - name: systemd service (oneshot)
+      copy:
+        dest: /etc/systemd/system/etcd-snapshot.service
+        mode: '0644'
+        content: |
+          [Unit]
+          Description=etcd snapshot backup (kodeploy)
+          After=network-online.target
+          Wants=network-online.target
+
+          [Service]
+          Type=oneshot
+          EnvironmentFile=-/etc/etcd-backup.env
+          ExecStart=/usr/local/bin/etcd-snapshot.sh
+
+    - name: systemd timer (매일, 부팅 후 누락분 보충 + 분산)
+      copy:
+        dest: /etc/systemd/system/etcd-snapshot.timer
+        mode: '0644'
+        content: |
+          [Unit]
+          Description=Run etcd snapshot daily (kodeploy)
+
+          [Timer]
+          OnCalendar=daily
+          Persistent=true
+          RandomizedDelaySec=300
+
+          [Install]
+          WantedBy=timers.target
+
+    - name: timer 활성화 + 시작
+      systemd:
+        name: etcd-snapshot.timer
+        enabled: true
+        state: started
+        daemon_reload: true
+
+    - name: 초기 스냅샷 1회 실행 (동작 검증 + 즉시 백업 확보)
+      command: /usr/local/bin/etcd-snapshot.sh
+      register: first_snap
+      changed_when: true
+
+    - name: 결과 출력
+      debug:
+        var: first_snap.stdout_lines
