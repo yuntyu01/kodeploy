@@ -608,37 +608,63 @@ export default function DeployForm({ onRequestGuide }) {
         </div>
       </div>
 
-      {/* 서버 슬롯 — python/java/사용 안 함(정적 단독) */}
+      {/* 백엔드 섹션 — 사용 안 함 / 사용하기 토글. 사용하기면 런타임 3지선다(none 제외). */}
       <div className="mb-5">
-        <div
-          className="text-[10.5px] tracking-[0.08em] text-fg-3 mb-2.5"
-          style={{ fontWeight: 590 }}
-        >
-          서버 런타임
+        <div className="flex items-center justify-between mb-2.5">
+          <div className="text-[12px] text-fg-2" style={{ fontWeight: 590 }}>
+            백엔드
+          </div>
+          <div className="flex gap-1.5">
+            {[
+              { on: false, name: "사용 안 함" },
+              { on: true, name: "사용하기" },
+            ].map((opt) => {
+              const active = !serverNone === opt.on;
+              return (
+                <button
+                  key={String(opt.on)}
+                  type="button"
+                  onClick={() => setRuntime(opt.on ? RUNTIMES[0] : "none")}
+                  className="h-7 px-3 rounded-md text-[11px] transition-colors"
+                  style={{
+                    background: active ? "rgba(129,139,224,0.12)" : "rgba(255,255,255,0.03)",
+                    border: `1px solid ${active ? "rgba(129,139,224,0.25)" : "rgba(255,255,255,0.06)"}`,
+                    color: active ? "#818be0" : "#8a8f98",
+                    fontWeight: 510,
+                  }}
+                  disabled={submitting}
+                >
+                  {opt.name}
+                </button>
+              );
+            })}
+          </div>
         </div>
-        <div className="flex gap-1.5">
-          {SERVER_CHOICES.map((r) => {
-            const meta = RUNTIME_META[r] || { name: r, tag: "" };
-            const active = runtime === r;
-            return (
-              <button
-                key={r}
-                type="button"
-                onClick={() => setRuntime(r)}
-                className="flex-1 h-10 rounded-lg text-[13px] transition-colors flex items-center justify-center"
-                style={{
-                  background: active ? "rgba(129,139,224,0.12)" : "rgba(255,255,255,0.03)",
-                  border: `1px solid ${active ? "rgba(129,139,224,0.25)" : "rgba(255,255,255,0.06)"}`,
-                  color: active ? "#818be0" : "#8a8f98",
-                  fontWeight: 510,
-                }}
-                disabled={submitting}
-              >
-                {meta.name}
-              </button>
-            );
-          })}
-        </div>
+        {!serverNone && (
+          <div className="flex gap-1.5">
+            {RUNTIMES.map((r) => {
+              const meta = RUNTIME_META[r] || { name: r, tag: "" };
+              const active = runtime === r;
+              return (
+                <button
+                  key={r}
+                  type="button"
+                  onClick={() => setRuntime(r)}
+                  className="flex-1 h-10 rounded-lg text-[13px] transition-colors flex items-center justify-center"
+                  style={{
+                    background: active ? "rgba(129,139,224,0.12)" : "rgba(255,255,255,0.03)",
+                    border: `1px solid ${active ? "rgba(129,139,224,0.25)" : "rgba(255,255,255,0.06)"}`,
+                    color: active ? "#818be0" : "#8a8f98",
+                    fontWeight: 510,
+                  }}
+                  disabled={submitting}
+                >
+                  {meta.name}
+                </button>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       {/* DB — 한 앱에 한 DB만 (mysql/postgres 동시 사용 X). 서버 없으면 숨김. */}
@@ -1162,47 +1188,46 @@ export default function DeployForm({ onRequestGuide }) {
           {app}.kodeploy.com=정적 / 서버={app}-api, 커스텀 도메인도 정적에 연결. */}
       <div className="mb-6">
         <div className="flex items-center justify-between mb-2.5">
-          <div
-            className="text-[10.5px] tracking-[0.08em] text-fg-3"
-            style={{ fontWeight: 590 }}
-          >
-            정적 사이트
-          </div>
-          {useStatic && (
-            <button
-              type="button"
-              onClick={() => onRequestGuide?.("static")}
-              className="text-[11px] text-fg-3 hover:text-fg-1 transition-colors"
-              style={{ fontWeight: 510 }}
-            >
-              가이드 보기
-            </button>
-          )}
-        </div>
-        <div className="flex gap-1.5">
-          {[
-            { id: false, name: "사용 안 함" },
-            { id: true, name: "정적 사이트" },
-          ].map((s) => {
-            const active = useStatic === s.id;
-            return (
+          <div className="flex items-center gap-2">
+            <div className="text-[12px] text-fg-2" style={{ fontWeight: 590 }}>
+              프론트엔드
+            </div>
+            {useStatic && (
               <button
-                key={String(s.id)}
                 type="button"
-                onClick={() => setUseStatic(s.id)}
-                className="flex-1 h-10 rounded-lg text-[13px] transition-colors flex items-center justify-center"
-                style={{
-                  background: active ? "rgba(129,139,224,0.12)" : "rgba(255,255,255,0.03)",
-                  border: `1px solid ${active ? "rgba(129,139,224,0.25)" : "rgba(255,255,255,0.06)"}`,
-                  color: active ? "#818be0" : "#8a8f98",
-                  fontWeight: 510,
-                }}
-                disabled={submitting}
+                onClick={() => onRequestGuide?.("static")}
+                className="text-[11px] text-fg-3 hover:text-fg-1 transition-colors"
+                style={{ fontWeight: 510 }}
               >
-                {s.name}
+                가이드
               </button>
-            );
-          })}
+            )}
+          </div>
+          <div className="flex gap-1.5">
+            {[
+              { on: false, name: "사용 안 함" },
+              { on: true, name: "사용하기" },
+            ].map((opt) => {
+              const active = useStatic === opt.on;
+              return (
+                <button
+                  key={String(opt.on)}
+                  type="button"
+                  onClick={() => setUseStatic(opt.on)}
+                  className="h-7 px-3 rounded-md text-[11px] transition-colors"
+                  style={{
+                    background: active ? "rgba(129,139,224,0.12)" : "rgba(255,255,255,0.03)",
+                    border: `1px solid ${active ? "rgba(129,139,224,0.25)" : "rgba(255,255,255,0.06)"}`,
+                    color: active ? "#818be0" : "#8a8f98",
+                    fontWeight: 510,
+                  }}
+                  disabled={submitting}
+                >
+                  {opt.name}
+                </button>
+              );
+            })}
+          </div>
         </div>
         {useStatic && (
           <div
