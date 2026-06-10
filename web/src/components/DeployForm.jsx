@@ -4,9 +4,7 @@ import { ChevronDown, ChevronUp, Eye, EyeOff, GitBranch, Plus, Trash2 } from "lu
 import { createDeploy, CUSTOM_DOMAIN_CNAME_TARGET, getEnvVars, listBuilds, listGithubBranches, listGithubRepos, RUNTIMES, setDomain, stageDump } from "../api/deploy.js";
 import { GITHUB_INSTALL_URL } from "../api/auth.js";
 import { useAuth } from "../contexts/AuthContext.jsx";
-
-// 서버 슬롯 선택지 — RUNTIMES(python/java) + "none"(서버 없음, 정적 단독)
-const SERVER_CHOICES = [...RUNTIMES, "none"];
+import InfoHint from "./InfoHint.jsx";
 
 const RUNTIME_META = {
   python: { name: "Python", tag: "FastAPI · uvicorn" },
@@ -22,14 +20,22 @@ const DEFAULT_PORTS = {
   php: 8080,
 };
 
+// 섹션 토글 / 선택지 버튼 공통 스타일 - 백엔드·프론트엔드·DB·빌드방식 등에서 재사용.
+const choiceStyle = (active) => ({
+  background: active ? "rgba(129,139,224,0.12)" : "rgba(255,255,255,0.03)",
+  border: `1px solid ${active ? "rgba(129,139,224,0.25)" : "rgba(255,255,255,0.06)"}`,
+  color: active ? "#818be0" : "#8a8f98",
+  fontWeight: 510,
+});
+
 export default function DeployForm({ onRequestGuide }) {
   const navigate = useNavigate();
   const { user, openLogin, refresh } = useAuth();
-  // 1유저=1앱 — user.app_name이 있으면 첫 배포 끝난 상태. 이름 입력란 숨기고 그 이름 재사용.
+  // 1유저=1앱 - user.app_name이 있으면 첫 배포 끝난 상태. 이름 입력란 숨기고 그 이름 재사용.
   const isFirstDeploy = !user?.app_name;
-  const [repoUrl, setRepoUrl] = useState("");
+  const [repoUrl, setRepoUrl] = useState("");          // 백엔드 GitHub 링크 (백엔드 OFF면 미사용 - 프론트 링크가 repo)
   const [ghRepos, setGhRepos] = useState([]);            // 연결된 installation repo 목록 (private repo 리스트)
-  const [repoListCollapsed, setRepoListCollapsed] = useState(false);  // 연결된 repo 리스트 접기 — 링크칸 우측 토글 / 선택 시 자동 접힘
+  const [repoListCollapsed, setRepoListCollapsed] = useState(false);  // 연결된 repo 리스트 접기 - 링크칸 우측 토글 / 선택 시 자동 접힘
   const [ghBranches, setGhBranches] = useState([]);      // 선택 repo의 브랜치 목록 (브랜치 드롭다운)
   const [branchOpen, setBranchOpen] = useState(false);   // 브랜치 드롭다운 열림 여부
   const [name, setName] = useState("");
@@ -38,39 +44,41 @@ export default function DeployForm({ onRequestGuide }) {
   const [buildMode, setBuildMode] = useState("detect");  // detect=자동감지(기본) / dockerfile / auto(nixpacks)
   const [dockerfilePath, setDockerfilePath] = useState("Dockerfile");
   const [projectPath, setProjectPath] = useState("");
-  // 정적 슬롯 — 토글 + 빌드 입력. repo/branch 비우면 서버 repo/branch 사용.
+  // 정적 슬롯 - 토글 + 빌드 입력. repo/branch 비우면 서버 repo/branch 사용.
   const [useStatic, setUseStatic] = useState(false);
   const [staticRepoUrl, setStaticRepoUrl] = useState("");
   const [staticBranch, setStaticBranch] = useState("");
   const [staticProjectPath, setStaticProjectPath] = useState("");
   const [buildCmd, setBuildCmd] = useState("npm ci && npm run build");
   const [outputDir, setOutputDir] = useState("dist");
-  // 정적 빌드 타임 변수 — 번들에 공개되는 값(VITE_*)이라 visibility 토글 없는 단순 key/value
+  // 정적 빌드 타임 변수 - 번들에 공개되는 값(VITE_*)이라 visibility 토글 없는 단순 key/value
   const [staticEnvRows, setStaticEnvRows] = useState([{ key: "", value: "" }]);
   const [dbType, setDbType] = useState("none");
   const [useRedis, setUseRedis] = useState(false);
-  // 영속저장소(런타임 무관) — 단일 셀렉터. "none"=ephemeral / "local"=PVC / "object"=R2.
+  // 영속저장소(런타임 무관) - 단일 셀렉터. "none"=ephemeral / "local"=PVC / "object"=R2.
   const [storage, setStorage] = useState("none");
-  const [volumeMountPath, setVolumeMountPath] = useState("/var/www/html/data");  // local 전용 — 그누보드 기본값
+  const [volumeMountPath, setVolumeMountPath] = useState("/var/www/html/data");  // local 전용 - 그누보드 기본값
   const [runtime, setRuntime] = useState(RUNTIMES[0]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState(null);
-  // 고급 옵션(캐시·환경변수·초기데이터) 접기/펼치기 — 기본 접힘. 진입장벽 낮추려 핵심만 위에 노출.
-  const [showAdvanced, setShowAdvanced] = useState(false);
-  // 초기 DB 덤프 파일 — mysql 선택 + 첨부 시 배포 후 자동 복원 (stage → token → 자동 restore).
+  // 섹션별 고급 옵션 접기/펼치기 - 기본 접힘. 핵심(repo→runtime→배포)만 위에 노출.
+  const [showServerAdvanced, setShowServerAdvanced] = useState(false);   // 백엔드 고급(빌드방식·캐시·저장소·환경변수·초기데이터)
+  const [showStaticAdvanced, setShowStaticAdvanced] = useState(false);   // 프론트 고급(빌드 타임 변수)
+  const [showCustomDomain, setShowCustomDomain] = useState(false);       // 커스텀 도메인 박스 - 도메인 섹션 아래 독립 접이식
+  // 초기 DB 덤프 파일 - mysql 선택 + 첨부 시 배포 후 자동 복원 (stage → token → 자동 restore).
   const [initDumpFile, setInitDumpFile] = useState(null);
-  // 커스텀 도메인(서브도메인 전용) — 배포 성공 후 setDomain 호출. 입력 안 하면 스킵.
+  // 커스텀 도메인(서브도메인 전용) - 배포 성공 후 setDomain 호출. 입력 안 하면 스킵.
   const [customDomain, setCustomDomain] = useState("");
-  // 환경변수 row 편집 — 활동 패널 EnvBody와 동일 UI.
+  // 환경변수 row 편집 - 활동 패널 EnvBody와 동일 UI.
   // 재배포 시점에 기존 env 받아와 채움. 첫 배포면 빈 row 하나.
   const [envRows, setEnvRows] = useState([
     { key: "", value: "", visible: true },
   ]);
-  // repo + branch 유효성 — GitHub API branches/{br} 호출 결과.
+  // repo + branch 유효성 - GitHub API branches/{br} 호출 결과.
   // state: "idle" | "checking" | "ok" | "notfound" | "invalid" | "error"
   const [repoCheck, setRepoCheck] = useState({ state: "idle" });
 
-  // 재배포 시 기존 세팅 복원 — 최신 빌드 + 환경변수를 폼에 채움
+  // 재배포 시 기존 세팅 복원 - 최신 빌드 + 환경변수를 폼에 채움
   useEffect(() => {
     if (!user?.app_name) {
       restoredRef.current = true;
@@ -81,7 +89,7 @@ export default function DeployForm({ onRequestGuide }) {
       try {
         const [builds, envData] = await Promise.all([listBuilds(), getEnvVars()]);
         if (cancelled) return;
-        // 슬롯별 최신 빌드 — 서버(runtime≠static)와 정적을 따로 복원
+        // 슬롯별 최신 빌드 - 서버(runtime≠static)와 정적을 따로 복원
         const serverLatest = builds.find(
           (b) => b.kind !== "env_change" && b.runtime !== "static",
         );
@@ -111,17 +119,17 @@ export default function DeployForm({ onRequestGuide }) {
           }
           setPort(serverLatest.port || DEFAULT_PORTS[serverLatest.runtime] || 80);
         } else if (user?.site_enabled) {
-          // 정적 단독 구성 — 서버 "사용 안 함" 복원
+          // 정적 단독 구성 - 서버 "사용 안 함" 복원
           setRuntime("none");
         }
-        // 정적 토글은 user.site_enabled(선언값)가 진실원 — 토글 off 후에도
+        // 정적 토글은 user.site_enabled(선언값)가 진실원 - 토글 off 후에도
         // 빌드 히스토리에 static 빌드가 남아 있으므로 히스토리로 판단하면 안 됨.
         setUseStatic(!!user?.site_enabled);
         if (staticLatest) {
           if (!serverLatest) {
-            // 메인 repo 입력이 곧 정적 repo (정적 단독)
-            setRepoUrl(staticLatest.repo_url.replace(/\.git$/, ""));
-            setBranch(staticLatest.branch || "main");
+            // 정적 단독 - 백엔드 OFF라 상단 공유칸이 없으므로 프론트 GitHub 링크에 복원.
+            setStaticRepoUrl(staticLatest.repo_url.replace(/\.git$/, ""));
+            setStaticBranch(staticLatest.branch || "");
           } else if (staticLatest.repo_url !== serverLatest.repo_url) {
             setStaticRepoUrl(staticLatest.repo_url.replace(/\.git$/, ""));
             if (staticLatest.branch !== serverLatest.branch) {
@@ -129,7 +137,7 @@ export default function DeployForm({ onRequestGuide }) {
             }
           }
           setStaticProjectPath(staticLatest.project_path || "");
-          setBuildCmd(staticLatest.build_cmd ?? ""); // ""도 유효(빌드 없음) — ||로 덮으면 안 됨
+          setBuildCmd(staticLatest.build_cmd ?? ""); // ""도 유효(빌드 없음) - ||로 덮으면 안 됨
           setOutputDir(staticLatest.output_dir || "dist");
           const staticEnvEntries = Object.entries(staticLatest.static_env || {});
           if (staticEnvEntries.length) {
@@ -144,7 +152,7 @@ export default function DeployForm({ onRequestGuide }) {
           );
         }
       } catch {
-        // 401 등 — 기본값 그대로
+        // 401 등 - 기본값 그대로
       }
     })();
     return () => {
@@ -152,8 +160,8 @@ export default function DeployForm({ onRequestGuide }) {
     };
   }, [user?.app_name]);
 
-  // repo URL + branch 유효성 확인.
-  // 연결된 repo(installation)면 ghRepos/ghBranches로 판정 — unauthenticated 404 오판 방지
+  // repo URL + branch 유효성 확인 (백엔드 GitHub 링크 기준).
+  // 연결된 repo(installation)면 ghRepos/ghBranches로 판정 - unauthenticated 404 오판 방지
   // (private도 연결돼 있으면 접근 가능하므로 "찾을 수 없음"으로 떨어지면 안 됨).
   // 미연결이면 디바운스 500ms 후 unauthenticated GitHub API로 확인(공개 repo만; private은 notfound→연결 안내).
   useEffect(() => {
@@ -170,7 +178,7 @@ export default function DeployForm({ onRequestGuide }) {
     const [, owner, repo] = m;
     const br = branch.trim() || "main";
 
-    // 연결된 저장소면 접근 가능 확정 — 브랜치 목록이 있으면 브랜치 존재까지 판정, 없으면 통과.
+    // 연결된 저장소면 접근 가능 확정 - 브랜치 목록이 있으면 브랜치 존재까지 판정, 없으면 통과.
     const slug = `${owner}/${repo}`.toLowerCase();
     const connected = ghRepos.some(
       (r) => (r.full_name || "").toLowerCase() === slug,
@@ -206,7 +214,7 @@ export default function DeployForm({ onRequestGuide }) {
     return () => clearTimeout(timer);
   }, [repoUrl, branch, ghRepos, ghBranches]);
 
-  // repo가 유효하면 그 repo의 브랜치 목록을 받아 드롭다운 채움 (백엔드 경유 — private도).
+  // repo가 유효하면 그 repo의 브랜치 목록을 받아 드롭다운 채움 (백엔드 경유 - private도).
   // repoCheck와 같은 500ms 디바운스. repo 형식이 안 맞으면 빈 목록.
   useEffect(() => {
     const url = repoUrl.trim();
@@ -287,8 +295,12 @@ export default function DeployForm({ onRequestGuide }) {
   }, [runtime]);
 
   const serverNone = runtime === "none";
-  // 서버도 정적도 없으면 배포할 게 없음
-  const disabled = !repoUrl.trim() || submitting || (serverNone && !useStatic);
+  // 도메인 안내 툴팁 표시용 이름 - 첫 배포 입력값/확정 app_name, 없으면 placeholder
+  const appLabel = user?.app_name || name.trim() || "앱이름";
+  // 1차 repo - 백엔드 ON이면 백엔드 링크, OFF(정적 단독)면 프론트 링크가 곧 repo.
+  const primaryRepo = (serverNone ? staticRepoUrl : repoUrl).trim();
+  // 서버도 정적도 없으면 배포할 게 없음 / 1차 repo 비면 불가
+  const disabled = !primaryRepo || submitting || (serverNone && !useStatic);
 
   const handleSubmit = async (e) => {
     e?.preventDefault?.();
@@ -307,14 +319,14 @@ export default function DeployForm({ onRequestGuide }) {
       if (!k) continue;
       envDict[k] = value;
     }
-    // 정적 빌드 타임 변수 — 동일 규칙
+    // 정적 빌드 타임 변수 - 동일 규칙
     const staticEnvDict = {};
     for (const { key, value } of staticEnvRows) {
       const k = key.trim();
       if (!k) continue;
       staticEnvDict[k] = value;
     }
-    // 서버 사용 안 함이면 서버 전용 옵션(DB/캐시/스토리지/환경변수)은 무의미 — 폼 상태에 남은 옛 값 무시.
+    // 서버 사용 안 함이면 서버 전용 옵션(DB/캐시/스토리지/환경변수)은 무의미 - 폼 상태에 남은 옛 값 무시.
     const effectiveDbType = serverNone ? "none" : dbType;
     try {
       // 초기 DB 덤프가 있으면 먼저 stage → 토큰 발급 (mysql/postgres 선택 시에만 의미 있음).
@@ -324,24 +336,26 @@ export default function DeployForm({ onRequestGuide }) {
         initDumpToken = staged.token;
       }
       await createDeploy({
-        repoUrl: repoUrl.trim(),
+        // 백엔드 OFF(정적 단독)면 프론트 링크가 곧 repo_url, static_repo_url은 비워 fallback.
+        repoUrl: serverNone ? staticRepoUrl.trim() : repoUrl.trim(),
         // 첫 배포: 사용자가 입력한 이름 또는 자동 생성(서버 측). 두 번째부터는 user.app_name 재사용되니 보냄 의미 없음.
         name: isFirstDeploy ? name.trim() || undefined : undefined,
-        branch: branch.trim() || "main",
+        branch: (serverNone ? staticBranch.trim() : branch.trim()) || "main",
         port: Number(port) || 80,
-        runtime,                                   // "python" | "java" | "none"
+        runtime,                                   // "python" | "java" | "php" | "none"
         dbType: effectiveDbType,
         useRedis: serverNone ? false : useRedis,
         storage: serverNone ? "none" : storage,
         volumeMountPath: !serverNone && storage === "local" ? volumeMountPath.trim() : "",
-        buildMode: serverNone ? "auto" : buildMode, // 서버 없으면 미사용 — 스키마 통과용 placeholder
+        buildMode: serverNone ? "auto" : buildMode, // 서버 없으면 미사용 - 스키마 통과용 placeholder
         dockerfilePath:
           !serverNone && buildMode === "dockerfile" ? dockerfilePath.trim() || "Dockerfile" : "Dockerfile",
         projectPath:
-          !serverNone && buildMode === "auto" ? projectPath.trim().replace(/^\/+|\/+$/g, "") : "",
+          !serverNone && buildMode !== "dockerfile" ? projectPath.trim().replace(/^\/+|\/+$/g, "") : "",
         useStatic,
-        staticRepoUrl: useStatic ? staticRepoUrl.trim() : "",
-        staticBranch: useStatic ? staticBranch.trim() : "",
+        // 백엔드 ON일 때만 별도 정적 repo/branch - OFF면 repo_url이 곧 정적 repo라 비움.
+        staticRepoUrl: useStatic && !serverNone ? staticRepoUrl.trim() : "",
+        staticBranch: useStatic && !serverNone ? staticBranch.trim() : "",
         staticProjectPath: useStatic ? staticProjectPath.trim().replace(/^\/+|\/+$/g, "") : "",
         buildCmd: useStatic ? buildCmd.trim() : "",
         outputDir: useStatic ? outputDir.trim() : "",
@@ -349,9 +363,9 @@ export default function DeployForm({ onRequestGuide }) {
         env: serverNone ? {} : envDict,
         initDumpToken,
       });
-      // 첫 배포면 user.app_name이 백엔드에 박혔으니 AuthContext 갱신 — Dashboard에서 즉시 반영
+      // 첫 배포면 user.app_name이 백엔드에 박혔으니 AuthContext 갱신 - Dashboard에서 즉시 반영
       if (isFirstDeploy) await refresh();
-      // 커스텀 도메인 입력 시 — 배포로 app_name 확정됐으니 이어서 연결 (서브도메인 전용).
+      // 커스텀 도메인 입력 시 - 배포로 app_name 확정됐으니 이어서 연결 (서브도메인 전용).
       const cd = customDomain.trim();
       if (cd) {
         try {
@@ -374,20 +388,11 @@ export default function DeployForm({ onRequestGuide }) {
     }
   };
 
-  return (
-    <form onSubmit={handleSubmit} className="kd-fade-in w-[520px] max-w-[90vw] mx-auto pb-12">
-      <h2
-        className="text-[22px] text-fg-1 mb-2"
-        style={{ fontWeight: 510, letterSpacing: -0.5 }}
-      >
-        GitHub 저장소 배포
-      </h2>
-      <p className="text-[13px] text-fg-3 mb-6">
-        저장소 주소를 입력하면 빌드 후 클러스터에 자동 배포해요.
-      </p>
-
-      {/* GitHub URL + Branch */}
-      <div className="flex gap-3 mb-2">
+  // 백엔드/프론트 GitHub 링크 + 브랜치 입력 블록 - 백엔드 섹션의 1차 입력.
+  // 연결 repo 인라인 리스트 + 브랜치 드롭다운 + 확인 상태를 한 묶음으로.
+  const githubLinkBlock = (
+    <div className="flex flex-col gap-2">
+      <div className="flex gap-3">
         <div className="flex-1">
           <div
             className="text-[10.5px] tracking-[0.08em] text-fg-3 mb-2"
@@ -404,7 +409,6 @@ export default function DeployForm({ onRequestGuide }) {
           >
             <GitBranch size={15} strokeWidth={1.6} className="text-fg-3 mr-2 shrink-0" />
             <input
-              autoFocus
               value={repoUrl}
               onChange={(e) => setRepoUrl(e.target.value)}
               placeholder="https://github.com/username/repo"
@@ -413,7 +417,7 @@ export default function DeployForm({ onRequestGuide }) {
               disabled={submitting}
               onKeyDown={(e) => e.key === "Enter" && handleSubmit()}
             />
-            {/* 접기 토글 — 연결됐으면 표시(repo 없어도), 링크칸 맨 오른쪽. 아래 박스 접힘/펼침 */}
+            {/* 접기 토글 - 연결됐으면 표시(repo 없어도), 링크칸 맨 오른쪽. 아래 박스 접힘/펼침 */}
             {user?.github_connected && (
               <button
                 type="button"
@@ -425,7 +429,7 @@ export default function DeployForm({ onRequestGuide }) {
               </button>
             )}
           </div>
-          {/* 연결된 repo 박스 — 링크칸 바로 밑, 최대 3개 높이 + 위아래 스크롤. 선택하면 채우고 자동 접기.
+          {/* 연결된 repo 박스 - 링크칸 바로 밑, 최대 3개 높이 + 위아래 스크롤. 선택하면 채우고 자동 접기.
               repo가 없어도 박스를 띄워 "연결된 저장소 없음"을 안내(저장소 추가 링크 포함). */}
           {user?.github_connected && !repoListCollapsed && (
             <div
@@ -466,7 +470,7 @@ export default function DeployForm({ onRequestGuide }) {
                   className="px-3 py-2.5 text-[11px] text-fg-4"
                   style={{ fontWeight: 450 }}
                 >
-                  연결된 저장소가 없어요.{" "}
+                  연결된 저장소가 없어요{" "}
                   <button
                     type="button"
                     onClick={() => {
@@ -504,7 +508,7 @@ export default function DeployForm({ onRequestGuide }) {
               style={{ fontWeight: 510 }}
               disabled={submitting}
             />
-            {/* 브랜치 드롭다운 토글 — 목록 있을 때만 */}
+            {/* 브랜치 드롭다운 토글 - 목록 있을 때만 */}
             {ghBranches.length > 0 && (
               <button
                 type="button"
@@ -516,7 +520,7 @@ export default function DeployForm({ onRequestGuide }) {
               </button>
             )}
           </div>
-          {/* 브랜치 목록 — 칸이 좁아 absolute로 넓게(우측 정렬), 최대 3개 + 스크롤. 선택 시 채우고 닫힘 */}
+          {/* 브랜치 목록 - 칸이 좁아 absolute로 넓게(우측 정렬), 최대 3개 + 스크롤. 선택 시 채우고 닫힘 */}
           {branchOpen && ghBranches.length > 0 && (
             <div
               className="absolute right-0 z-20 mt-1 rounded-md overflow-y-auto scroll-thin"
@@ -555,13 +559,11 @@ export default function DeployForm({ onRequestGuide }) {
         </div>
       </div>
 
-      {/* 상태 줄 — 좌: private 저장소 연결 상태/버튼 / 우(맨 오른쪽): repo+브랜치 확인 결과.
-          연결된 repo 선택은 위 GitHub 링크 밑 리스트가 담당 — 여기선 연결 여부만 표시. */}
+      {/* 상태 줄 - 좌: private 저장소 연결 상태/버튼 / 우(맨 오른쪽): repo+브랜치 확인 결과. */}
       <div
-        className="flex items-center justify-between gap-3 mb-5 min-h-[16px] text-[11px]"
+        className="flex items-center justify-between gap-3 min-h-[16px] text-[11px]"
         style={{ fontWeight: 450 }}
       >
-        {/* 왼쪽 — private 저장소 연결 (원래 "확인됨"이 있던 줄 시작 위치) */}
         <div className="min-w-0">
           {user &&
             (user.github_connected ? (
@@ -582,7 +584,6 @@ export default function DeployForm({ onRequestGuide }) {
               </span>
             ))}
         </div>
-        {/* 오른쪽(맨 오른쪽) — repo+branch 확인 결과 */}
         <div className="shrink-0 text-right">
           {repoCheck.state === "checking" && (
             <span className="text-fg-4">저장소 확인 중…</span>
@@ -607,240 +608,724 @@ export default function DeployForm({ onRequestGuide }) {
           )}
         </div>
       </div>
+    </div>
+  );
 
-      {/* 백엔드 섹션 — 사용 안 함 / 사용하기 토글. 사용하기면 런타임 3지선다(none 제외). */}
-      <div className="mb-5">
-        <div className="flex items-center justify-between mb-2.5">
-          <div className="text-[12px] text-fg-2" style={{ fontWeight: 590 }}>
-            백엔드
-          </div>
-          <div className="flex gap-1.5">
-            {[
-              { on: false, name: "사용 안 함" },
-              { on: true, name: "사용하기" },
-            ].map((opt) => {
-              const active = !serverNone === opt.on;
-              return (
-                <button
-                  key={String(opt.on)}
-                  type="button"
-                  onClick={() => setRuntime(opt.on ? RUNTIMES[0] : "none")}
-                  className="h-7 px-3 rounded-md text-[11px] transition-colors"
-                  style={{
-                    background: active ? "rgba(129,139,224,0.12)" : "rgba(255,255,255,0.03)",
-                    border: `1px solid ${active ? "rgba(129,139,224,0.25)" : "rgba(255,255,255,0.06)"}`,
-                    color: active ? "#818be0" : "#8a8f98",
-                    fontWeight: 510,
-                  }}
-                  disabled={submitting}
-                >
-                  {opt.name}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-        {!serverNone && (
-          <div className="flex gap-1.5">
-            {RUNTIMES.map((r) => {
-              const meta = RUNTIME_META[r] || { name: r, tag: "" };
-              const active = runtime === r;
-              return (
-                <button
-                  key={r}
-                  type="button"
-                  onClick={() => setRuntime(r)}
-                  className="flex-1 h-10 rounded-lg text-[13px] transition-colors flex items-center justify-center"
-                  style={{
-                    background: active ? "rgba(129,139,224,0.12)" : "rgba(255,255,255,0.03)",
-                    border: `1px solid ${active ? "rgba(129,139,224,0.25)" : "rgba(255,255,255,0.06)"}`,
-                    color: active ? "#818be0" : "#8a8f98",
-                    fontWeight: 510,
-                  }}
-                  disabled={submitting}
-                >
-                  {meta.name}
-                </button>
-              );
-            })}
-          </div>
-        )}
-      </div>
+  return (
+    <form onSubmit={handleSubmit} className="kd-fade-in w-[520px] max-w-[90vw] mx-auto pb-12">
+      <h2
+        className="text-[22px] text-fg-1 mb-2"
+        style={{ fontWeight: 510, letterSpacing: -0.5 }}
+      >
+        GitHub 저장소 배포
+      </h2>
+      <p className="text-[13px] text-fg-3 mb-6">
+        백엔드·프론트엔드를 켜고 저장소를 넣으면 빌드 후 클러스터에 자동 배포해요
+      </p>
 
-      {/* DB — 한 앱에 한 DB만 (mysql/postgres 동시 사용 X). 서버 없으면 숨김. */}
-      {!serverNone && (
-      <div className="mb-5">
-        <div
-          className="text-[10.5px] tracking-[0.08em] text-fg-3 mb-2.5"
-          style={{ fontWeight: 590 }}
-        >
-          데이터베이스
+      {/* ===== 백엔드 섹션 - 사용 안 함/사용하기 토글. 켜면 GitHub·런타임·DB + 고급옵션. ===== */}
+      <div className="mb-6">
+        <div className="text-[13px] text-fg-2 mb-2.5" style={{ fontWeight: 590 }}>
+          백엔드
         </div>
         <div className="flex gap-1.5">
           {[
-            { id: "none", name: "사용 안 함" },
-            { id: "mysql", name: "MySQL 8.4" },
-            { id: "postgres", name: "PostgreSQL 16" },
-          ].map((d) => {
-            const active = dbType === d.id;
+            { on: false, name: "사용 안 함" },
+            { on: true, name: "사용하기" },
+          ].map((opt) => {
+            const active = !serverNone === opt.on;
             return (
               <button
-                key={d.id}
+                key={String(opt.on)}
                 type="button"
-                onClick={() => setDbType(d.id)}
+                onClick={() => setRuntime(opt.on ? RUNTIMES[0] : "none")}
                 className="flex-1 h-10 rounded-lg text-[13px] transition-colors flex items-center justify-center"
-                style={{
-                  background: active ? "rgba(129,139,224,0.12)" : "rgba(255,255,255,0.03)",
-                  border: `1px solid ${active ? "rgba(129,139,224,0.25)" : "rgba(255,255,255,0.06)"}`,
-                  color: active ? "#818be0" : "#8a8f98",
-                  fontWeight: 510,
-                }}
+                style={choiceStyle(active)}
                 disabled={submitting}
               >
-                {d.name}
+                {opt.name}
               </button>
             );
           })}
         </div>
-      </div>
-      )}
 
-      {/* Build mode — 서버 빌드 방식. 서버 없으면 숨김. */}
-      {!serverNone && (
-      <div className="mb-6">
-        <div className="flex gap-3">
-          <div className={buildMode === "auto" ? "w-full" : "flex-1"}>
-            <div
-              className="text-[10.5px] tracking-[0.08em] text-fg-3 mb-2.5"
-              style={{ fontWeight: 590 }}
-            >
-              빌드 방식
-            </div>
-            <div className="flex gap-1.5">
-              {[
-                { id: "detect", name: "자동" },
-                { id: "dockerfile", name: "Dockerfile" },
-                { id: "auto", name: "Nixpacks" },
-              ].map((m) => {
-                const active = buildMode === m.id;
-                return (
-                  <button
-                    key={m.id}
-                    type="button"
-                    onClick={() => setBuildMode(m.id)}
-                    className="flex-1 h-10 rounded-lg text-[13px] transition-all flex items-center justify-center"
-                    style={{
-                      background: active ? "rgba(129,139,224,0.12)" : "rgba(255,255,255,0.03)",
-                      border: `1px solid ${active ? "rgba(129,139,224,0.25)" : "rgba(255,255,255,0.06)"}`,
-                      color: active ? "#818be0" : "#8a8f98",
-                      fontWeight: 510,
-                    }}
-                    disabled={submitting}
-                  >
-                    {m.name}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-          {buildMode !== "auto" && (
-            <div className="w-24 shrink-0">
+        {!serverNone && (
+          <div className="mt-5 flex flex-col gap-5">
+            {/* GitHub 링크 + 브랜치 + 확인 상태 */}
+            {githubLinkBlock}
+
+            {/* 런타임 3지선다 */}
+            <div>
               <div
                 className="text-[10.5px] tracking-[0.08em] text-fg-3 mb-2.5"
                 style={{ fontWeight: 590 }}
               >
-                포트
+                런타임
+              </div>
+              <div className="flex gap-1.5">
+                {RUNTIMES.map((r) => {
+                  const meta = RUNTIME_META[r] || { name: r, tag: "" };
+                  const active = runtime === r;
+                  return (
+                    <button
+                      key={r}
+                      type="button"
+                      onClick={() => setRuntime(r)}
+                      className="flex-1 h-10 rounded-lg text-[13px] transition-colors flex items-center justify-center"
+                      style={choiceStyle(active)}
+                      disabled={submitting}
+                    >
+                      {meta.name}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* DB - 한 앱에 한 DB만 (mysql/postgres 동시 사용 X). */}
+            <div>
+              <div
+                className="text-[10.5px] tracking-[0.08em] text-fg-3 mb-2.5"
+                style={{ fontWeight: 590 }}
+              >
+                데이터베이스
+              </div>
+              <div className="flex gap-1.5">
+                {[
+                  { id: "none", name: "사용 안 함" },
+                  { id: "mysql", name: "MySQL 8.4" },
+                  { id: "postgres", name: "PostgreSQL 16" },
+                ].map((d) => {
+                  const active = dbType === d.id;
+                  return (
+                    <button
+                      key={d.id}
+                      type="button"
+                      onClick={() => setDbType(d.id)}
+                      className="flex-1 h-10 rounded-lg text-[13px] transition-colors flex items-center justify-center"
+                      style={choiceStyle(active)}
+                      disabled={submitting}
+                    >
+                      {d.name}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* 백엔드 고급 옵션 - 빌드방식·포트·캐시·저장소·환경변수·초기데이터. 기본 접힘. */}
+            <div>
+              <button
+                type="button"
+                onClick={() => setShowServerAdvanced((v) => !v)}
+                className="w-full flex items-center gap-2 py-1 text-fg-3 hover:text-fg-1 transition-colors"
+              >
+                <ChevronDown
+                  size={14}
+                  strokeWidth={2}
+                  className="transition-transform"
+                  style={{ transform: showServerAdvanced ? "rotate(0deg)" : "rotate(-90deg)" }}
+                />
+                <span className="text-[10.5px] tracking-[0.08em]" style={{ fontWeight: 590 }}>
+                  고급 옵션
+                </span>
+                <span className="text-[11px] text-fg-4" style={{ fontWeight: 450 }}>
+                  빌드 방식 · 캐시 · 저장소 · 환경변수
+                </span>
+              </button>
+
+              {showServerAdvanced && (
+                <div
+                  className="mt-3 flex flex-col gap-6 px-4 py-4 rounded-xl"
+                  style={{
+                    border: "1px solid rgba(255,255,255,0.07)",
+                    background: "rgba(255,255,255,0.02)",
+                  }}
+                >
+                  {/* Build mode - 서버 빌드 방식 + 포트 */}
+                  <div>
+                    <div className="flex gap-3">
+                      <div className={buildMode === "auto" ? "w-full" : "flex-1"}>
+                        <div className="flex items-center gap-1 mb-2.5">
+                          <span className="text-[10.5px] tracking-[0.08em] text-fg-3" style={{ fontWeight: 590 }}>
+                            빌드 방식
+                          </span>
+                          <InfoHint>
+                            <b style={{ color: "#dde0e4", fontWeight: 590 }}>선택 안 함</b> - Dockerfile 있으면 그걸로, 없으면 Nixpacks 자동 빌드<br />
+                            <b style={{ color: "#dde0e4", fontWeight: 590 }}>Dockerfile</b> - 내 Dockerfile로 빌드<br />
+                            <b style={{ color: "#dde0e4", fontWeight: 590 }}>자동 빌드</b> - Dockerfile 무시하고 Nixpacks로 빌드
+                          </InfoHint>
+                        </div>
+                        <div className="flex gap-1.5">
+                          {[
+                            { id: "detect", name: "선택 안 함" },
+                            { id: "dockerfile", name: "Dockerfile" },
+                            { id: "auto", name: "자동 빌드" },
+                          ].map((m) => {
+                            const active = buildMode === m.id;
+                            return (
+                              <button
+                                key={m.id}
+                                type="button"
+                                onClick={() => setBuildMode(m.id)}
+                                className="flex-1 h-10 rounded-lg text-[13px] transition-all flex items-center justify-center"
+                                style={choiceStyle(active)}
+                                disabled={submitting}
+                              >
+                                {m.name}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                      {buildMode !== "auto" && (
+                        <div className="w-24 shrink-0">
+                          <div
+                            className="text-[10.5px] tracking-[0.08em] text-fg-3 mb-2.5"
+                            style={{ fontWeight: 590 }}
+                          >
+                            포트
+                          </div>
+                          <input
+                            type="text"
+                            inputMode="numeric"
+                            value={port}
+                            onChange={(e) => setPort(e.target.value)}
+                            className="w-full h-10 bg-transparent outline-none text-fg-1 text-[14px] rounded-md px-3"
+                            style={{
+                              border: "1px solid rgba(255,255,255,0.09)",
+                              background: "rgba(255,255,255,0.02)",
+                              fontWeight: 510,
+                            }}
+                            disabled={submitting}
+                          />
+                        </div>
+                      )}
+                    </div>
+                    {buildMode === "dockerfile" && (
+                      <div className="mt-3">
+                        <div className="flex items-center gap-1 mb-2">
+                          <span className="text-[10.5px] tracking-[0.08em] text-fg-3" style={{ fontWeight: 590 }}>
+                            Dockerfile 경로
+                          </span>
+                          <InfoHint>
+                            프로젝트 루트에 Dockerfile이 있어야 합니다 서브 디렉토리에 있으면 <span style={{ color: "#dde0e4" }}>subdir/Dockerfile</span> 같이 입력
+                          </InfoHint>
+                        </div>
+                        <input
+                          value={dockerfilePath}
+                          onChange={(e) => setDockerfilePath(e.target.value)}
+                          placeholder="Dockerfile"
+                          className="w-full bg-transparent outline-none text-fg-1 text-[14px] rounded-md px-3 py-2 placeholder:text-fg-3"
+                          style={{
+                            border: "1px solid rgba(255,255,255,0.09)",
+                            background: "rgba(255,255,255,0.02)",
+                            fontWeight: 510,
+                          }}
+                          disabled={submitting}
+                        />
+                      </div>
+                    )}
+                    {buildMode !== "dockerfile" && (
+                      <div className="mt-3">
+                        <div className="flex items-center gap-1 mb-2">
+                          <span className="text-[10.5px] tracking-[0.08em] text-fg-3" style={{ fontWeight: 590 }}>
+                            앱 디렉토리 (선택)
+                          </span>
+                          <InfoHint>
+                            <span style={{ color: "#dde0e4" }}>pom.xml</span>, <span style={{ color: "#dde0e4" }}>requirements.txt</span> 같은 파일이 있는 폴더 경로를 입력하세요 모노레포·비표준 구조면 자동 탐색이 실패할 수 있어요
+                          </InfoHint>
+                        </div>
+                        <input
+                          value={projectPath}
+                          onChange={(e) => setProjectPath(e.target.value)}
+                          placeholder="비워두면 자동 탐색 (예: backend)"
+                          className="w-full bg-transparent outline-none text-fg-1 text-[14px] rounded-md px-3 py-2 placeholder:text-fg-3"
+                          style={{
+                            border: "1px solid rgba(255,255,255,0.09)",
+                            background: "rgba(255,255,255,0.02)",
+                            fontWeight: 510,
+                          }}
+                          disabled={submitting}
+                        />
+                      </div>
+                    )}
+                  </div>
+
+                  {/* 캐시 */}
+                  <div>
+                    <div
+                      className="text-[10.5px] tracking-[0.08em] text-fg-3 mb-2.5"
+                      style={{ fontWeight: 590 }}
+                    >
+                      캐시
+                    </div>
+                    <div className="flex gap-1.5">
+                      {[
+                        { id: false, name: "사용 안 함" },
+                        { id: true, name: "Redis 7" },
+                      ].map((r) => {
+                        const active = useRedis === r.id;
+                        return (
+                          <button
+                            key={String(r.id)}
+                            type="button"
+                            onClick={() => setUseRedis(r.id)}
+                            className="flex-1 h-10 rounded-lg text-[13px] transition-colors flex items-center justify-center"
+                            style={choiceStyle(active)}
+                            disabled={submitting}
+                          >
+                            {r.name}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* 영속 저장소 - none=ephemeral / local=PVC(mount_path) / object=R2. */}
+                  <div>
+                    <div className="flex items-center gap-1 mb-2.5">
+                      <span className="text-[10.5px] tracking-[0.08em] text-fg-3" style={{ fontWeight: 590 }}>
+                        영속 저장소
+                      </span>
+                      <InfoHint>
+                        <b style={{ color: "#dde0e4", fontWeight: 590 }}>사용 안 함</b> - 임시 디스크만(재배포 시 초기화)<br />
+                        <b style={{ color: "#dde0e4", fontWeight: 590 }}>로컬(PVC)</b> - 지정 절대경로에 영속 디스크 마운트, 재시작·재배포에도 데이터 유지(예: <span style={{ color: "#dde0e4" }}>/var/www/html/data</span>)<br />
+                        <b style={{ color: "#dde0e4", fontWeight: 590 }}>오브젝트(R2)</b> - 앱당 R2 버킷 + S3 호환 자격증명 자동 주입
+                      </InfoHint>
+                    </div>
+                    <div className="flex gap-1.5">
+                      {[
+                        { id: "none", name: "사용 안 함" },
+                        { id: "local", name: "로컬 (PVC)" },
+                        { id: "object", name: "오브젝트 (R2)" },
+                      ].map((s) => {
+                        const active = storage === s.id;
+                        return (
+                          <button
+                            key={s.id}
+                            type="button"
+                            onClick={() => setStorage(s.id)}
+                            className="flex-1 h-10 rounded-lg text-[13px] transition-colors flex items-center justify-center"
+                            style={choiceStyle(active)}
+                            disabled={submitting}
+                          >
+                            {s.name}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    {storage === "local" && (
+                      <div className="mt-2">
+                        <input
+                          value={volumeMountPath}
+                          onChange={(e) => setVolumeMountPath(e.target.value)}
+                          placeholder="/var/www/html/data"
+                          spellCheck={false}
+                          autoCapitalize="off"
+                          className="w-full px-2.5 py-1.5 rounded-md bg-transparent outline-none text-[12.5px] text-fg-1 placeholder:text-fg-4"
+                          style={{ border: "1px solid rgba(255,255,255,0.09)", fontWeight: 510 }}
+                          disabled={submitting}
+                        />
+                      </div>
+                    )}
+                  </div>
+
+                  {/* 환경변수 - 서버 슬롯 전용 (정적 nginx는 안 읽음) */}
+                  <div>
+                    <div className="flex items-center gap-1 mb-2.5">
+                      <span className="text-[10.5px] tracking-[0.08em] text-fg-3" style={{ fontWeight: 590 }}>
+                        환경변수 (선택)
+                      </span>
+                      <InfoHint>
+                        빈 KEY row는 무시돼요 빈 값으로 두면 환경변수 변경 없이 빌드만 트리거
+                      </InfoHint>
+                    </div>
+                    <div className="flex flex-col gap-1.5">
+                      {envRows.map((row, i) => (
+                        <div key={i} className="flex items-center gap-1.5">
+                          <input
+                            value={row.key}
+                            onChange={(e) =>
+                              updateEnvRow(i, "key", e.target.value.toUpperCase())
+                            }
+                            placeholder="KEY"
+                            spellCheck={false}
+                            autoCapitalize="characters"
+                            className="flex-1 min-w-0 px-2.5 py-1.5 rounded-md bg-transparent outline-none text-[12.5px] text-fg-1 placeholder:text-fg-4"
+                            style={{
+                              border: "1px solid rgba(255,255,255,0.09)",
+                              fontWeight: 510,
+                            }}
+                            disabled={submitting}
+                          />
+                          <input
+                            value={
+                              row.visible
+                                ? row.value
+                                : "•".repeat(Math.min(row.value.length, 12))
+                            }
+                            onChange={(e) =>
+                              row.visible && updateEnvRow(i, "value", e.target.value)
+                            }
+                            onFocus={() => !row.visible && toggleEnvVisible(i)}
+                            readOnly={!row.visible}
+                            placeholder="value"
+                            spellCheck={false}
+                            className="flex-1 min-w-0 px-2.5 py-1.5 rounded-md bg-transparent outline-none text-[12.5px] text-fg-1 placeholder:text-fg-4"
+                            style={{
+                              border: "1px solid rgba(255,255,255,0.09)",
+                              fontWeight: 510,
+                            }}
+                            disabled={submitting}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => toggleEnvVisible(i)}
+                            className="w-7 h-7 rounded-md text-fg-4 hover:text-fg-1 hover:bg-white/[0.04] flex items-center justify-center shrink-0"
+                            title={row.visible ? "숨기기" : "보기"}
+                          >
+                            {row.visible ? (
+                              <EyeOff size={12} strokeWidth={1.8} />
+                            ) : (
+                              <Eye size={12} strokeWidth={1.8} />
+                            )}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => removeEnvRow(i)}
+                            className="w-7 h-7 rounded-md text-fg-4 hover:text-red-300 hover:bg-white/[0.04] flex items-center justify-center shrink-0"
+                            title="삭제"
+                          >
+                            <Trash2 size={12} strokeWidth={1.8} />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={addEnvRow}
+                      className="mt-3 flex items-center gap-1 px-2 py-1 rounded-md text-[11.5px] text-fg-3 hover:text-fg-1 hover:bg-white/[0.04]"
+                      style={{ fontWeight: 510 }}
+                    >
+                      <Plus size={11} strokeWidth={2} /> 변수 추가
+                    </button>
+                  </div>
+
+                  {/* 초기 데이터 - DB(mysql/postgres) 선택 시에만. 배포 후 DB Ready되면 자동 복원. */}
+                  {(dbType === "mysql" || dbType === "postgres") && (
+                    <div>
+                      <div className="flex items-center gap-1 mb-2.5">
+                        <span className="text-[10.5px] tracking-[0.08em] text-fg-3" style={{ fontWeight: 590 }}>
+                          초기 데이터 (선택)
+                        </span>
+                        <InfoHint>
+                          .sql · .sql.gz 덤프를 올리면 배포 후 DB에 자동 복원돼요 기존 데이터를 덮어씁니다
+                        </InfoHint>
+                      </div>
+                      <div className="flex items-center gap-2.5">
+                        <label
+                          className="px-3 py-1.5 rounded-lg text-[12px] cursor-pointer shrink-0 transition-colors"
+                          style={{ background: "rgba(255,255,255,0.05)", color: "#dde0e4", fontWeight: 510, border: "1px solid rgba(255,255,255,0.08)" }}
+                        >
+                          파일 선택
+                          <input
+                            type="file"
+                            accept=".sql,.gz,.sql.gz,application/sql,application/gzip"
+                            onChange={(e) => setInitDumpFile(e.target.files?.[0] || null)}
+                            className="hidden"
+                            disabled={submitting}
+                          />
+                        </label>
+                        <span className="text-[11px] truncate min-w-0" style={{ color: initDumpFile ? "#c5cad2" : "#6b7280" }}>
+                          {initDumpFile ? initDumpFile.name : "선택된 파일 없음"}
+                        </span>
+                        {initDumpFile && (
+                          <button
+                            type="button"
+                            onClick={() => setInitDumpFile(null)}
+                            className="text-[11px] text-fg-4 hover:text-fg-2 transition-colors shrink-0"
+                            title="선택 취소"
+                          >
+                            ✕
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* ===== 프론트엔드 섹션 - 백엔드와 대칭. 켜면 GitHub·빌드 + 고급옵션(빌드 타임 변수). ===== */}
+      <div className="mb-6" style={{ borderTop: "1px solid rgba(255,255,255,0.07)", paddingTop: 24 }}>
+        <div className="flex items-center gap-2 mb-2.5">
+          <div className="text-[13px] text-fg-2" style={{ fontWeight: 590 }}>
+            프론트엔드
+          </div>
+          {useStatic && (
+            <button
+              type="button"
+              onClick={() => onRequestGuide?.("static")}
+              className="text-[11px] text-fg-3 hover:text-fg-1 transition-colors"
+              style={{ fontWeight: 510 }}
+            >
+              가이드
+            </button>
+          )}
+        </div>
+        <div className="flex gap-1.5">
+          {[
+            { on: false, name: "사용 안 함" },
+            { on: true, name: "사용하기" },
+          ].map((opt) => {
+            const active = useStatic === opt.on;
+            return (
+              <button
+                key={String(opt.on)}
+                type="button"
+                onClick={() => setUseStatic(opt.on)}
+                className="flex-1 h-10 rounded-lg text-[13px] transition-colors flex items-center justify-center"
+                style={choiceStyle(active)}
+                disabled={submitting}
+              >
+                {opt.name}
+              </button>
+            );
+          })}
+        </div>
+
+        {useStatic && (
+          <div className="mt-5 flex flex-col gap-5">
+            {/* 정적 GitHub 링크 + 브랜치 - 프론트 핵심. 백엔드 ON이면 비울 시 백엔드와 동일, OFF면 필수. */}
+            <div className="flex gap-3">
+              <div className="flex-1">
+                <div
+                  className="text-[10.5px] tracking-[0.08em] text-fg-3 mb-2"
+                  style={{ fontWeight: 590 }}
+                >
+                  GitHub 링크{!serverNone && " (선택)"}
+                </div>
+                <div
+                  className="flex items-center rounded-md px-3"
+                  style={{ border: "1px solid rgba(255,255,255,0.09)", background: "rgba(255,255,255,0.02)" }}
+                >
+                  <GitBranch size={15} strokeWidth={1.6} className="text-fg-3 mr-2 shrink-0" />
+                  <input
+                    value={staticRepoUrl}
+                    onChange={(e) => setStaticRepoUrl(e.target.value)}
+                    placeholder={serverNone ? "https://github.com/username/repo" : "비우면 백엔드와 동일"}
+                    spellCheck={false}
+                    className="flex-1 min-w-0 bg-transparent outline-none text-fg-1 text-[14px] py-2 placeholder:text-fg-3"
+                    style={{ fontWeight: 510 }}
+                    disabled={submitting}
+                  />
+                </div>
+              </div>
+              <div className="w-28 shrink-0">
+                <div
+                  className="text-[10.5px] tracking-[0.08em] text-fg-3 mb-2"
+                  style={{ fontWeight: 590 }}
+                >
+                  브랜치
+                </div>
+                <input
+                  value={staticBranch}
+                  onChange={(e) => setStaticBranch(e.target.value)}
+                  placeholder={serverNone ? "main" : (branch.trim() || "main")}
+                  className="w-full bg-white/[0.02] outline-none text-fg-1 text-[14px] rounded-md px-3 py-2 placeholder:text-fg-3"
+                  style={{
+                    border: "1px solid rgba(255,255,255,0.09)",
+                    fontWeight: 510,
+                  }}
+                  disabled={submitting}
+                />
+              </div>
+            </div>
+
+            {/* 앱 디렉토리 - 모노레포 프론트 폴더 (정적은 마커 자동탐색 불가, 수동 지정). 코어에 노출(고급옵션 아님). */}
+            <div>
+              <div
+                className="text-[10.5px] tracking-[0.08em] text-fg-3 mb-2"
+                style={{ fontWeight: 590 }}
+              >
+                앱 디렉토리 (선택)
               </div>
               <input
-                type="text"
-                inputMode="numeric"
-                value={port}
-                onChange={(e) => setPort(e.target.value)}
-                className="w-full h-10 bg-transparent outline-none text-fg-1 text-[14px] rounded-md px-3"
+                value={staticProjectPath}
+                onChange={(e) => setStaticProjectPath(e.target.value)}
+                placeholder="모노레포면 프론트 폴더 (예: frontend)"
+                className="w-full bg-white/[0.02] outline-none text-fg-1 text-[14px] rounded-md px-3 py-2 placeholder:text-fg-3"
                 style={{
                   border: "1px solid rgba(255,255,255,0.09)",
-                  background: "rgba(255,255,255,0.02)",
                   fontWeight: 510,
                 }}
                 disabled={submitting}
               />
             </div>
-          )}
-        </div>
-        {buildMode === "dockerfile" && (
-          <div className="mt-3">
-            <div
-              className="text-[10.5px] tracking-[0.08em] text-fg-3 mb-2"
-              style={{ fontWeight: 590 }}
-            >
-              Dockerfile 경로
+
+            {/* 프론트 고급 옵션 - 빌드 커맨드·출력·빌드 타임 변수. 백엔드와 대칭. 기본 접힘. */}
+            <div>
+              <button
+                type="button"
+                onClick={() => setShowStaticAdvanced((v) => !v)}
+                className="w-full flex items-center gap-2 py-1 text-fg-3 hover:text-fg-1 transition-colors"
+              >
+                <ChevronDown
+                  size={14}
+                  strokeWidth={2}
+                  className="transition-transform"
+                  style={{ transform: showStaticAdvanced ? "rotate(0deg)" : "rotate(-90deg)" }}
+                />
+                <span className="text-[10.5px] tracking-[0.08em]" style={{ fontWeight: 590 }}>
+                  고급 옵션
+                </span>
+                <span className="text-[11px] text-fg-4" style={{ fontWeight: 450 }}>
+                  빌드 커맨드 · 출력 · 빌드 타임 변수
+                </span>
+              </button>
+
+              {showStaticAdvanced && (
+                <div
+                  className="mt-3 flex flex-col gap-5 px-4 py-4 rounded-xl"
+                  style={{
+                    border: "1px solid rgba(255,255,255,0.07)",
+                    background: "rgba(255,255,255,0.02)",
+                  }}
+                >
+                  {/* 빌드 커맨드 + 출력 디렉토리 */}
+                  <div>
+                    <div className="flex gap-3">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-1 mb-2">
+                          <span className="text-[10.5px] tracking-[0.08em] text-fg-3" style={{ fontWeight: 590 }}>
+                            빌드 커맨드
+                          </span>
+                          <InfoHint>
+                            빌드 결과물(출력 디렉토리)만 서빙돼요 - Vite는 <span style={{ color: "#dde0e4" }}>dist</span>, CRA는 <span style={{ color: "#dde0e4" }}>build</span> 커맨드를 비우면 빌드 없이 저장소 파일을 그대로 서빙합니다(순수 HTML)
+                          </InfoHint>
+                        </div>
+                        <input
+                          value={buildCmd}
+                          onChange={(e) => setBuildCmd(e.target.value)}
+                          placeholder="npm ci && npm run build"
+                          spellCheck={false}
+                          className="w-full bg-white/[0.02] outline-none text-fg-1 text-[14px] rounded-md px-3 py-2 placeholder:text-fg-3"
+                          style={{
+                            border: "1px solid rgba(255,255,255,0.09)",
+                            fontWeight: 510,
+                          }}
+                          disabled={submitting}
+                        />
+                      </div>
+                      <div className="w-32 shrink-0">
+                        <div
+                          className="text-[10.5px] tracking-[0.08em] text-fg-3 mb-2"
+                          style={{ fontWeight: 590 }}
+                        >
+                          출력 디렉토리
+                        </div>
+                        <input
+                          value={outputDir}
+                          onChange={(e) => setOutputDir(e.target.value)}
+                          placeholder="dist"
+                          spellCheck={false}
+                          className="w-full bg-white/[0.02] outline-none text-fg-1 text-[14px] rounded-md px-3 py-2 placeholder:text-fg-3"
+                          style={{
+                            border: "1px solid rgba(255,255,255,0.09)",
+                            fontWeight: 510,
+                          }}
+                          disabled={submitting}
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* 빌드 타임 변수 - 빌드 스테이지 ENV로 주입. 번들에 박혀 공개되므로 시크릿 금지. */}
+                  <div>
+                  <div className="flex items-center gap-1 mb-2">
+                    <span className="text-[10.5px] tracking-[0.08em] text-fg-3" style={{ fontWeight: 590 }}>
+                      빌드 타임 변수 (선택)
+                    </span>
+                    <InfoHint>
+                      <span style={{ color: "#dde0e4" }}>VITE_</span> 같은 빌드 타임 값은 번들에 박혀 공개되니 시크릿 금지, 서버 환경변수(백엔드 고급 옵션)와는 별개
+                    </InfoHint>
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    {staticEnvRows.map((row, i) => (
+                      <div key={i} className="flex items-center gap-1.5">
+                        <input
+                          value={row.key}
+                          onChange={(e) =>
+                            updateStaticEnvRow(i, "key", e.target.value.toUpperCase())
+                          }
+                          placeholder="VITE_API_URL"
+                          spellCheck={false}
+                          autoCapitalize="characters"
+                          className="flex-1 min-w-0 px-2.5 py-1.5 rounded-md bg-transparent outline-none text-[12.5px] text-fg-1 placeholder:text-fg-4"
+                          style={{
+                            border: "1px solid rgba(255,255,255,0.09)",
+                            fontWeight: 510,
+                          }}
+                          disabled={submitting}
+                        />
+                        <input
+                          value={row.value}
+                          onChange={(e) => updateStaticEnvRow(i, "value", e.target.value)}
+                          placeholder="value"
+                          spellCheck={false}
+                          className="flex-1 min-w-0 px-2.5 py-1.5 rounded-md bg-transparent outline-none text-[12.5px] text-fg-1 placeholder:text-fg-4"
+                          style={{
+                            border: "1px solid rgba(255,255,255,0.09)",
+                            fontWeight: 510,
+                          }}
+                          disabled={submitting}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => removeStaticEnvRow(i)}
+                          className="w-7 h-7 rounded-md text-fg-4 hover:text-red-300 hover:bg-white/[0.04] flex items-center justify-center shrink-0"
+                          title="삭제"
+                        >
+                          <Trash2 size={12} strokeWidth={1.8} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={addStaticEnvRow}
+                    className="mt-2.5 flex items-center gap-1 px-2 py-1 rounded-md text-[11.5px] text-fg-3 hover:text-fg-1 hover:bg-white/[0.04]"
+                    style={{ fontWeight: 510 }}
+                  >
+                    <Plus size={11} strokeWidth={2} /> 변수 추가
+                  </button>
+                  </div>
+                </div>
+              )}
             </div>
-            <input
-              value={dockerfilePath}
-              onChange={(e) => setDockerfilePath(e.target.value)}
-              placeholder="Dockerfile"
-              className="w-full bg-transparent outline-none text-fg-1 text-[14px] rounded-md px-3 py-2 placeholder:text-fg-3"
-              style={{
-                border: "1px solid rgba(255,255,255,0.09)",
-                background: "rgba(255,255,255,0.02)",
-                fontWeight: 510,
-              }}
-              disabled={submitting}
-            />
-            <p className="text-[11px] text-fg-3 mt-2" style={{ fontWeight: 450 }}>
-              프로젝트 루트에 Dockerfile이 있어야 합니다. 서브 디렉토리에 있으면{" "}
-              <span style={{ color: "#d0d6e0" }}>subdir/Dockerfile</span> 같이
-              입력.
-            </p>
-          </div>
-        )}
-        {buildMode === "detect" && (
-          <div className="mt-3">
-            <p className="text-[11px] text-fg-3" style={{ fontWeight: 450 }}>
-              저장소에 <span style={{ color: "#d0d6e0" }}>Dockerfile</span>이 있으면 그걸로
-              빌드하고, 없으면 Nixpacks로 자동 빌드해요. 직접 고르려면 위에서 선택하세요.
-            </p>
-          </div>
-        )}
-        {buildMode === "auto" && (
-          <div className="mt-3">
-            <div
-              className="text-[10.5px] tracking-[0.08em] text-fg-3 mb-2"
-              style={{ fontWeight: 590 }}
-            >
-              앱 디렉토리 (선택)
-            </div>
-            <input
-              value={projectPath}
-              onChange={(e) => setProjectPath(e.target.value)}
-              placeholder="비워두면 자동 탐색 (예: backend)"
-              className="w-full bg-transparent outline-none text-fg-1 text-[14px] rounded-md px-3 py-2 placeholder:text-fg-3"
-              style={{
-                border: "1px solid rgba(255,255,255,0.09)",
-                background: "rgba(255,255,255,0.02)",
-                fontWeight: 510,
-              }}
-              disabled={submitting}
-            />
-            <p className="text-[11px] text-fg-3 mt-2" style={{ fontWeight: 450 }}>
-              <span style={{ color: "#d0d6e0" }}>pom.xml</span>,{" "}
-              <span style={{ color: "#d0d6e0" }}>requirements.txt</span> 같은
-              파일이 있는 폴더 경로를 입력하세요.
-              <br />
-              모노레포·비표준 구조면 자동 탐색이 실패할 수 있어요.
-            </p>
           </div>
         )}
       </div>
-      )}
 
-      {/* Domain — 첫 배포에만 표시. 두 번째부터는 user.app_name fix되어 변경 불가 (안내만). */}
-      <div className="mb-6">
-        <div
-          className="text-[10.5px] tracking-[0.08em] text-fg-3 mb-2"
-          style={{ fontWeight: 590 }}
-        >
-          도메인
+      {/* ===== 도메인 - 백엔드/프론트와 별개. 첫 배포에만 입력, 이후 고정. ===== */}
+      <div className="mb-1" style={{ borderTop: "1px solid rgba(255,255,255,0.07)", paddingTop: 24 }}>
+        <div className="flex items-center gap-1 mb-2.5">
+          <span className="text-[13px] text-fg-2" style={{ fontWeight: 590 }}>
+            도메인
+          </span>
+          <InfoHint>
+            <b style={{ color: "#dde0e4", fontWeight: 590 }}>백엔드만</b><br />
+            - {appLabel}.kodeploy.com<br />
+            <b style={{ color: "#dde0e4", fontWeight: 590 }}>프론트만</b><br />
+            - {appLabel}.kodeploy.com<br />
+            <b style={{ color: "#dde0e4", fontWeight: 590 }}>프론트+백엔드</b><br />
+            - 프론트 = {appLabel}.kodeploy.com<br />
+            - 백엔드 = {appLabel}-api.kodeploy.com
+          </InfoHint>
         </div>
         {isFirstDeploy ? (
           <div className="flex items-center gap-2">
@@ -879,547 +1364,77 @@ export default function DeployForm({ onRequestGuide }) {
         )}
       </div>
 
-      {/* 고급 옵션 — 캐시 · 환경변수. 기본 접힘. 핵심 흐름(repo→runtime→배포)을 방해하지 않도록 맨 아래로. */}
+      {/* ===== 커스텀 도메인 - 도메인 아래 독립 접이식 박스(고급옵션형 디자인). 서브도메인 전용. ===== */}
       <div className="mb-6">
         <button
           type="button"
-          onClick={() => setShowAdvanced((v) => !v)}
+          onClick={() => setShowCustomDomain((v) => !v)}
           className="w-full flex items-center gap-2 py-2 text-fg-3 hover:text-fg-1 transition-colors"
         >
           <ChevronDown
             size={14}
             strokeWidth={2}
             className="transition-transform"
-            style={{ transform: showAdvanced ? "rotate(0deg)" : "rotate(-90deg)" }}
+            style={{ transform: showCustomDomain ? "rotate(0deg)" : "rotate(-90deg)" }}
           />
-          <span className="text-[12px]" style={{ fontWeight: 540 }}>
-            고급 옵션
+          <span className="text-[10.5px] tracking-[0.08em]" style={{ fontWeight: 590 }}>
+            커스텀 도메인
           </span>
           <span className="text-[11px] text-fg-4" style={{ fontWeight: 450 }}>
-            {serverNone ? "커스텀 도메인" : "캐시 · 환경변수"}
+            선택 · 내 도메인 연결
           </span>
         </button>
 
-        {showAdvanced && (
+        {showCustomDomain && (
           <div
-            className="mt-3 flex flex-col gap-6 px-4 py-4 rounded-xl"
+            className="mt-3 px-4 py-4 rounded-xl"
             style={{
               border: "1px solid rgba(255,255,255,0.07)",
               background: "rgba(255,255,255,0.015)",
             }}
           >
-            {/* 캐시 + 스토리지 — 서버 없으면 숨김 */}
-            {!serverNone && (
-            <>
-            <div>
-              <div
-                className="text-[10.5px] tracking-[0.08em] text-fg-3 mb-2.5"
-                style={{ fontWeight: 590 }}
-              >
-                캐시
-              </div>
-              <div className="flex gap-1.5">
-                {[
-                  { id: false, name: "사용 안 함" },
-                  { id: true, name: "Redis 7" },
-                ].map((r) => {
-                  const active = useRedis === r.id;
-                  return (
-                    <button
-                      key={String(r.id)}
-                      type="button"
-                      onClick={() => setUseRedis(r.id)}
-                      className="flex-1 h-10 rounded-lg text-[13px] transition-colors flex items-center justify-center"
-                      style={{
-                        background: active ? "rgba(129,139,224,0.12)" : "rgba(255,255,255,0.03)",
-                        border: `1px solid ${active ? "rgba(129,139,224,0.25)" : "rgba(255,255,255,0.06)"}`,
-                        color: active ? "#818be0" : "#8a8f98",
-                        fontWeight: 510,
-                      }}
-                      disabled={submitting}
-                    >
-                      {r.name}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* 영속 저장소 — 런타임 무관 공통 옵션. none=ephemeral / local=PVC(mount_path) / object=R2. */}
-            <div>
-              <div
-                className="text-[10.5px] tracking-[0.08em] text-fg-3 mb-2.5"
-                style={{ fontWeight: 590 }}
-              >
-                영속 저장소
-              </div>
-              <div className="flex gap-1.5">
-                {[
-                  { id: "none", name: "사용 안 함" },
-                  { id: "local", name: "로컬 (PVC)" },
-                  { id: "object", name: "오브젝트 (R2)" },
-                ].map((s) => {
-                  const active = storage === s.id;
-                  return (
-                    <button
-                      key={s.id}
-                      type="button"
-                      onClick={() => setStorage(s.id)}
-                      className="flex-1 h-10 rounded-lg text-[13px] transition-colors flex items-center justify-center"
-                      style={{
-                        background: active ? "rgba(129,139,224,0.12)" : "rgba(255,255,255,0.03)",
-                        border: `1px solid ${active ? "rgba(129,139,224,0.25)" : "rgba(255,255,255,0.06)"}`,
-                        color: active ? "#818be0" : "#8a8f98",
-                        fontWeight: 510,
-                      }}
-                      disabled={submitting}
-                    >
-                      {s.name}
-                    </button>
-                  );
-                })}
-              </div>
-              {storage === "local" && (
-                <div className="mt-2">
-                  <input
-                    value={volumeMountPath}
-                    onChange={(e) => setVolumeMountPath(e.target.value)}
-                    placeholder="/var/www/html/data"
-                    spellCheck={false}
-                    autoCapitalize="off"
-                    className="w-full px-2.5 py-1.5 rounded-md bg-transparent outline-none text-[12.5px] text-fg-1 placeholder:text-fg-4"
-                    style={{ border: "1px solid rgba(255,255,255,0.09)", fontWeight: 510 }}
-                    disabled={submitting}
-                  />
-                  <p className="text-[11px] text-fg-4 mt-1.5" style={{ lineHeight: 1.5 }}>
-                    이 <span className="text-fg-3">절대경로</span>에 영속 디스크(PVC)가 마운트돼요. 재시작·재배포에도 이 경로의
-                    데이터는 유지됩니다(예: 그누보드 <span className="text-fg-3">/var/www/html/data</span>).
-                  </p>
-                </div>
-              )}
-              {storage === "object" && (
-                <p className="text-[11px] text-fg-4 mt-2" style={{ lineHeight: 1.5 }}>
-                  앱당 R2 버킷이 생성되고 <span className="text-fg-3">S3 호환 자격증명</span>이 앱에 자동 주입돼요(이미지 등 오브젝트 저장).
-                </p>
-              )}
-            </div>
-            </>
-            )}
-
-            {/* 커스텀 도메인 — 서브도메인 전용(CNAME). 배포 직후 setDomain 호출. */}
-            <div>
-              <div className="flex items-center justify-between mb-2.5">
-                <div className="text-[10.5px] tracking-[0.08em] text-fg-3" style={{ fontWeight: 590 }}>
+            <div className="flex items-center justify-between mb-2.5">
+              <div className="flex items-center gap-1">
+                <span className="text-[10.5px] tracking-[0.08em] text-fg-3" style={{ fontWeight: 590 }}>
                   커스텀 도메인 (선택)
-                </div>
-                <button
-                  type="button"
-                  onClick={() => onRequestGuide?.("custom-domain")}
-                  className="text-[11px] text-fg-3 hover:text-fg-1 transition-colors"
-                  style={{ fontWeight: 510 }}
-                >
-                  가이드 보기
-                </button>
-              </div>
-              <input
-                value={customDomain}
-                onChange={(e) => setCustomDomain(e.target.value.toLowerCase())}
-                placeholder="app.example.com"
-                spellCheck={false}
-                autoCapitalize="off"
-                className="w-full px-2.5 py-1.5 rounded-md bg-transparent outline-none text-[12.5px] text-fg-1 placeholder:text-fg-4"
-                style={{ border: "1px solid rgba(255,255,255,0.09)", fontWeight: 510 }}
-                disabled={submitting}
-              />
-              {customDomain.trim() && (
-                <div
-                  className="mt-2 flex items-center gap-2 px-2.5 py-2 rounded-md text-[11.5px]"
-                  style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)", fontWeight: 510 }}
-                >
-                  <span className="text-fg-4 w-12 shrink-0">CNAME</span>
-                  <span className="text-fg-2 truncate">{customDomain.trim()}</span>
-                  <span className="text-fg-4 shrink-0">→</span>
-                  <span className="text-[#a4abee] truncate flex-1">{CUSTOM_DOMAIN_CNAME_TARGET}</span>
-                </div>
-              )}
-              <p className="text-[11px] text-fg-4 mt-1.5" style={{ lineHeight: 1.5 }}>
-                <span className="text-fg-3">서브도메인만</span> 가능해요(예: app.example.com). 배포 후 위 CNAME 한 줄을
-                도메인 DNS에 추가하면 인증서가 자동 발급됩니다. 루트(apex) 도메인은 미지원.
-              </p>
-            </div>
-
-            {/* 환경변수 — 서버 슬롯 전용 (정적 nginx는 안 읽음) */}
-            {!serverNone && (
-            <div>
-              <div
-                className="text-[10.5px] tracking-[0.08em] text-fg-3 mb-2.5"
-                style={{ fontWeight: 590 }}
-              >
-                환경변수 (선택)
-              </div>
-              <div className="flex flex-col gap-1.5">
-                {envRows.map((row, i) => (
-                  <div key={i} className="flex items-center gap-1.5">
-                    <input
-                      value={row.key}
-                      onChange={(e) =>
-                        updateEnvRow(i, "key", e.target.value.toUpperCase())
-                      }
-                      placeholder="KEY"
-                      spellCheck={false}
-                      autoCapitalize="characters"
-                      className="flex-1 min-w-0 px-2.5 py-1.5 rounded-md bg-transparent outline-none text-[12.5px] text-fg-1 placeholder:text-fg-4"
-                      style={{
-                        border: "1px solid rgba(255,255,255,0.09)",
-                        fontWeight: 510,
-                      }}
-                      disabled={submitting}
-                    />
-                    <input
-                      value={
-                        row.visible
-                          ? row.value
-                          : "•".repeat(Math.min(row.value.length, 12))
-                      }
-                      onChange={(e) =>
-                        row.visible && updateEnvRow(i, "value", e.target.value)
-                      }
-                      onFocus={() => !row.visible && toggleEnvVisible(i)}
-                      readOnly={!row.visible}
-                      placeholder="value"
-                      spellCheck={false}
-                      className="flex-1 min-w-0 px-2.5 py-1.5 rounded-md bg-transparent outline-none text-[12.5px] text-fg-1 placeholder:text-fg-4"
-                      style={{
-                        border: "1px solid rgba(255,255,255,0.09)",
-                        fontWeight: 510,
-                      }}
-                      disabled={submitting}
-                    />
-                    <button
-                      type="button"
-                      onClick={() => toggleEnvVisible(i)}
-                      className="w-7 h-7 rounded-md text-fg-4 hover:text-fg-1 hover:bg-white/[0.04] flex items-center justify-center shrink-0"
-                      title={row.visible ? "숨기기" : "보기"}
-                    >
-                      {row.visible ? (
-                        <EyeOff size={12} strokeWidth={1.8} />
-                      ) : (
-                        <Eye size={12} strokeWidth={1.8} />
-                      )}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => removeEnvRow(i)}
-                      className="w-7 h-7 rounded-md text-fg-4 hover:text-red-300 hover:bg-white/[0.04] flex items-center justify-center shrink-0"
-                      title="삭제"
-                    >
-                      <Trash2 size={12} strokeWidth={1.8} />
-                    </button>
-                  </div>
-                ))}
+                </span>
+                <InfoHint>
+                  <b style={{ color: "#dde0e4", fontWeight: 590 }}>서브도메인만</b> 가능 (예: app.example.com)<br />
+                  배포 후 위 CNAME을 DNS에 추가하면 인증서 자동 발급 (루트 apex 미지원)<br />
+                  <b style={{ color: "#dde0e4", fontWeight: 590 }}>프론트+백엔드</b> = 프론트에 연결<br />
+                  <b style={{ color: "#dde0e4", fontWeight: 590 }}>백엔드만</b> = 백엔드에 연결
+                </InfoHint>
               </div>
               <button
                 type="button"
-                onClick={addEnvRow}
-                className="mt-3 flex items-center gap-1 px-2 py-1 rounded-md text-[11.5px] text-fg-3 hover:text-fg-1 hover:bg-white/[0.04]"
-                style={{ fontWeight: 510 }}
-              >
-                <Plus size={11} strokeWidth={2} /> 변수 추가
-              </button>
-              <p
-                className="text-[11px] text-fg-4 mt-2"
-                style={{ fontWeight: 450, lineHeight: 1.55 }}
-              >
-                빈 KEY row는 무시돼요. 빈 값으로 두면 환경변수 변경 없이 빌드만 트리거.
-              </p>
-            </div>
-            )}
-
-            {/* 초기 데이터 — DB(mysql/postgres) 선택 시에만. 배포 후 DB Ready되면 자동 복원 (마이그레이션용). */}
-            {!serverNone && (dbType === "mysql" || dbType === "postgres") && (
-              <div>
-                <div
-                  className="text-[10.5px] tracking-[0.08em] text-fg-3 mb-2.5"
-                  style={{ fontWeight: 590 }}
-                >
-                  초기 데이터 (선택)
-                </div>
-                <div className="flex items-center gap-2.5">
-                  <label
-                    className="px-3 py-1.5 rounded-lg text-[12px] cursor-pointer shrink-0 transition-colors"
-                    style={{ background: "rgba(255,255,255,0.05)", color: "#dde0e4", fontWeight: 510, border: "1px solid rgba(255,255,255,0.08)" }}
-                  >
-                    파일 선택
-                    <input
-                      type="file"
-                      accept=".sql,.gz,.sql.gz,application/sql,application/gzip"
-                      onChange={(e) => setInitDumpFile(e.target.files?.[0] || null)}
-                      className="hidden"
-                      disabled={submitting}
-                    />
-                  </label>
-                  <span className="text-[11px] truncate min-w-0" style={{ color: initDumpFile ? "#c5cad2" : "#6b7280" }}>
-                    {initDumpFile ? initDumpFile.name : "선택된 파일 없음"}
-                  </span>
-                  {initDumpFile && (
-                    <button
-                      type="button"
-                      onClick={() => setInitDumpFile(null)}
-                      className="text-[11px] text-fg-4 hover:text-fg-2 transition-colors shrink-0"
-                      title="선택 취소"
-                    >
-                      ✕
-                    </button>
-                  )}
-                </div>
-                <p
-                  className="text-[11px] text-fg-4 mt-2"
-                  style={{ fontWeight: 450, lineHeight: 1.55 }}
-                >
-                  .sql · .sql.gz 덤프를 올리면 배포 후 MySQL에 자동 복원돼요. 기존 데이터를 덮어씁니다.
-                </p>
-              </div>
-            )}
-          </div>
-        )}
-      </div>
-
-      {/* 정적 사이트 세트 — 슬롯 전체(토글·repo·빌드·변수)를 한 묶음으로. 켜면
-          {app}.kodeploy.com=정적 / 서버={app}-api, 커스텀 도메인도 정적에 연결. */}
-      <div className="mb-6">
-        <div className="flex items-center justify-between mb-2.5">
-          <div className="flex items-center gap-2">
-            <div className="text-[12px] text-fg-2" style={{ fontWeight: 590 }}>
-              프론트엔드
-            </div>
-            {useStatic && (
-              <button
-                type="button"
-                onClick={() => onRequestGuide?.("static")}
+                onClick={() => onRequestGuide?.("custom-domain")}
                 className="text-[11px] text-fg-3 hover:text-fg-1 transition-colors"
                 style={{ fontWeight: 510 }}
               >
-                가이드
+                가이드 보기
               </button>
-            )}
-          </div>
-          <div className="flex gap-1.5">
-            {[
-              { on: false, name: "사용 안 함" },
-              { on: true, name: "사용하기" },
-            ].map((opt) => {
-              const active = useStatic === opt.on;
-              return (
-                <button
-                  key={String(opt.on)}
-                  type="button"
-                  onClick={() => setUseStatic(opt.on)}
-                  className="h-7 px-3 rounded-md text-[11px] transition-colors"
-                  style={{
-                    background: active ? "rgba(129,139,224,0.12)" : "rgba(255,255,255,0.03)",
-                    border: `1px solid ${active ? "rgba(129,139,224,0.25)" : "rgba(255,255,255,0.06)"}`,
-                    color: active ? "#818be0" : "#8a8f98",
-                    fontWeight: 510,
-                  }}
-                  disabled={submitting}
-                >
-                  {opt.name}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-        {useStatic && (
-          <div
-            className="mt-3 flex flex-col gap-5 px-4 py-4 rounded-xl"
-            style={{
-              border: "1px solid rgba(255,255,255,0.07)",
-              background: "rgba(255,255,255,0.015)",
-            }}
-          >
-            {!serverNone && (
-              <p className="text-[11px] text-fg-4" style={{ fontWeight: 450, lineHeight: 1.5 }}>
-                정적 사이트가 <span className="text-fg-3">{(user?.app_name || name.trim() || "앱이름")}.kodeploy.com</span>을
-                받고, 서버는 <span className="text-fg-3">{(user?.app_name || name.trim() || "앱이름")}-api.kodeploy.com</span>으로
-                제공돼요. 커스텀 도메인도 정적 사이트에 연결됩니다.
-              </p>
-            )}
-            <div className="flex gap-3">
-              <div className="flex-1">
-                <div
-                  className="text-[10.5px] tracking-[0.08em] text-fg-3 mb-2"
-                  style={{ fontWeight: 590 }}
-                >
-                  정적 저장소 (선택)
-                </div>
-                <input
-                  value={staticRepoUrl}
-                  onChange={(e) => setStaticRepoUrl(e.target.value)}
-                  placeholder="비우면 위 저장소 사용"
-                  spellCheck={false}
-                  className="w-full bg-transparent outline-none text-fg-1 text-[13px] rounded-md px-3 py-2 placeholder:text-fg-4"
-                  style={{
-                    border: "1px solid rgba(255,255,255,0.09)",
-                    fontWeight: 510,
-                  }}
-                  disabled={submitting}
-                />
-              </div>
-              <div className="w-28 shrink-0">
-                <div
-                  className="text-[10.5px] tracking-[0.08em] text-fg-3 mb-2"
-                  style={{ fontWeight: 590 }}
-                >
-                  브랜치
-                </div>
-                <input
-                  value={staticBranch}
-                  onChange={(e) => setStaticBranch(e.target.value)}
-                  placeholder={branch.trim() || "main"}
-                  className="w-full bg-transparent outline-none text-fg-1 text-[13px] rounded-md px-3 py-2 placeholder:text-fg-4"
-                  style={{
-                    border: "1px solid rgba(255,255,255,0.09)",
-                    fontWeight: 510,
-                  }}
-                  disabled={submitting}
-                />
-              </div>
             </div>
-            <div>
-              <div className="flex gap-3">
-                <div className="flex-1">
-                  <div
-                    className="text-[10.5px] tracking-[0.08em] text-fg-3 mb-2"
-                    style={{ fontWeight: 590 }}
-                  >
-                    빌드 커맨드
-                  </div>
-                  <input
-                    value={buildCmd}
-                    onChange={(e) => setBuildCmd(e.target.value)}
-                    placeholder="npm ci && npm run build"
-                    spellCheck={false}
-                    className="w-full bg-transparent outline-none text-fg-1 text-[13px] rounded-md px-3 py-2 placeholder:text-fg-4"
-                    style={{
-                      border: "1px solid rgba(255,255,255,0.09)",
-                      fontWeight: 510,
-                    }}
-                    disabled={submitting}
-                  />
-                </div>
-                <div className="w-32 shrink-0">
-                  <div
-                    className="text-[10.5px] tracking-[0.08em] text-fg-3 mb-2"
-                    style={{ fontWeight: 590 }}
-                  >
-                    출력 디렉토리
-                  </div>
-                  <input
-                    value={outputDir}
-                    onChange={(e) => setOutputDir(e.target.value)}
-                    placeholder="dist"
-                    spellCheck={false}
-                    className="w-full bg-transparent outline-none text-fg-1 text-[13px] rounded-md px-3 py-2 placeholder:text-fg-4"
-                    style={{
-                      border: "1px solid rgba(255,255,255,0.09)",
-                      fontWeight: 510,
-                    }}
-                    disabled={submitting}
-                  />
-                </div>
-              </div>
-              <p className="text-[11px] text-fg-4 mt-2" style={{ fontWeight: 450, lineHeight: 1.55 }}>
-                빌드 결과물(출력 디렉토리)만 서빙돼요 — Vite는{" "}
-                <span className="text-fg-3">dist</span>, CRA는{" "}
-                <span className="text-fg-3">build</span>. 커맨드를 비우면 빌드 없이
-                저장소 파일을 그대로 서빙합니다 (순수 HTML).
-              </p>
-            </div>
-            <div>
+            <input
+              value={customDomain}
+              onChange={(e) => setCustomDomain(e.target.value.toLowerCase())}
+              placeholder="app.example.com"
+              spellCheck={false}
+              autoCapitalize="off"
+              className="w-full px-2.5 py-1.5 rounded-md bg-transparent outline-none text-[12.5px] text-fg-1 placeholder:text-fg-4"
+              style={{ border: "1px solid rgba(255,255,255,0.09)", fontWeight: 510 }}
+              disabled={submitting}
+            />
+            {customDomain.trim() && (
               <div
-                className="text-[10.5px] tracking-[0.08em] text-fg-3 mb-2"
-                style={{ fontWeight: 590 }}
+                className="mt-2 flex items-center gap-2 px-2.5 py-2 rounded-md text-[11.5px]"
+                style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)", fontWeight: 510 }}
               >
-                앱 디렉토리 (선택)
+                <span className="text-fg-4 w-12 shrink-0">CNAME</span>
+                <span className="text-fg-2 truncate">{customDomain.trim()}</span>
+                <span className="text-fg-4 shrink-0">→</span>
+                <span className="text-[#a4abee] truncate flex-1">{CUSTOM_DOMAIN_CNAME_TARGET}</span>
               </div>
-              <input
-                value={staticProjectPath}
-                onChange={(e) => setStaticProjectPath(e.target.value)}
-                placeholder="모노레포면 프론트 폴더 (예: frontend)"
-                className="w-full bg-transparent outline-none text-fg-1 text-[13px] rounded-md px-3 py-2 placeholder:text-fg-4"
-                style={{
-                  border: "1px solid rgba(255,255,255,0.09)",
-                  fontWeight: 510,
-                }}
-                disabled={submitting}
-              />
-            </div>
-            {/* 빌드 타임 변수 — 빌드 스테이지 ENV로 주입. 번들에 박혀 공개되므로 시크릿 금지. */}
-            <div>
-              <div
-                className="text-[10.5px] tracking-[0.08em] text-fg-3 mb-2"
-                style={{ fontWeight: 590 }}
-              >
-                빌드 타임 변수 (선택)
-              </div>
-              <div className="flex flex-col gap-1.5">
-                {staticEnvRows.map((row, i) => (
-                  <div key={i} className="flex items-center gap-1.5">
-                    <input
-                      value={row.key}
-                      onChange={(e) =>
-                        updateStaticEnvRow(i, "key", e.target.value.toUpperCase())
-                      }
-                      placeholder="VITE_API_URL"
-                      spellCheck={false}
-                      autoCapitalize="characters"
-                      className="flex-1 min-w-0 px-2.5 py-1.5 rounded-md bg-transparent outline-none text-[12.5px] text-fg-1 placeholder:text-fg-4"
-                      style={{
-                        border: "1px solid rgba(255,255,255,0.09)",
-                        fontWeight: 510,
-                      }}
-                      disabled={submitting}
-                    />
-                    <input
-                      value={row.value}
-                      onChange={(e) => updateStaticEnvRow(i, "value", e.target.value)}
-                      placeholder="value"
-                      spellCheck={false}
-                      className="flex-1 min-w-0 px-2.5 py-1.5 rounded-md bg-transparent outline-none text-[12.5px] text-fg-1 placeholder:text-fg-4"
-                      style={{
-                        border: "1px solid rgba(255,255,255,0.09)",
-                        fontWeight: 510,
-                      }}
-                      disabled={submitting}
-                    />
-                    <button
-                      type="button"
-                      onClick={() => removeStaticEnvRow(i)}
-                      className="w-7 h-7 rounded-md text-fg-4 hover:text-red-300 hover:bg-white/[0.04] flex items-center justify-center shrink-0"
-                      title="삭제"
-                    >
-                      <Trash2 size={12} strokeWidth={1.8} />
-                    </button>
-                  </div>
-                ))}
-              </div>
-              <button
-                type="button"
-                onClick={addStaticEnvRow}
-                className="mt-2.5 flex items-center gap-1 px-2 py-1 rounded-md text-[11.5px] text-fg-3 hover:text-fg-1 hover:bg-white/[0.04]"
-                style={{ fontWeight: 510 }}
-              >
-                <Plus size={11} strokeWidth={2} /> 변수 추가
-              </button>
-              <p
-                className="text-[11px] text-fg-4 mt-2"
-                style={{ fontWeight: 450, lineHeight: 1.55 }}
-              >
-                <span className="text-fg-3">VITE_</span> 같은 빌드 타임 값이 번들에
-                들어가요 — 브라우저에 공개되니 <span className="text-fg-3">시크릿은 금지</span>.
-                서버 환경변수(고급 옵션)와는 별개입니다.
-              </p>
-            </div>
+            )}
           </div>
         )}
       </div>

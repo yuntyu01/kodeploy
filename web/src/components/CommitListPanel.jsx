@@ -18,6 +18,7 @@ import {
   Upload,
   X,
 } from "lucide-react";
+import InfoHint from "./InfoHint.jsx";
 import {
   CUSTOM_DOMAIN_CNAME_TARGET,
   dbExportUrl,
@@ -167,7 +168,7 @@ function CommitsBody({ commits }) {
   if (commits.length === 0) {
     return (
       <div className="flex-1 min-h-0 overflow-auto scroll-thin py-10 text-center text-[12px] text-fg-4">
-        불러올 커밋이 없어요.
+        불러올 커밋이 없어요
       </div>
     );
   }
@@ -342,7 +343,7 @@ function BuildsBody({ builds }) {
   if (builds.length === 0) {
     return (
       <div className="flex-1 min-h-0 overflow-auto scroll-thin py-10 text-center text-[12px] text-fg-4">
-        아직 빌드가 없어요.
+        아직 빌드가 없어요
       </div>
     );
   }
@@ -821,8 +822,8 @@ function EnvBody({ envVars, onSaved }) {
           className="text-[11px] text-fg-4 mt-5"
           style={{ fontWeight: 450, lineHeight: 1.55 }}
         >
-          KEY는 영문 대문자 / 숫자 / _ 만 허용. 최대 50개, value 4KB 이내.
-          빈 KEY row는 저장 시 무시돼요.
+          KEY는 영문 대문자 / 숫자 / _ 만 허용, 최대 50개, value 4KB 이내
+          빈 KEY row는 저장 시 무시돼요
         </p>
       </div>
 
@@ -931,7 +932,7 @@ function CustomDomainSection() {
     <section className="flex flex-col gap-3">
       <div className="flex flex-col gap-0.5">
         <span className="text-[13px] text-fg-1" style={{ fontWeight: 590, letterSpacing: -0.2 }}>커스텀 도메인</span>
-        <span className="text-[11px] text-fg-4">내 도메인을 앱에 연결 — 재배포 없이 바로 적용.</span>
+        <span className="text-[11px] text-fg-4">내 도메인을 앱에 연결 - 재배포 없이 바로 적용</span>
       </div>
 
       {loading ? (
@@ -1078,7 +1079,7 @@ function ExtraBody() {
             DB 스냅샷
           </span>
           <span className="text-[11.5px] text-fg-3" style={{ lineHeight: 1.5 }}>
-            현재 앱의 MySQL을 통째로 백업하거나, 백업 파일로 되돌립니다.
+            현재 앱의 MySQL을 통째로 백업하거나, 백업 파일로 되돌립니다
           </span>
         </div>
 
@@ -1132,16 +1133,25 @@ function ExtraBody() {
               <Upload size={16} strokeWidth={1.8} style={{ color: "#e0a0a0" }} />
             </div>
             <div className="flex-1 min-w-0">
-              <div className="text-[12.5px] text-fg-1" style={{ fontWeight: 540 }}>
-                복원
+              <div className="flex items-center gap-1">
+                <span className="text-[12.5px] text-fg-1" style={{ fontWeight: 540 }}>복원</span>
+                <InfoHint>.sql · .sql.gz 지원</InfoHint>
               </div>
-              <div className="text-[11px] text-fg-4 mt-0.5">
-                <span style={{ color: "#d99" }}>기존 데이터 덮어쓰기</span>
-                {" · "}
-                <span className="text-fg-3">.sql</span>
-                {" · "}
-                <span className="text-fg-3">.sql.gz</span>
-                {" 지원"}
+              <div className="text-[11px] mt-0.5 flex items-center gap-1.5 min-w-0">
+                {file ? (
+                  <>
+                    <span className="truncate" style={{ color: "#c5cad2" }}>{file.name}</span>
+                    <button
+                      onClick={() => { setFile(null); setConfirming(false); setMsg(null); }}
+                      className="text-fg-4 hover:text-fg-2 transition-colors shrink-0"
+                      title="선택 취소"
+                    >
+                      ✕
+                    </button>
+                  </>
+                ) : (
+                  <span style={{ color: "#d99" }}>기존 데이터 덮어쓰기</span>
+                )}
               </div>
             </div>
             {/* 파일 선택 전엔 '파일 선택', 선택 후엔 '복원 실행'이 같은 자리에서 활성화.
@@ -1182,25 +1192,9 @@ function ExtraBody() {
             )}
           </div>
 
-          {/* 선택 파일명 + 지원 포맷 — 주변 본문과 동일한 글씨체(sans)로 통일 */}
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-[11px] truncate min-w-0" style={{ color: file ? "#c5cad2" : "#6b7280" }}>
-              {file ? file.name : "선택된 파일 없음"}
-            </span>
-            {file && (
-              <button
-                onClick={() => { setFile(null); setConfirming(false); setMsg(null); }}
-                className="text-[11px] text-fg-4 hover:text-fg-2 transition-colors shrink-0"
-                title="선택 취소"
-              >
-                ✕
-              </button>
-            )}
-          </div>
-
           {confirming && !busy && (
             <div className="text-[10.5px]" style={{ color: "#e0a0a0" }}>
-              ⚠ 되돌릴 수 없습니다. 버튼을 한 번 더 누르면 즉시 덮어씁니다.
+              ⚠ 되돌릴 수 없습니다 - 버튼을 한 번 더 누르면 즉시 덮어씁니다
             </div>
           )}
 
