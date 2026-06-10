@@ -35,7 +35,7 @@ export default function DeployForm({ onRequestGuide }) {
   const [name, setName] = useState("");
   const [branch, setBranch] = useState("main");
   const [port, setPort] = useState(DEFAULT_PORTS[RUNTIMES[0]] ?? 80);
-  const [buildMode, setBuildMode] = useState("auto");
+  const [buildMode, setBuildMode] = useState("detect");  // detect=자동감지(기본) / dockerfile / auto(nixpacks)
   const [dockerfilePath, setDockerfilePath] = useState("Dockerfile");
   const [projectPath, setProjectPath] = useState("");
   // 정적 슬롯 — 토글 + 빌드 입력. repo/branch 비우면 서버 repo/branch 사용.
@@ -683,7 +683,7 @@ export default function DeployForm({ onRequestGuide }) {
       {!serverNone && (
       <div className="mb-6">
         <div className="flex gap-3">
-          <div className={buildMode === "dockerfile" ? "flex-1" : "w-full"}>
+          <div className={buildMode === "auto" ? "w-full" : "flex-1"}>
             <div
               className="text-[10.5px] tracking-[0.08em] text-fg-3 mb-2.5"
               style={{ fontWeight: 590 }}
@@ -692,8 +692,9 @@ export default function DeployForm({ onRequestGuide }) {
             </div>
             <div className="flex gap-1.5">
               {[
-                { id: "auto", name: "자동 빌드" },
+                { id: "detect", name: "자동" },
                 { id: "dockerfile", name: "Dockerfile" },
+                { id: "auto", name: "Nixpacks" },
               ].map((m) => {
                 const active = buildMode === m.id;
                 return (
@@ -716,7 +717,7 @@ export default function DeployForm({ onRequestGuide }) {
               })}
             </div>
           </div>
-          {buildMode === "dockerfile" && (
+          {buildMode !== "auto" && (
             <div className="w-24 shrink-0">
               <div
                 className="text-[10.5px] tracking-[0.08em] text-fg-3 mb-2.5"
@@ -764,6 +765,14 @@ export default function DeployForm({ onRequestGuide }) {
               프로젝트 루트에 Dockerfile이 있어야 합니다. 서브 디렉토리에 있으면{" "}
               <span style={{ color: "#d0d6e0" }}>subdir/Dockerfile</span> 같이
               입력.
+            </p>
+          </div>
+        )}
+        {buildMode === "detect" && (
+          <div className="mt-3">
+            <p className="text-[11px] text-fg-3" style={{ fontWeight: 450 }}>
+              저장소에 <span style={{ color: "#d0d6e0" }}>Dockerfile</span>이 있으면 그걸로
+              빌드하고, 없으면 Nixpacks로 자동 빌드해요. 직접 고르려면 위에서 선택하세요.
             </p>
           </div>
         )}

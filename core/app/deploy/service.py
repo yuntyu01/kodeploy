@@ -8,6 +8,7 @@ import re
 import threading
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 import uuid
 from datetime import datetime, timezone
@@ -66,6 +67,90 @@ def _fetch_github_raw(repo_url: str, branch: str, path: str) -> str | None:
     except (urllib.error.URLError, TimeoutError, ValueError):
         pass
     return None
+
+
+# 빌드 user의 installation id 조회 (private repo tree/clone 토큰 발급용). 없으면 None.
+def _installation_id_for(build: Build) -> "int | None":
+    if build.user_id is None:
+        return None
+    db = SessionLocal()
+    try:
+        owner = db.query(User).filter_by(id=build.user_id).first()
+        return owner.github_installation_id if owner else None
+    finally:
+        db.close()
+
+
+# nixpacks가 프로젝트 루트로 인식하는 마커 파일 — auto 모드의 앱 디렉토리 자동 탐색용.
+# 현재 KoDeploy 지원 런타임(Python·Java·PHP)의 마커만 활성. 다른 언어는 그 런타임 추가 시 주석 해제.
+_NIXPACKS_MARKERS = frozenset({
+    # Python
+    "requirements.txt", "pyproject.toml", "Pipfile", "setup.py",
+    # Java
+    "pom.xml", "build.gradle", "build.gradle.kts",
+    # PHP
+    "composer.json",
+    # --- 미지원 런타임 (지원 추가 시 주석 해제) ---
+    # "package.json", "package-lock.json", "yarn.lock", "pnpm-lock.yaml",  # JavaScript / Node
+    # "go.mod",      # Go
+    # "Gemfile",     # Ruby
+    # "Cargo.toml",  # Rust
+    # "mix.exs",     # Elixir
+})
+
+
+# build_mode="detect" 해소 — GitHub tree API로 빌드 방식 + 경로를 한 번에 감지 (깊이 3까지).
+#   1) Dockerfile 있으면        → ("dockerfile", 그 경로)
+#   2) 없고 nixpacks 마커 있으면 → ("auto", 그 디렉토리)  ← 모노레포 서브디렉토리 자동
+#   3) 둘 다 없으면             → ("auto", project_path 그대로) — nixpacks가 root에서 시도
+# project_path 하위 우선, root에 가까운 것 우선. private은 installation 토큰. fallback 아님(존재 기반).
+def _detect_build(build: Build) -> "tuple[str, str]":
+    fallback = ("auto", build.project_path or "")
+    m = _GITHUB_REPO_PATTERN.match(build.repo_url.rstrip("/"))
+    if not m:
+        return fallback
+    owner, repo = m.group(1), m.group(2)
+    headers = {"Accept": "application/vnd.github+json", "User-Agent": "kodeploy"}
+    token = github_app.get_clone_token(_installation_id_for(build))
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    api_url = (
+        f"https://api.github.com/repos/{owner}/{repo}/git/trees/"
+        f"{urllib.parse.quote(build.branch)}?recursive=1"
+    )
+    try:
+        req = urllib.request.Request(api_url, headers=headers)
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = json.load(resp)
+    except (urllib.error.URLError, TimeoutError, ValueError):
+        return fallback
+
+    prefix = (build.project_path or "").strip("/")
+
+    def in_scope(p: str) -> bool:
+        return not prefix or p == prefix or p.startswith(f"{prefix}/")
+
+    dockerfiles, markers = [], []
+    for item in data.get("tree", []):
+        if item.get("type") != "blob":
+            continue
+        path = item.get("path", "")
+        if path.count("/") > 3:                        # 깊이 3 초과 제외
+            continue
+        name = path.rsplit("/", 1)[-1]
+        if name == "Dockerfile" and in_scope(path):
+            dockerfiles.append(path)
+        elif name in _NIXPACKS_MARKERS and in_scope(path):
+            markers.append(path)
+
+    if dockerfiles:                                    # Dockerfile 우선 (root 가까운 것)
+        dockerfiles.sort(key=lambda p: p.count("/"))
+        return ("dockerfile", dockerfiles[0])
+    if markers:                                        # nixpacks 마커 디렉토리
+        markers.sort(key=lambda p: p.count("/"))
+        best = markers[0]
+        return ("auto", best.rsplit("/", 1)[0] if "/" in best else "")
+    return fallback
 
 
 # 예약 서브도메인 (시스템 인프라용) — 유저 입력 거절
@@ -815,6 +900,23 @@ async def _run_build(
         db.commit()
 
         try:
+            build.status = "building"
+            db.commit()
+
+            # private repo면 이 빌드용 git 토큰 Secret 발급 (public이거나 App 미설정/미설치면 "" → 토큰 없이 clone).
+            git_auth_secret = _provision_git_auth(build)
+
+            # build_mode="detect" 해소 — Dockerfile 있으면 dockerfile / 없으면 auto(nixpacks).
+            # GitHub tree API로 감지(깊이 3). private은 위에서 발급한 installation 토큰 캐시 재사용.
+            if build.build_mode == "detect":
+                mode, path = await asyncio.to_thread(_detect_build, build)
+                build.build_mode = mode
+                if mode == "dockerfile":
+                    build.dockerfile_path = path
+                else:                          # auto — 감지한 nixpacks 디렉토리를 project_path로
+                    build.project_path = path
+                db.commit()
+
             # 빌드 시작 전에 Dockerfile 텍스트를 DB에 보존 (UI 노출 + AI 분석용).
             # dockerfile 모드: GitHub raw fetch. auto 모드: 빌드 후 init container 로그에서 추출.
             if build.build_mode == "dockerfile":
@@ -824,12 +926,6 @@ async def _run_build(
                 if content is not None:
                     build.dockerfile_content = content
                     db.commit()
-
-            build.status = "building"
-            db.commit()
-
-            # private repo면 이 빌드용 git 토큰 Secret 발급 (public이거나 App 미설정/미설치면 "" → 토큰 없이 clone).
-            git_auth_secret = _provision_git_auth(build)
 
             if build.runtime == "static":
                 # 플랫폼 생성 Dockerfile — repo엔 없음. 빌드 전에 DB 보존 (UI 노출 + 재현성).

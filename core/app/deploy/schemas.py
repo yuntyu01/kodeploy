@@ -9,7 +9,7 @@ from pydantic import BaseModel, HttpUrl
 # 서버 슬롯 런타임 — "none"이면 서버 없음 (정적 사이트 단독).
 # static은 별도 슬롯(use_static)으로 분리 — 런타임 선택지가 아님.
 ServerRuntime = Literal["python", "java", "php", "none"]
-BuildMode = Literal["dockerfile", "auto"]                # "auto"는 nixpacks 자동 Dockerfile 생성
+BuildMode = Literal["detect", "dockerfile", "auto"]      # detect=Dockerfile 자동감지(기본) / auto=nixpacks 자동생성
 DbType = Literal["none", "mysql", "postgres"]            # 한 앱에 한 DB만 — 동시 사용 X
 # 영속 저장소 — 런타임 무관 공통 옵션. 단일 셀렉터로 상호배타.
 #   none   = ephemeral만 (기본)
@@ -34,7 +34,7 @@ class DeployRequest(BaseModel):
     volume_mount_path: str = ""                          # local 전용 — PVC 마운트 절대경로 (예: /var/www/html/data)
     volume_storage_class: str = "local-path"             # local 전용 — 동적 프로비저너 이름
     volume_size: str = "5Gi"                             # local 전용 — PVC 요청 용량
-    build_mode: BuildMode = "dockerfile"                 # 서버 슬롯 — "dockerfile"=유저 Dockerfile / "auto"=nixpacks
+    build_mode: BuildMode = "detect"                     # 서버 슬롯 — detect=자동감지(기본) / dockerfile=유저 Dockerfile / auto=nixpacks
     dockerfile_path: str = "Dockerfile"                  # dockerfile 모드일 때 — "Dockerfile.multi", "subdir/Dockerfile" 등
     project_path: str = ""                               # 서버 auto 모드 — 서브디렉토리 (예: "backend"). 빈 값=repo root
     env: dict[str, str] = {}                             # 서버 슬롯 — 첫 배포 시 Secret 생성, 재배포면 replace
