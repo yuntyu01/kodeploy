@@ -127,6 +127,12 @@ export function listGithubRepos() {
   return request("/deploy/github/repos");
 }
 
+// 특정 repo의 브랜치 목록 (배포 폼 브랜치 드롭다운). repo URL을 쿼리로 전달.
+// 응답: [{name, protected}, ...]. 미연결·형식오류·실패면 백엔드가 [] 반환.
+export function listGithubBranches(repoUrl) {
+  return request(`/deploy/github/branches?repo=${encodeURIComponent(repoUrl)}`);
+}
+
 // 사용자 앱 환경변수 — {app_name}-env Secret을 진실원으로 GET/PUT.
 // 첫 배포 전이거나 한 번도 설정 안 했으면 빈 dict.
 export function getEnvVars() {

@@ -3,6 +3,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 import json
+import re
 import uuid
 from datetime import datetime, timezone
 
@@ -395,6 +396,16 @@ def list_recent_commits(
 @router.get("/github/repos")
 def github_repos(user: User = Depends(get_current_user)) -> list[dict]:
     return github_app.list_installation_repos(user.github_installation_id)
+
+
+# 특정 repo의 브랜치 목록 — 배포 폼 브랜치 드롭다운용. ?repo=<github url>.
+# installation 토큰으로 private도 조회. /{build_id} GET보다 위에 등록해야 "github"가 build_id로 안 잡힘.
+@router.get("/github/branches")
+def github_branches(repo: str, user: User = Depends(get_current_user)) -> list[dict]:
+    m = re.match(r"https?://github\.com/([^/]+)/([^/]+?)(?:\.git)?/?$", repo.strip())
+    if not m:
+        return []
+    return github_app.list_branches(user.github_installation_id, m.group(1), m.group(2))
 
 
 # DB 스냅샷 추출 — 현재 앱 MySQL을 mysqldump → .sql.gz 다운로드 스트림.

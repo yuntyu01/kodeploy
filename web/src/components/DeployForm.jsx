@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { ChevronDown, Eye, EyeOff, GitBranch, Plus, Trash2 } from "lucide-react";
-import { createDeploy, CUSTOM_DOMAIN_CNAME_TARGET, getEnvVars, listBuilds, listGithubRepos, RUNTIMES, setDomain, stageDump } from "../api/deploy.js";
+import { ChevronDown, ChevronUp, Eye, EyeOff, GitBranch, Plus, Trash2 } from "lucide-react";
+import { createDeploy, CUSTOM_DOMAIN_CNAME_TARGET, getEnvVars, listBuilds, listGithubBranches, listGithubRepos, RUNTIMES, setDomain, stageDump } from "../api/deploy.js";
 import { GITHUB_INSTALL_URL } from "../api/auth.js";
 import { useAuth } from "../contexts/AuthContext.jsx";
 
@@ -28,7 +28,10 @@ export default function DeployForm({ onRequestGuide }) {
   // 1유저=1앱 — user.app_name이 있으면 첫 배포 끝난 상태. 이름 입력란 숨기고 그 이름 재사용.
   const isFirstDeploy = !user?.app_name;
   const [repoUrl, setRepoUrl] = useState("");
-  const [ghRepos, setGhRepos] = useState([]);            // 연결된 installation repo 목록 (private 선택 드롭다운)
+  const [ghRepos, setGhRepos] = useState([]);            // 연결된 installation repo 목록 (private repo 리스트)
+  const [repoListCollapsed, setRepoListCollapsed] = useState(false);  // 연결된 repo 리스트 접기 — 링크칸 우측 토글 / 선택 시 자동 접힘
+  const [ghBranches, setGhBranches] = useState([]);      // 선택 repo의 브랜치 목록 (브랜치 드롭다운)
+  const [branchOpen, setBranchOpen] = useState(false);   // 브랜치 드롭다운 열림 여부
   const [name, setName] = useState("");
   const [branch, setBranch] = useState("main");
   const [port, setPort] = useState(DEFAULT_PORTS[RUNTIMES[0]] ?? 80);
@@ -149,8 +152,10 @@ export default function DeployForm({ onRequestGuide }) {
     };
   }, [user?.app_name]);
 
-  // repo URL + branch 입력 시 디바운스 500ms 후 GitHub API로 유효성 확인.
-  // unauthenticated 호출이라 private repo는 항상 notfound로 떨어짐 (사용자에게 안내).
+  // repo URL + branch 유효성 확인.
+  // 연결된 repo(installation)면 ghRepos/ghBranches로 판정 — unauthenticated 404 오판 방지
+  // (private도 연결돼 있으면 접근 가능하므로 "찾을 수 없음"으로 떨어지면 안 됨).
+  // 미연결이면 디바운스 500ms 후 unauthenticated GitHub API로 확인(공개 repo만; private은 notfound→연결 안내).
   useEffect(() => {
     const url = repoUrl.trim();
     if (!url) {
@@ -164,6 +169,22 @@ export default function DeployForm({ onRequestGuide }) {
     }
     const [, owner, repo] = m;
     const br = branch.trim() || "main";
+
+    // 연결된 저장소면 접근 가능 확정 — 브랜치 목록이 있으면 브랜치 존재까지 판정, 없으면 통과.
+    const slug = `${owner}/${repo}`.toLowerCase();
+    const connected = ghRepos.some(
+      (r) => (r.full_name || "").toLowerCase() === slug,
+    );
+    if (connected) {
+      if (ghBranches.length > 0) {
+        const hasBranch = ghBranches.some((b) => b.name === br);
+        setRepoCheck({ state: hasBranch ? "ok" : "notfound" });
+      } else {
+        setRepoCheck({ state: "ok" });
+      }
+      return;
+    }
+
     setRepoCheck({ state: "checking" });
     const timer = setTimeout(async () => {
       try {
@@ -183,7 +204,27 @@ export default function DeployForm({ onRequestGuide }) {
       }
     }, 500);
     return () => clearTimeout(timer);
-  }, [repoUrl, branch]);
+  }, [repoUrl, branch, ghRepos, ghBranches]);
+
+  // repo가 유효하면 그 repo의 브랜치 목록을 받아 드롭다운 채움 (백엔드 경유 — private도).
+  // repoCheck와 같은 500ms 디바운스. repo 형식이 안 맞으면 빈 목록.
+  useEffect(() => {
+    const url = repoUrl.trim();
+    if (!url.match(/github\.com[/:]([^/]+)\/([^/]+?)(?:\.git)?\/?$/)) {
+      setGhBranches([]);
+      return;
+    }
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      listGithubBranches(url)
+        .then((bs) => !cancelled && setGhBranches(bs || []))
+        .catch(() => !cancelled && setGhBranches([]));
+    }, 500);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [repoUrl]);
 
   // 연결됨(installation 있음)이면 접근 가능한 repo 목록 받아 드롭다운 채움. 미연결/실패면 빈 배열.
   useEffect(() => {
@@ -346,7 +387,7 @@ export default function DeployForm({ onRequestGuide }) {
       </p>
 
       {/* GitHub URL + Branch */}
-      <div className="flex gap-3 mb-5">
+      <div className="flex gap-3 mb-2">
         <div className="flex-1">
           <div
             className="text-[10.5px] tracking-[0.08em] text-fg-3 mb-2"
@@ -372,38 +413,182 @@ export default function DeployForm({ onRequestGuide }) {
               disabled={submitting}
               onKeyDown={(e) => e.key === "Enter" && handleSubmit()}
             />
+            {/* 접기 토글 — 연결됐으면 표시(repo 없어도), 링크칸 맨 오른쪽. 아래 박스 접힘/펼침 */}
+            {user?.github_connected && (
+              <button
+                type="button"
+                onClick={() => setRepoListCollapsed((v) => !v)}
+                className="ml-2 shrink-0 text-fg-3 hover:text-fg-1 transition-colors"
+                title={repoListCollapsed ? "연결된 저장소 목록 펼치기" : "접기"}
+              >
+                {repoListCollapsed ? <ChevronDown size={15} /> : <ChevronUp size={15} />}
+              </button>
+            )}
           </div>
+          {/* 연결된 repo 박스 — 링크칸 바로 밑, 최대 3개 높이 + 위아래 스크롤. 선택하면 채우고 자동 접기.
+              repo가 없어도 박스를 띄워 "연결된 저장소 없음"을 안내(저장소 추가 링크 포함). */}
+          {user?.github_connected && !repoListCollapsed && (
+            <div
+              className="mt-1.5 rounded-md overflow-y-auto scroll-thin"
+              style={{
+                border: "1px solid rgba(255,255,255,0.09)",
+                background: "rgba(255,255,255,0.02)",
+                maxHeight: 96, // 항목 32px × 3 = 최대 3개, 넘으면 스크롤
+              }}
+            >
+              {ghRepos.length > 0 ? (
+                ghRepos.map((r) => (
+                  <button
+                    key={r.full_name}
+                    type="button"
+                    onClick={() => {
+                      setRepoUrl(r.html_url);
+                      setBranch(r.default_branch || "main");
+                      setRepoListCollapsed(true); // 선택하면 자동 접기
+                    }}
+                    disabled={submitting}
+                    className="w-full flex items-center justify-between px-3 text-left hover:bg-white/[0.04] transition-colors"
+                    style={{ height: 32 }}
+                  >
+                    <span
+                      className="truncate text-[12px] text-fg-2"
+                      style={{ fontWeight: 510 }}
+                    >
+                      {r.full_name}
+                    </span>
+                    {r.private && (
+                      <span className="ml-2 shrink-0 text-[10px] text-fg-4">private</span>
+                    )}
+                  </button>
+                ))
+              ) : (
+                <div
+                  className="px-3 py-2.5 text-[11px] text-fg-4"
+                  style={{ fontWeight: 450 }}
+                >
+                  연결된 저장소가 없어요.{" "}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      window.location.href = GITHUB_INSTALL_URL;
+                    }}
+                    className="underline hover:text-fg-1 transition-colors"
+                    style={{ color: "#818be0", fontWeight: 510 }}
+                  >
+                    저장소 추가
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
         </div>
-        <div className="w-28 shrink-0">
+        <div className="w-28 shrink-0 relative">
           <div
             className="text-[10.5px] tracking-[0.08em] text-fg-3 mb-2"
             style={{ fontWeight: 590 }}
           >
             브랜치
           </div>
-          <input
-            value={branch}
-            onChange={(e) => setBranch(e.target.value)}
-            placeholder="main"
-            className="w-full bg-transparent outline-none text-[14px] text-fg-1 rounded-md px-3 py-2 placeholder:text-fg-3"
+          <div
+            className="flex items-center rounded-md px-3"
             style={{
               border: "1px solid rgba(255,255,255,0.09)",
               background: "rgba(255,255,255,0.02)",
-              fontWeight: 510,
             }}
-            disabled={submitting}
-          />
+          >
+            <input
+              value={branch}
+              onChange={(e) => setBranch(e.target.value)}
+              placeholder="main"
+              className="w-full min-w-0 bg-transparent outline-none text-[14px] text-fg-1 py-2 placeholder:text-fg-3"
+              style={{ fontWeight: 510 }}
+              disabled={submitting}
+            />
+            {/* 브랜치 드롭다운 토글 — 목록 있을 때만 */}
+            {ghBranches.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setBranchOpen((v) => !v)}
+                className="ml-1 shrink-0 text-fg-3 hover:text-fg-1 transition-colors"
+                title="브랜치 목록"
+              >
+                <ChevronDown size={15} />
+              </button>
+            )}
+          </div>
+          {/* 브랜치 목록 — 칸이 좁아 absolute로 넓게(우측 정렬), 최대 3개 + 스크롤. 선택 시 채우고 닫힘 */}
+          {branchOpen && ghBranches.length > 0 && (
+            <div
+              className="absolute right-0 z-20 mt-1 rounded-md overflow-y-auto scroll-thin"
+              style={{
+                border: "1px solid rgba(255,255,255,0.12)",
+                background: "#16181b",
+                minWidth: 180,
+                maxHeight: 96,
+              }}
+            >
+              {ghBranches.map((b) => (
+                <button
+                  key={b.name}
+                  type="button"
+                  onClick={() => {
+                    setBranch(b.name);
+                    setBranchOpen(false);
+                  }}
+                  disabled={submitting}
+                  className="w-full flex items-center justify-between px-3 text-left hover:bg-white/[0.04] transition-colors"
+                  style={{ height: 32 }}
+                >
+                  <span
+                    className="truncate text-[12px] text-fg-2"
+                    style={{ fontWeight: 510 }}
+                  >
+                    {b.name}
+                  </span>
+                  {b.protected && (
+                    <span className="ml-2 shrink-0 text-[10px] text-fg-4">protected</span>
+                  )}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       </div>
 
-      {/* repo + branch 유효성 — GitHub API로 확인 (디바운스 500ms) */}
-      {repoCheck.state !== "idle" && (
-        <div className="-mt-3 mb-5 text-[11px]" style={{ fontWeight: 450 }}>
+      {/* 상태 줄 — 좌: private 저장소 연결 상태/버튼 / 우(맨 오른쪽): repo+브랜치 확인 결과.
+          연결된 repo 선택은 위 GitHub 링크 밑 리스트가 담당 — 여기선 연결 여부만 표시. */}
+      <div
+        className="flex items-center justify-between gap-3 mb-5 min-h-[16px] text-[11px]"
+        style={{ fontWeight: 450 }}
+      >
+        {/* 왼쪽 — private 저장소 연결 (원래 "확인됨"이 있던 줄 시작 위치) */}
+        <div className="min-w-0">
+          {user &&
+            (user.github_connected ? (
+              <span className="text-fg-4">Private 저장소 연결됨</span>
+            ) : (
+              <span className="text-fg-4">
+                Private 저장소예요?{" "}
+                <button
+                  type="button"
+                  onClick={() => {
+                    window.location.href = GITHUB_INSTALL_URL;
+                  }}
+                  className="underline hover:text-fg-1 transition-colors"
+                  style={{ color: "#818be0", fontWeight: 510 }}
+                >
+                  GitHub 연결하기
+                </button>
+              </span>
+            ))}
+        </div>
+        {/* 오른쪽(맨 오른쪽) — repo+branch 확인 결과 */}
+        <div className="shrink-0 text-right">
           {repoCheck.state === "checking" && (
             <span className="text-fg-4">저장소 확인 중…</span>
           )}
           {repoCheck.state === "ok" && (
-            <span style={{ color: "#818be0" }}>✓ 저장소와 브랜치 확인됨</span>
+            <span style={{ color: "#818be0" }}>저장소와 브랜치 확인됨</span>
           )}
           {repoCheck.state === "invalid" && (
             <span style={{ color: "#a13c3c", fontWeight: 510 }}>
@@ -421,66 +606,7 @@ export default function DeployForm({ onRequestGuide }) {
             </span>
           )}
         </div>
-      )}
-
-      {/* private repo 연결 — 로그인 상태에서만. 연결 안 됐으면 GitHub App 설치로 보냄(1회).
-          연결 후엔 재배포마다 서버가 토큰 자동 발급 — 유저 재작업 없음. */}
-      {user && (
-        <div className="-mt-2 mb-5 text-[11px]" style={{ fontWeight: 450 }}>
-          {user.github_connected ? (
-            ghRepos.length > 0 ? (
-              <span className="inline-flex items-center gap-2 text-fg-4">
-                <span>🔒 연결된 저장소</span>
-                <select
-                  defaultValue=""
-                  onChange={(e) => {
-                    const r = ghRepos.find((x) => x.html_url === e.target.value);
-                    if (r) {
-                      setRepoUrl(r.html_url);
-                      setBranch(r.default_branch || "main");
-                    }
-                  }}
-                  disabled={submitting}
-                  className="rounded-md px-2 py-1 text-[11px] outline-none"
-                  style={{
-                    border: "1px solid rgba(255,255,255,0.09)",
-                    background: "rgba(255,255,255,0.04)",
-                    color: "#c8cdd6",
-                    fontWeight: 510,
-                  }}
-                >
-                  <option value="" disabled>
-                    골라서 채우기…
-                  </option>
-                  {ghRepos.map((r) => (
-                    <option key={r.full_name} value={r.html_url}>
-                      {r.full_name}
-                      {r.private ? " · private" : ""}
-                    </option>
-                  ))}
-                </select>
-              </span>
-            ) : (
-              <span className="text-fg-4">🔒 Private 저장소 연결됨 ✓</span>
-            )
-          ) : (
-            <span className="text-fg-4">
-              🔒 Private 저장소예요?{" "}
-              <button
-                type="button"
-                onClick={() => {
-                  window.location.href = GITHUB_INSTALL_URL;
-                }}
-                className="underline hover:text-fg-1 transition-colors"
-                style={{ color: "#818be0", fontWeight: 510 }}
-              >
-                GitHub 연결하기
-              </button>{" "}
-              <span className="text-fg-4">한 번 연결하면 재배포는 자동이에요.</span>
-            </span>
-          )}
-        </div>
-      )}
+      </div>
 
       {/* 서버 슬롯 — python/java/사용 안 함(정적 단독) */}
       <div className="mb-5">

@@ -151,3 +151,36 @@ def list_installation_repos(installation_id: int | None) -> list[dict]:
     ]
     out.sort(key=lambda r: r["full_name"] or "")
     return out
+
+
+# 특정 repo의 브랜치 목록 — 배포 폼 브랜치 선택 드롭다운용.
+# installation 토큰이 있으면 private repo도 조회, 없으면 unauthenticated(public repo만).
+# 실패/없음이면 빈 리스트 — 프론트는 그냥 텍스트 입력으로 fallback.
+def list_branches(installation_id: int | None, owner: str, repo: str) -> list[dict]:
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+    token = get_clone_token(installation_id)
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    try:
+        with httpx.Client(timeout=15.0) as client:
+            resp = client.get(
+                f"{_API}/repos/{owner}/{repo}/branches",
+                headers=headers,
+                params={"per_page": 100},
+            )
+    except httpx.HTTPError:
+        return []
+    if resp.status_code != 200:
+        return []
+    try:
+        data = resp.json()
+    except ValueError:
+        return []
+    return [
+        {"name": b.get("name"), "protected": bool(b.get("protected"))}
+        for b in data
+        if isinstance(b, dict) and b.get("name")
+    ]
