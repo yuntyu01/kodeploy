@@ -977,25 +977,31 @@ async def _run_build(
             )
 
             job_name = _build_job_name(build.build_id, build.user_id_str)
-            success = await _wait_for_job(job_name)
+
+            # 빌드 도는 동안 1초마다 현재 로그를 build.logs에 흘려넣어 프론트가 실시간으로 본다.
+            # job 폴링과 동시 task로 돌고, _wait_for_job이 끝나면 stop으로 종료시킨 뒤
+            # 아래에서 최종 로그를 authoritative하게 덮는다.
+            stop_tail = asyncio.Event()
+            tail_task = asyncio.create_task(
+                _tail_build_logs(build.build_id, build.build_mode, stop_tail)
+            )
+            try:
+                success = await _wait_for_job(job_name)
+            finally:
+                stop_tail.set()
+                await tail_task
 
             # 단계별 소요시간 기록 — Job 종료 직후 Pod 컨테이너 상태에서 추출.
             phases = _get_build_phase_seconds(build.build_id)
             record.nixpacks_seconds = phases.get("nixpacks_seconds")
             record.buildkit_seconds = phases.get("buildkit_seconds")
 
-            # auto 모드: init container 로그도 함께. 빌드 실패가 init 단계(nixpacks)일 때
-            # buildkit 로그는 비어있고 진짜 원인은 init에 있음. UI에서 디버깅 가능하게 둘 다 노출.
+            # 최종 로그 — init(clone/nixpacks) + main(buildkit)을 헤더와 함께 저장.
+            # 빌드 실패가 init 단계일 때 main 로그는 비고 진짜 원인은 init에 있어 둘 다 노출.
+            build.logs = _combined_job_logs(build.build_id, build.build_mode)
+            # auto 모드: nixpacks init 로그에 박힌 생성 Dockerfile을 추출 (UI 노출 + 재현성).
             if build.build_mode == "auto":
                 init_logs = _get_init_container_logs(build.build_id, "nixpacks")
-                main_logs = _get_job_logs(build.build_id)
-                parts = []
-                if init_logs:
-                    parts.append(f"=== nixpacks (init) ===\n{init_logs}")
-                if main_logs:
-                    parts.append(f"=== buildkit (main) ===\n{main_logs}")
-                build.logs = "\n\n".join(parts) if parts else ""
-
                 if init_logs:
                     extracted = _extract_between(
                         init_logs,
@@ -1004,20 +1010,6 @@ async def _run_build(
                     )
                     if extracted:
                         build.dockerfile_content = extracted
-                        db.commit()
-            elif build.runtime == "static":
-                # clone(init) 실패 시 main 로그가 비므로 둘 다 — auto 모드와 같은 이유.
-                init_logs = _get_init_container_logs(build.build_id, "clone")
-                main_logs = _get_job_logs(build.build_id)
-                parts = []
-                if init_logs:
-                    parts.append(f"=== clone (init) ===\n{init_logs}")
-                if main_logs:
-                    parts.append(f"=== buildkit (main) ===\n{main_logs}")
-                build.logs = "\n\n".join(parts) if parts else ""
-            else:
-                build.logs = _get_job_logs(build.build_id)
-
             db.commit()
 
             if not success:
@@ -1170,7 +1162,9 @@ async def _wait_for_rollout(app_name: str, namespace: str) -> bool:
 
 
 # build-id 라벨로 BuildKit Pod 찾아 로그 조회 (main container 기본)
-def _get_job_logs(build_id: str) -> str:
+# quiet=True면 조회 실패를 ""로 (실시간 tailing 중 buildkit이 아직 init 단계라 PodInitializing
+# 에러를 던지는 게 정상 — 그 에러 문자열을 로그에 끼워넣지 않게).
+def _get_job_logs(build_id: str, quiet: bool = False) -> str:
     core = k8s.core_v1()
     pods = core.list_namespaced_pod(
         namespace=config.BUILD_NAMESPACE,
@@ -1184,7 +1178,72 @@ def _get_job_logs(build_id: str) -> str:
             name=pod_name, namespace=config.BUILD_NAMESPACE
         )
     except ApiException as e:
-        return f"로그 조회 실패: {e}"
+        return "" if quiet else f"로그 조회 실패: {e}"
+
+
+# 빌드 Pod의 init(clone/nixpacks) + main(buildkit) 로그를 헤더와 함께 합쳐 하나의 텍스트로.
+# 실시간 tailing(_tail_build_logs)과 빌드 종료 후 최종 저장이 같은 형식을 쓰도록 통합 —
+# 진행 중 보이던 로그가 완료 시점에 형식이 바뀌어 깜빡이지 않게.
+# init 컨테이너 이름은 모드별로 다름: auto=nixpacks, dockerfile/static=clone.
+# main(buildkit)은 init 단계엔 아직 안 떠서 quiet 조회 — 그 땐 init 로그만 나온다.
+def _combined_job_logs(build_id: str, build_mode: str) -> str:
+    if build_mode == "auto":
+        init_name, init_label = "nixpacks", "nixpacks (init)"
+    else:
+        init_name, init_label = "clone", "clone (init)"
+    init_logs = _get_init_container_logs(build_id, init_name)
+    main_logs = _get_job_logs(build_id, quiet=True)
+    parts = []
+    if init_logs:
+        parts.append(f"=== {init_label} ===\n{init_logs}")
+    if main_logs:
+        parts.append(f"=== buildkit (main) ===\n{main_logs}")
+    return "\n\n".join(parts)
+
+
+# 빌드 진행 중 1초마다 현재 Pod 로그를 읽어 build.logs를 통째 덮어쓴다 (프론트 실시간 표시용).
+# _wait_for_job과 같은 이벤트 루프의 동시 task로 도는데, K8s 동기 호출은 루프를 막으므로
+# to_thread로 떼어낸다 (안 그러면 1초 로그 조회가 job 폴링을 지연시킴).
+# stop_event가 set되면(빌드 종료) 즉시 종료 — 이후 _run_build이 최종 로그를 authoritative하게 덮는다.
+async def _tail_build_logs(
+    build_id: str, build_mode: str, stop_event: asyncio.Event,
+) -> None:
+    db = SessionLocal()
+    last = None
+    try:
+        while not stop_event.is_set():
+            try:
+                logs = await asyncio.to_thread(
+                    _combined_job_logs, build_id, build_mode
+                )
+                if logs and logs != last:
+                    row = db.query(Build).filter_by(build_id=build_id).first()
+                    if row and row.status != "cancelled":
+                        row.logs = logs
+                        db.commit()
+                        last = logs
+            except Exception:
+                db.rollback()  # 폴링 한 틱 실패가 tailer를 죽이지 않게
+            try:
+                await asyncio.wait_for(stop_event.wait(), timeout=1.0)
+            except asyncio.TimeoutError:
+                pass
+    finally:
+        db.close()
+
+
+# build_id들의 총 소요시간 조회 (BuildRecord append-only 기록에서). build_id→{total_seconds} dict.
+# 단계별(nixpacks/buildkit)은 내부 도구명이라 사용자에게 안 보냄 — BuildRecord엔 그대로 남아 운영 분석용.
+# env_change row 등 BuildRecord가 없는 빌드는 키 자체가 없음 → 호출부에서 빈 dict로 fallback.
+def get_build_timings(db: Session, build_ids: list[str]) -> dict[str, dict]:
+    if not build_ids:
+        return {}
+    rows = (
+        db.query(BuildRecord.build_id, BuildRecord.total_seconds)
+        .filter(BuildRecord.build_id.in_(build_ids))
+        .all()
+    )
+    return {build_id: {"total_seconds": total} for build_id, total in rows}
 
 
 # 빌드 Pod의 컨테이너 종료 정보에서 단계별 소요시간 추출 (BuildRecord용).

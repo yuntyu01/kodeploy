@@ -28,6 +28,16 @@ export function relativeTime(iso, { compact = false } = {}) {
   return d.toLocaleDateString("ko-KR", { month: "long", day: "numeric" });
 }
 
+// 초(float) → "12.3초" / "1분 12초" / "2분". 1분 미만은 소수 한 자리, 이상은 분+초.
+// null/undefined면 빈 문자열 (빌드 진행 중이거나 기록 없음).
+export function formatDuration(seconds) {
+  if (seconds == null || Number.isNaN(seconds)) return "";
+  if (seconds < 60) return `${seconds.toFixed(1)}초`;
+  const m = Math.floor(seconds / 60);
+  const s = Math.round(seconds % 60);
+  return s === 0 ? `${m}분` : `${m}분 ${s}초`;
+}
+
 // ISO → "YY.MM.DD HH:MM" 단일 형식 (브라우저 로컬 timezone).
 export function formatFull(iso) {
   const d = parseDate(iso);

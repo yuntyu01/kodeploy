@@ -4,7 +4,7 @@
 // 데이터는 위젯이 들고 있고 props로 전달. 환경변수 저장 시 onEnvSaved 콜백으로 위젯 state 동기화.
 // 커밋 row: GitHub 새 창. 빌드 row: /dashboard?build=<id>로 navigate 후 닫음.
 // 환경변수: 키-값 row 편집 + 저장 시 Pod 자동 재시작.
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   Check,
@@ -23,13 +23,14 @@ import {
   CUSTOM_DOMAIN_CNAME_TARGET,
   dbExportUrl,
   deleteDomain,
+  getBuild,
   getDomain,
   restoreDb,
   setDomain,
   setEnvVars,
 } from "../api/deploy.js";
 import DomainStatusBadge from "./DomainStatusBadge.jsx";
-import { formatFull, relativeTime, repoSlug } from "../lib/format.js";
+import { formatDuration, formatFull, relativeTime, repoSlug } from "../lib/format.js";
 import StatusBadge from "./StatusBadge.jsx";
 
 export default function CommitListPanel({
@@ -489,6 +490,9 @@ function BuildsBody({ builds }) {
                     <Row label="브랜치" value={b.branch} />
                     <Row label="런타임" value={b.runtime} />
                     <Row label="생성" value={formatFull(b.created_at)} />
+                    {b.total_seconds != null && (
+                      <Row label="소요" value={formatDuration(b.total_seconds)} />
+                    )}
                     {b.error && (
                       <Row label="에러" value={b.error} color="#fca5a5" />
                     )}
@@ -563,10 +567,45 @@ function Row({ label, value, mono, small, color }) {
   );
 }
 
+// 빌드가 진행 중인(로그가 계속 늘어나는) 상태들 — 이 동안만 1초 폴링한다.
+const ACTIVE_BUILD = new Set(["queued", "building", "built", "deploying"]);
+
 // 박스 형태 — 활동 패널(우측 width 460) 옆 좌측 영역의 가운데에 떠 있음.
 // left = (좌측 영역 폭 - 박스 폭) / 2 = (100vw - 460 - 520) / 2 = 50vw - 490px.
-function BuildLogsPanel({ build, mode, onClose }) {
+function BuildLogsPanel({ build: initialBuild, mode, onClose }) {
   const [copied, setCopied] = useState(false);
+  // 위젯 폴링(2.5~8s)과 별개로, 로그 창이 열려 있는 동안 더 촘촘히(1s) 자체 갱신해
+  // 빌드 로그가 쭈루룩 흐르게 한다. 빌드가 끝나면 폴링을 멈추고 최종 스냅샷을 그대로 둠.
+  const [build, setBuild] = useState(initialBuild);
+  const logBoxRef = useRef(null);
+  const live = mode === "logs" && ACTIVE_BUILD.has(build.status);
+
+  // 부모가 새 스냅샷을 넘기면(위젯 폴링) 반영 — build_id 바뀔 때만 리셋.
+  useEffect(() => {
+    setBuild(initialBuild);
+  }, [initialBuild.build_id]);
+
+  // 진행 중 빌드면 1초마다 getBuild로 갱신. 종료 상태가 되면 자연 정지.
+  useEffect(() => {
+    if (mode !== "logs" || !ACTIVE_BUILD.has(initialBuild.status)) return;
+    let cancelled = false;
+    let timer;
+    const tick = async () => {
+      try {
+        const fresh = await getBuild(initialBuild.build_id);
+        if (cancelled) return;
+        setBuild(fresh);
+        if (ACTIVE_BUILD.has(fresh.status)) timer = setTimeout(tick, 1000);
+      } catch {
+        if (!cancelled) timer = setTimeout(tick, 1000);
+      }
+    };
+    timer = setTimeout(tick, 1000);
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [mode, initialBuild.build_id, initialBuild.status]);
 
   useEffect(() => {
     // capture 단계 + preventDefault — 활동 패널보다 먼저 ESC를 소비해
@@ -583,8 +622,16 @@ function BuildLogsPanel({ build, mode, onClose }) {
   const title = mode === "logs" ? "빌드 로그" : "Dockerfile";
   const content =
     mode === "logs"
-      ? build.logs || "(로그 없음)"
+      ? build.logs || (live ? "빌드 준비 중..." : "(로그 없음)")
       : build.dockerfile_content || "(Dockerfile 정보 없음)";
+
+  // 진행 중(live)엔 갱신마다 맨 밑으로 붙여 tail -f처럼 실시간으로 흐르게 한다.
+  // 빌드가 끝나면(live=false) 강제 스크롤을 풀어 — content가 더 안 바뀌니 위치가 고정되고
+  // 사용자가 위로 올려 로그를 천천히 읽을 수 있다. (에러는 보통 맨 끝이라 bottom이 정답 위치)
+  useEffect(() => {
+    const el = logBoxRef.current;
+    if (el && live) el.scrollTop = el.scrollHeight;
+  }, [content, live]);
 
   const handleCopy = async () => {
     try {
@@ -631,10 +678,11 @@ function BuildLogsPanel({ build, mode, onClose }) {
         >
           <div className="flex-1 min-w-0">
             <h2
-              className="text-[16px] text-fg-1"
+              className="text-[16px] text-fg-1 flex items-center gap-2.5"
               style={{ fontWeight: 590, letterSpacing: -0.3 }}
             >
               {title}
+              {mode === "logs" && <StatusBadge status={build.status} />}
             </h2>
             <p className="text-[12px] text-fg-3 mt-0.5 truncate">
               <span style={{ color: "#818be0" }}>{build.build_id}</span>
@@ -665,7 +713,7 @@ function BuildLogsPanel({ build, mode, onClose }) {
             <X size={14} strokeWidth={1.8} />
           </button>
         </div>
-        <div className="flex-1 min-h-0 overflow-auto scroll-thin">
+        <div ref={logBoxRef} className="flex-1 min-h-0 overflow-auto scroll-thin">
           <pre
             className="text-[11.5px] font-sans text-fg-2 whitespace-pre-wrap break-all px-5 py-4"
             style={{ lineHeight: 1.55 }}

@@ -28,8 +28,10 @@ from app.shared.db import get_db
 router = APIRouter(prefix="/deploy", tags=["deploy"])
 
 
-# Build ORM 객체 → StatusResponse 응답 DTO 변환
-def _to_status(build: Build) -> StatusResponse:
+# Build ORM 객체 → StatusResponse 응답 DTO 변환.
+# timing: get_build_timings()가 준 {total/nixpacks/buildkit_seconds} (없으면 빈 dict).
+def _to_status(build: Build, timing: dict | None = None) -> StatusResponse:
+    timing = timing or {}
     return StatusResponse(
         build_id=build.build_id,
         status=build.status,
@@ -60,6 +62,7 @@ def _to_status(build: Build) -> StatusResponse:
         error=build.error,
         analysis=build.analysis,
         logs=build.logs,
+        total_seconds=timing.get("total_seconds"),
         created_at=build.created_at,
         updated_at=build.updated_at,
     )
@@ -479,7 +482,8 @@ def get_status(
     build = service.get_state(db, build_id, user_id=user.id)
     if not build:
         raise HTTPException(status_code=404, detail="build not found")
-    return _to_status(build)
+    timings = service.get_build_timings(db, [build.build_id])
+    return _to_status(build, timings.get(build.build_id))
 
 
 # 빌드 목록 — 본인 것만, 최신순
@@ -488,4 +492,6 @@ def list_builds(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> list[StatusResponse]:
-    return [_to_status(b) for b in service.list_builds(db, user_id=user.id)]
+    builds = service.list_builds(db, user_id=user.id)
+    timings = service.get_build_timings(db, [b.build_id for b in builds])
+    return [_to_status(b, timings.get(b.build_id)) for b in builds]

@@ -109,5 +109,8 @@ class StatusResponse(BaseModel):
     error: str | None = None
     analysis: str | None = None
     logs: str | None = None
+    # 빌드 총 소요시간 (BuildRecord에서 — 빌드 완료 후 채워짐, 진행 중/env_change면 None).
+    # 단계별(nixpacks/buildkit)은 내부 도구명이라 사용자에게 안 보임 — BuildRecord에만 남겨 운영 분석용.
+    total_seconds: float | None = None
     created_at: datetime
     updated_at: datetime
