@@ -15,6 +15,7 @@ import {
   Zap,
 } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext.jsx";
+import FluidBackground from "./FluidBackground.jsx";
 import monitoringImg from "../assets/monitoring.webp";
 import terminalImg from "../assets/db_terminel.webp";
 import logImg from "../assets/log.webp";
@@ -196,10 +197,14 @@ export default function Home() {
         />
       </div>
 
+      {/* Fluid ink — 마우스 궤적 따라 번지는 보라 잉크 (Aurora와 같은 fixed z-0 레이어) */}
+      <FluidBackground />
+
       {/* Content layer */}
       <div className="relative" style={{ zIndex: 1 }}>
         {/* ── Hero: 헤드라인 + 한 줄 설명 + 버튼 ── */}
-        <section className="kd-fade-in px-6" style={{ padding: "16vh 24px 2vh" }}>
+        {/* 상+하 합계 18vh 고정 — 텍스트 블록만 위로, 아래(지그재그)는 제자리 */}
+        <section className="kd-fade-in px-6" style={{ padding: "13.5vh 24px 4.5vh" }}>
           <div className="mx-auto text-center" style={{ maxWidth: 820 }}>
             <h1
               className="text-fg-1"
