@@ -1,0 +1,4 @@
+# 테스트 전용 의존성 — 런타임 이미지(requirements.txt)에 넣지 않는다.
+# 실행: pip install -r requirements.txt -r requirements-dev.txt && python -m pytest
+# (코드가 3.10+ 문법(str | None)을 쓰므로 로컬 3.9에선 docker python:3.12-slim 사용)
+pytest==8.3.4
