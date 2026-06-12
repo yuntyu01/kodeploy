@@ -1,12 +1,15 @@
 // 가이드 페이지 — 좌측 사이드바(가이드 목록) + 우측 가이드 내용(탭 + 본문).
 // 가이드 단위로 GUIDES에 추가. 각 가이드는 자체 탭(sub-section)을 가짐.
-// URL deep-link: /guide(dockerfile/기본), /guide/python, /guide/java, /guide/static, /guide/custom-domain.
+// URL deep-link: /guide(dockerfile/기본), /guide/python·java·php, /guide/static, /guide/storage, /guide/custom-domain, /guide/troubleshooting.
 import { Link, useParams } from "react-router-dom";
 import Basics from "./guide/Basics.jsx";
 import Java from "./guide/Java.jsx";
+import Php from "./guide/Php.jsx";
 import Python from "./guide/Python.jsx";
 import Static from "./guide/Static.jsx";
+import Storage from "./guide/Storage.jsx";
 import CustomDomain from "./guide/CustomDomain.jsx";
+import Troubleshooting from "./guide/Troubleshooting.jsx";
 
 // 가이드 목록 — 미래 가이드 추가 시 항목만 추가. 첫 탭 path가 사이드바 링크.
 const GUIDES = [
@@ -19,6 +22,7 @@ const GUIDES = [
       { id: "basics", label: "기본 규칙", path: "/guide", Component: Basics },
       { id: "python", label: "Python", path: "/guide/python", Component: Python },
       { id: "java", label: "Java", path: "/guide/java", Component: Java },
+      { id: "php", label: "PHP", path: "/guide/php", Component: Php },
     ],
   },
   {
@@ -31,12 +35,30 @@ const GUIDES = [
     ],
   },
   {
+    id: "storage",
+    label: "저장소",
+    title: "저장소",
+    desc: "재배포에도 데이터를 남기는 두 가지 방법 - 로컬 디스크(PVC)와 오브젝트 스토리지(R2)예요.",
+    tabs: [
+      { id: "storage", label: "개요", path: "/guide/storage", Component: Storage },
+    ],
+  },
+  {
     id: "custom-domain",
     label: "커스텀 도메인 연결",
     title: "커스텀 도메인 연결",
     desc: "내가 가진 도메인을 앱에 연결하는 법과 CNAME 설정을 안내해요.",
     tabs: [
       { id: "custom-domain", label: "개요", path: "/guide/custom-domain", Component: CustomDomain },
+    ],
+  },
+  {
+    id: "troubleshooting",
+    label: "문제 해결",
+    title: "문제 해결",
+    desc: "빌드 실패 · Pod 시작 실패 · 재시작 반복 - 자주 만나는 실패의 원인과 확인 순서예요.",
+    tabs: [
+      { id: "troubleshooting", label: "개요", path: "/guide/troubleshooting", Component: Troubleshooting },
     ],
   },
 ];

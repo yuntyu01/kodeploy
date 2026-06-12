@@ -1,5 +1,5 @@
 // 가이드 섹션 공용 building blocks.
-// Section/Bullet/Code/CodeBlock — Basics, Python, Java 모두 import.
+// Section/Bullet/Code/CodeBlock - Basics, Python, Java 모두 import.
 import { useRef, useState } from "react";
 import { Check, Copy } from "lucide-react";
 
@@ -26,13 +26,13 @@ export function Bullet({ children }) {
   );
 }
 
-// inline 코드 — mono 폰트 X. 본문(fg-3)보다 한 단계 밝은 fg-2로 강조.
+// inline 코드 - mono 폰트 X. 본문(fg-3)보다 한 단계 밝은 fg-2로 강조.
 export function Code({ children }) {
   return <span style={{ color: "#d0d6e0" }}>{children}</span>;
 }
 
-// 여러 줄 코드 — sans 폰트 유지(inherit), 줄바꿈/들여쓰기는 whiteSpace: pre.
-// 우상단 복사 버튼 — pre의 innerText로 추출 (mixed children: string + HL span 모두 지원).
+// 여러 줄 코드 - sans 폰트 유지(inherit), 줄바꿈/들여쓰기는 whiteSpace: pre.
+// 우상단 복사 버튼 - pre의 innerText로 추출 (mixed children: string + HL span 모두 지원).
 export function CodeBlock({ children }) {
   const ref = useRef(null);
   const [copied, setCopied] = useState(false);
@@ -44,7 +44,7 @@ export function CodeBlock({ children }) {
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
     } catch {
-      // 클립보드 차단 환경(HTTP, 권한 없음 등) — silent
+      // 클립보드 차단 환경(HTTP, 권한 없음 등) - silent
     }
   };
 

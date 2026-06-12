@@ -14,7 +14,7 @@ import { AuthProvider } from "./contexts/AuthContext.jsx";
 
 function FormView() {
   // 가이드 패널 열림 여부 + 어떤 runtime의 가이드를 보여줄지.
-  // DeployForm에서 buildMode === "dockerfile"이면 useEffect로 자동 호출.
+  // DeployForm의 "가이드 보기" 버튼(빌드 방식·프론트엔드·커스텀 도메인)이 호출 — 자동 오픈 없음.
   // Panel은 fixed drawer라 form 영역 layout과 독립.
   const [guideRuntime, setGuideRuntime] = useState(null);
   const isOpen = guideRuntime !== null;

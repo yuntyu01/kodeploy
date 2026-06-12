@@ -1,4 +1,4 @@
-// Python (FastAPI/Flask + 선택적 MySQL) 가이드 — 단순 톤.
+// Python (FastAPI/Flask + 선택적 DB) 가이드 - 단순 톤.
 import { Code, CodeBlock, Section } from "./atoms.jsx";
 
 // 강조용 inline 색 (브랜드 보라)
@@ -27,26 +27,25 @@ CMD ["uvicorn", `}
         </p>
       </Section>
 
-      <Section title="MySQL 쓸 때">
+      <Section title="DB 쓸 때 - DATABASE_URL 한 줄이면 끝">
         <p className="text-[14px] text-fg-3 mb-3">
-          <Code>requirements.txt</Code>에 <Code>pymysql</Code>을 추가한 다음,
-          DB 초기화 파일을 새로 만들어서 (예:{" "}
-          <span style={HL}>database.py</span>) 아래 코드를 넣어주세요.
-          앱 코드에서 이 파일의 <Code>engine</Code>을 import해서 씁니다.
+          MySQL이나 PostgreSQL을 켜면 완성된 접속 문자열{" "}
+          <span style={HL}>DATABASE_URL</span>이 자동 주입돼요. 드라이버만{" "}
+          <Code>requirements.txt</Code>에 추가하면 됩니다 - MySQL은{" "}
+          <Code>pymysql</Code>, PostgreSQL은 <Code>psycopg2-binary</Code>.
         </p>
         <CodeBlock>
 {`# database.py
 import os
 from sqlalchemy import create_engine
 
-engine = create_engine(
-    f"mysql+pymysql://{os.environ['DB_USER']}:{os.environ['DB_PASSWORD']}"
-    f"@{os.environ['DB_HOST']}:{os.environ['DB_PORT']}/{os.environ['DB_NAME']}"
-)`}
+engine = create_engine(os.environ["DATABASE_URL"])`}
         </CodeBlock>
         <p className="text-[13px] text-fg-4 mt-2" style={{ fontWeight: 450 }}>
-          다른 파일에서 사용:{" "}
-          <Code>from database import engine</Code>
+          다른 파일에서 사용: <Code>from database import engine</Code>.
+          접속 정보를 직접 다루고 싶으면 <Code>DB_HOST</Code> · <Code>DB_PORT</Code> ·{" "}
+          <Code>DB_NAME</Code> · <Code>DB_USER</Code> · <Code>DB_PASSWORD</Code>도
+          같이 들어와 있어요.
         </p>
       </Section>
     </>

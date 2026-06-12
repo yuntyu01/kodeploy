@@ -279,13 +279,6 @@ export default function DeployForm({ onRequestGuide }) {
       ),
     );
 
-  // Dockerfile 모드 + 해당 runtime 변경 시 우측 가이드 패널 자동 표시.
-  // auto 모드면 패널 닫기. X 버튼으로 닫아도 buildMode/runtime이 안 바뀌면 다시 안 열림.
-  // 서버 사용 안 함이면 빌드 방식 자체가 없으므로 항상 닫기.
-  useEffect(() => {
-    onRequestGuide?.(buildMode === "dockerfile" && runtime !== "none" ? runtime : null);
-  }, [buildMode, runtime, onRequestGuide]);
-
   // runtime 변경 시 default 포트 자동 적용. 초기 복원 중에는 skip.
   const restoredRef = useRef(false);
   useEffect(() => {
@@ -755,6 +748,16 @@ export default function DeployForm({ onRequestGuide }) {
                             <b style={{ color: "#dde0e4", fontWeight: 590 }}>Dockerfile</b> - 내 Dockerfile로 빌드<br />
                             <b style={{ color: "#dde0e4", fontWeight: 590 }}>자동 빌드</b> - Dockerfile 무시하고 Nixpacks로 빌드
                           </InfoHint>
+                          {buildMode === "dockerfile" && (
+                            <button
+                              type="button"
+                              onClick={() => onRequestGuide?.(runtime)}
+                              className="ml-auto text-[11px] text-fg-3 hover:text-fg-1 transition-colors"
+                              style={{ fontWeight: 510 }}
+                            >
+                              가이드 보기
+                            </button>
+                          )}
                         </div>
                         <div className="flex gap-1.5">
                           {[
@@ -893,6 +896,16 @@ export default function DeployForm({ onRequestGuide }) {
                         <b style={{ color: "#dde0e4", fontWeight: 590 }}>로컬(PVC)</b> - 지정 절대경로에 영속 디스크 마운트, 재시작·재배포에도 데이터 유지(예: <span style={{ color: "#dde0e4" }}>/var/www/html/data</span>)<br />
                         <b style={{ color: "#dde0e4", fontWeight: 590 }}>오브젝트(R2)</b> - 앱당 R2 버킷 + S3 호환 자격증명 자동 주입
                       </InfoHint>
+                      {storage !== "none" && (
+                        <button
+                          type="button"
+                          onClick={() => onRequestGuide?.("storage")}
+                          className="ml-auto text-[11px] text-fg-3 hover:text-fg-1 transition-colors"
+                          style={{ fontWeight: 510 }}
+                        >
+                          가이드 보기
+                        </button>
+                      )}
                     </div>
                     <div className="flex gap-1.5">
                       {[

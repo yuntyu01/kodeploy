@@ -1,4 +1,4 @@
-// Java (Spring Boot + 선택적 MySQL) 가이드 — 단순 톤.
+// Java (Spring Boot + 선택적 DB) 가이드 - 단순 톤.
 import { Code, CodeBlock, Section } from "./atoms.jsx";
 
 export default function Java() {
@@ -25,16 +25,25 @@ ENTRYPOINT ["java", "-jar", "app.jar"]`}
         </p>
       </Section>
 
-      <Section title="MySQL 쓸 때 — 의존성 1줄만 추가">
+      <Section title="DB 쓸 때 - 의존성 1줄만 추가">
         <p className="text-[14px] text-fg-3 mb-3">
-          <Code>pom.xml</Code>에 mysql 드라이버만 추가하면{" "}
+          <Code>pom.xml</Code>에 드라이버만 추가하면{" "}
           <strong className="text-fg-2">코드 변경 0</strong>으로 DB 연결 됩니다.
-          Spring Boot가 환경변수를 자동 인식해요.
+          접속 정보(<Code>SPRING_DATASOURCE_*</Code>)가 자동 주입되고 Spring Boot가
+          알아서 인식해요. MySQL·PostgreSQL 동일합니다.
         </p>
         <CodeBlock>
-{`<dependency>
+{`<!-- MySQL -->
+<dependency>
     <groupId>com.mysql</groupId>
     <artifactId>mysql-connector-j</artifactId>
+    <scope>runtime</scope>
+</dependency>
+
+<!-- PostgreSQL이면 이걸로 -->
+<dependency>
+    <groupId>org.postgresql</groupId>
+    <artifactId>postgresql</artifactId>
     <scope>runtime</scope>
 </dependency>`}
         </CodeBlock>
