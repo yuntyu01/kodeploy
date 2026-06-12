@@ -6,6 +6,8 @@ Heroku 무료 티어가 사라진 뒤 학생이 캡스톤·해커톤 결과물�
 
 OCI Always Free ARM 한도(4 OCPU / 24GB)에 유료 노드 1대(2 OCPU / 4GB)를 더해 월 2만원 이하로 운영한다. 노드 4대 위에 kubeadm으로 직접 구성한 Kubernetes 클러스터에서 돌아간다. 사용자는 kubectl을 쓰지 않는다. 클러스터 조작은 전부 백엔드 API가 대신 수행하고, 사용자별 격리는 1유저=1네임스페이스와 Calico 정책으로 처리한다. 단독 운영하는 프로젝트다. KoDeploy 백엔드 자체도 이 클러스터 위에서 돌아가고, 프론트는 Cloudflare 정적 호스팅으로 서빙된다.
 
+설계 결정과 구축 과정은 [기술 블로그 시리즈](https://velog.io/@yun60/series/KoDeploy)에 기록하고 있다.
+
 ![배포 폼 - 백엔드·프론트엔드 슬롯 구성](docs/images/deployform.png)
 ![모니터링·빌드 로그 패널](docs/images/monitoring_log.png)
 
