@@ -139,6 +139,12 @@ export function getEnvVars() {
   return request("/deploy/env");
 }
 
+// dep별 자동 주입 env 키 맵 — 배포 폼 환경변수 인라인 충돌 검증용 (정적, 1회 fetch).
+// 응답: { mysql: [...], postgres: [...], redis: [...], storage: [...] }
+export function getReservedKeys() {
+  return request("/deploy/reserved-keys");
+}
+
 // 전체 replace — 보낸 dict가 새 전체 상태. 저장 직후 Pod 자동 재시작.
 export function setEnvVars(env) {
   return request("/deploy/env", {

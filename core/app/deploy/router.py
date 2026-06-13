@@ -499,6 +499,13 @@ async def db_restore(
         raise HTTPException(status_code=400, detail=str(e))
 
 
+# dep별 자동 주입 env 키 맵 — 배포 폼이 환경변수 인라인 충돌 검증에 사용.
+# 정적(테넌트 무관)이라 인증만 두고 캐시된 맵을 그대로 반환. /{build_id}보다 위에 등록.
+@router.get("/reserved-keys")
+def reserved_keys(user: User = Depends(get_current_user)) -> dict:
+    return service.reserved_env_keys_map()
+
+
 # build_id 단건 상태 조회 — 본인 빌드만 (다른 user의 build_id는 404로 마스킹)
 @router.get("/{build_id}", response_model=StatusResponse)
 def get_status(

@@ -654,6 +654,52 @@ def _validate_volume_fields(
     return mp, sc, sz
 
 
+# --- 예약 env 키 (dep 시크릿이 자동 주입하는 키) ----------------------------------
+# 유저 env가 이 키와 충돌하면 (Option A로 유저 값이 이기므로) 관리형 연결이 조용히 깨진다.
+# 그래서 dep이 켜졌을 때 그 키를 거절한다. 키 목록은 하드코딩하지 않고 dep 템플릿을 렌더해
+# 파생 — 템플릿이 진실원이라 키를 더해도 자동 반영. 정적(테넌트/런타임 무관)이라 1회 캐시.
+_DEP_KEY_CACHE: dict[str, frozenset[str]] = {}
+
+
+def _dep_secret_keys(kind: str) -> frozenset[str]:
+    if kind not in _DEP_KEY_CACHE:
+        if kind == "mysql":
+            docs = manifests.mysql(tenant_id="_", user_id="_")
+        elif kind == "postgres":
+            docs = manifests.postgres(tenant_id="_", user_id="_")
+        elif kind == "redis":
+            docs = manifests.redis(tenant_id="_", user_id="_")
+        else:
+            docs = []
+        _DEP_KEY_CACHE[kind] = frozenset(
+            k for d in docs if d.get("kind") == "Secret"
+            for k in (d.get("stringData") or {})
+        )
+    return _DEP_KEY_CACHE[kind]
+
+
+# 선택된 dep들이 주입하는 예약 키 합집합 (POST 검증용).
+def reserved_env_keys(db_type: str, use_redis: bool, use_storage: bool) -> set[str]:
+    keys: set[str] = set()
+    if db_type in ("mysql", "postgres"):
+        keys |= _dep_secret_keys(db_type)
+    if use_redis:
+        keys |= _dep_secret_keys("redis")
+    if use_storage:
+        keys |= set(r2.INJECTED_ENV_KEYS)
+    return keys
+
+
+# dep별 주입 키 전체 맵 (프론트 인라인 검증용 — 토글에 따라 프론트가 로컬에서 합집합 계산).
+def reserved_env_keys_map() -> dict[str, list[str]]:
+    return {
+        "mysql": sorted(_dep_secret_keys("mysql")),
+        "postgres": sorted(_dep_secret_keys("postgres")),
+        "redis": sorted(_dep_secret_keys("redis")),
+        "storage": sorted(r2.INJECTED_ENV_KEYS),
+    }
+
+
 # 배포 제출 — 원하는 스택(서버 슬롯 + 정적 슬롯)을 선언받아 슬롯별 빌드/teardown을 spawn.
 # user 객체로 받음 — _resolve_app_name이 user.app_name을 읽고/쓰기 위해.
 # 반환: 이 제출이 만든 Build row들 (슬롯당 최대 1개).
@@ -704,6 +750,16 @@ async def start_deploy(
     if use_static:
         build_cmd, output_dir = _validate_static_fields(build_cmd, output_dir)
         static_env = _validate_static_env(static_env or {})
+
+    # 유저 env가 켜진 dep의 자동 주입 키와 충돌하면 거절 (관리형 연결이 조용히 깨지는 것 방지).
+    # 외부 서비스를 쓰려면 그 dep을 끄면 됨 — 그땐 시크릿이 없어 충돌 자체가 사라진다.
+    if has_server and env_vars:
+        collide = sorted(set(env_vars) & reserved_env_keys(db_type, use_redis, use_storage))
+        if collide:
+            raise ValueError(
+                f"{', '.join(collide)} 는 선택한 의존성(DB·Redis·스토리지)이 자동 주입하는 "
+                f"예약 키입니다. 환경변수에서 빼거나, 외부 서비스를 쓰려면 해당 의존성을 끄세요."
+            )
 
     repo_url = _normalize_repo_url(repo_url)
     app_name = _resolve_app_name(name, repo_url, user, db)

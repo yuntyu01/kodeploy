@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ChevronDown, ChevronUp, Eye, EyeOff, GitBranch, Plus, Trash2 } from "lucide-react";
-import { createDeploy, CUSTOM_DOMAIN_CNAME_TARGET, getEnvVars, listBuilds, listGithubBranches, listGithubRepos, RUNTIMES, setDomain, stageDump } from "../api/deploy.js";
+import { createDeploy, CUSTOM_DOMAIN_CNAME_TARGET, getEnvVars, getReservedKeys, listBuilds, listGithubBranches, listGithubRepos, RUNTIMES, setDomain, stageDump } from "../api/deploy.js";
 import { GITHUB_INSTALL_URL } from "../api/auth.js";
 import { useAuth } from "../contexts/AuthContext.jsx";
 import InfoHint from "./InfoHint.jsx";
@@ -77,6 +77,8 @@ export default function DeployForm({ onRequestGuide }) {
   // repo + branch 유효성 - GitHub API branches/{br} 호출 결과.
   // state: "idle" | "checking" | "ok" | "notfound" | "invalid" | "error"
   const [repoCheck, setRepoCheck] = useState({ state: "idle" });
+  // dep별 자동 주입 env 키 맵 — 로그인 시 1회 fetch, 이후 토글/타이핑은 로컬 비교.
+  const [reservedMap, setReservedMap] = useState(null);
 
   // 재배포 시 기존 세팅 복원 - 최신 빌드 + 환경변수를 폼에 채움
   useEffect(() => {
@@ -287,6 +289,12 @@ export default function DeployForm({ onRequestGuide }) {
     if (def) setPort(def);
   }, [runtime]);
 
+  // dep 예약 키 맵 1회 로드 (로그인 후). 실패는 무시 — 백엔드 POST가 최종 방어선.
+  useEffect(() => {
+    if (!user) return;
+    getReservedKeys().then(setReservedMap).catch(() => {});
+  }, [user]);
+
   const serverNone = runtime === "none";
   // 도메인 안내 툴팁 표시용 이름 - 첫 배포 입력값/확정 app_name, 없으면 placeholder
   const appLabel = user?.app_name || name.trim() || "앱이름";
@@ -295,12 +303,34 @@ export default function DeployForm({ onRequestGuide }) {
   // 서버도 정적도 없으면 배포할 게 없음 / 1차 repo 비면 불가
   const disabled = !primaryRepo || submitting || (serverNone && !useStatic);
 
+  // 지금 켜진 dep들이 자동 주입하는 예약 키 집합 (서버 슬롯에만 env 주입되므로 serverNone이면 빈 집합).
+  // env가 이 키와 충돌하면 Option A로 유저 값이 이겨 관리형 연결이 깨지므로 폼에서 미리 막는다.
+  const activeReserved = (() => {
+    const s = new Set();
+    if (serverNone || !reservedMap) return s;
+    if (dbType === "mysql" || dbType === "postgres")
+      (reservedMap[dbType] || []).forEach((k) => s.add(k));
+    if (useRedis) (reservedMap.redis || []).forEach((k) => s.add(k));
+    if (storage === "object") (reservedMap.storage || []).forEach((k) => s.add(k));
+    return s;
+  })();
+  const reservedConflicts = [
+    ...new Set(envRows.map((r) => r.key.trim()).filter((k) => activeReserved.has(k))),
+  ];
+
   const handleSubmit = async (e) => {
     e?.preventDefault?.();
     if (disabled) return;
     // 미로그인이면 API 호출 전에 LoginModal 띄움 (API도 401로 막지만 UX 단축)
     if (!user) {
       openLogin?.();
+      return;
+    }
+    if (reservedConflicts.length > 0) {
+      setError(
+        `${reservedConflicts.join(", ")} 는 선택한 의존성이 자동 주입하는 예약 키예요. ` +
+          `환경변수에서 빼거나 해당 의존성을 끄세요.`,
+      );
       return;
     }
     setError(null);
@@ -955,8 +985,12 @@ export default function DeployForm({ onRequestGuide }) {
                       </InfoHint>
                     </div>
                     <div className="flex flex-col gap-1.5">
-                      {envRows.map((row, i) => (
-                        <div key={i} className="flex items-center gap-1.5">
+                      {envRows.map((row, i) => {
+                        const conflict =
+                          !!row.key.trim() && activeReserved.has(row.key.trim());
+                        return (
+                        <div key={i} className="flex flex-col gap-1">
+                        <div className="flex items-center gap-1.5">
                           <input
                             value={row.key}
                             onChange={(e) =>
@@ -967,7 +1001,9 @@ export default function DeployForm({ onRequestGuide }) {
                             autoCapitalize="characters"
                             className="flex-1 min-w-0 px-2.5 py-1.5 rounded-md bg-transparent outline-none text-[12.5px] text-fg-1 placeholder:text-fg-4"
                             style={{
-                              border: "1px solid rgba(255,255,255,0.09)",
+                              border: conflict
+                                ? "1px solid rgba(239,68,68,0.5)"
+                                : "1px solid rgba(255,255,255,0.09)",
                               fontWeight: 510,
                             }}
                             disabled={submitting}
@@ -1013,7 +1049,17 @@ export default function DeployForm({ onRequestGuide }) {
                             <Trash2 size={12} strokeWidth={1.8} />
                           </button>
                         </div>
-                      ))}
+                        {conflict && (
+                          <span
+                            className="text-[10.5px] px-1"
+                            style={{ color: "#fca5a5", fontWeight: 450 }}
+                          >
+                            선택한 의존성이 자동 주입하는 예약 키예요 — 빼거나 해당 의존성을 끄세요
+                          </span>
+                        )}
+                        </div>
+                        );
+                      })}
                     </div>
                     <button
                       type="button"

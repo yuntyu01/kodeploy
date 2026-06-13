@@ -179,20 +179,10 @@ def _delete_token(client: httpx.Client, token_id: str) -> None:
 
 # --- 고수준 API (service.py가 호출) ---
 
-# 앱용 R2 버킷 + 스코프 토큰 프로비저닝. 앱 Pod에 주입할 S3 호환 env dict 반환.
-# 재배포마다 호출돼도 안전: 버킷은 idempotent, 토큰은 새로 발급(옛 토큰은 _apply_storage가
-# 교체 전 정리). 키 이름은 generic S3_* + AWS_* 별칭 둘 다 — AWS SDK(Dailo)·boto3·기타
-# OSS가 추가 설정 없이 자격증명을 읽도록.
-def provision(app_name: str) -> tuple[dict[str, str], str]:
-    _require_configured()
-    bucket = bucket_name(app_name)
-    with _client() as client:
-        _create_bucket(client, bucket)
-        public_url = _enable_public_url(client, bucket) or ""
-        pg_ids = _r2_permission_group_ids(client)
-        token_id, secret_key = _create_scoped_token(client, bucket, pg_ids)
-
-    env = {
+# 앱 Pod에 주입할 S3 호환 env dict 빌더. 키 이름은 generic S3_* + AWS_* 별칭 둘 다 —
+# AWS SDK(Dailo)·boto3·기타 OSS가 추가 설정 없이 자격증명을 읽도록.
+def _build_env(token_id: str, secret_key: str, bucket: str, public_url: str) -> dict[str, str]:
+    return {
         # generic (KoDeploy 표준 규약)
         "S3_ENDPOINT": config.R2_S3_ENDPOINT,
         "S3_REGION": "auto",                 # R2는 region "auto"
@@ -208,7 +198,26 @@ def provision(app_name: str) -> tuple[dict[str, str], str]:
         "AWS_ENDPOINT_URL_S3": config.R2_S3_ENDPOINT,
         "AWS_ENDPOINT_URL": config.R2_S3_ENDPOINT,
     }
-    return env, token_id
+
+
+# storage 활성 시 앱에 주입되는 env 키 — _build_env에서 파생(드리프트 0). 예약 키 검증용.
+# (R2 키는 템플릿이 아니라 provision 산출물이라 mysql/redis와 달리 여기서 키를 뽑는다.)
+INJECTED_ENV_KEYS = frozenset(_build_env("", "", "", ""))
+
+
+# 앱용 R2 버킷 + 스코프 토큰 프로비저닝. 앱 Pod에 주입할 S3 호환 env dict 반환.
+# 재배포마다 호출돼도 안전: 버킷은 idempotent, 토큰은 새로 발급(옛 토큰은 _apply_storage가
+# 교체 전 정리).
+def provision(app_name: str) -> tuple[dict[str, str], str]:
+    _require_configured()
+    bucket = bucket_name(app_name)
+    with _client() as client:
+        _create_bucket(client, bucket)
+        public_url = _enable_public_url(client, bucket) or ""
+        pg_ids = _r2_permission_group_ids(client)
+        token_id, secret_key = _create_scoped_token(client, bucket, pg_ids)
+
+    return _build_env(token_id, secret_key, bucket, public_url), token_id
 
 
 # 토큰 revoke (+ 빈 버킷이면 삭제). 토글 off / 앱 삭제 시 호출.
