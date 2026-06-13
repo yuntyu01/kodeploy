@@ -99,20 +99,68 @@ function useReveal() {
 // (그래서 grid 컨테이너 자체를 Reveal로 쓸 수도 있음).
 function Reveal({ children, className, style }) {
   const [ref, shown] = useReveal();
+  // 등장이 끝나면 will-change를 내려, 정착한 요소가 컴포지터 레이어에서 해제되게 한다
+  // (안 내리면 Included 카드 등 수십 개가 계속 레이어로 승격된 채 메모리를 점유).
+  const [settled, setSettled] = useState(false);
   return (
     <div
       ref={ref}
       className={className}
+      onTransitionEnd={() => setSettled(true)}
       style={{
         ...style,
         opacity: shown ? 1 : 0,
         transform: shown ? "none" : "translateY(28px)",
         transition:
           "opacity 0.7s ease, transform 0.7s cubic-bezier(0.22, 1, 0.36, 1)",
-        willChange: "opacity, transform",
+        willChange: settled ? "auto" : "opacity, transform",
       }}
     >
       {children}
+    </div>
+  );
+}
+
+function prefersReducedMotion() {
+  return (
+    typeof window !== "undefined" &&
+    window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches
+  );
+}
+
+// stagger 그리드의 셀 한 칸 — 인덱스별 transition-delay로 순차 등장(cascade).
+// settled를 셀마다 따로 들어, 늦게 끝나는 셀의 will-change가 먼저 끝난 셀 때문에 꺼지지 않게.
+function StaggerCell({ children, shown, delay, reduced }) {
+  const [settled, setSettled] = useState(false);
+  if (reduced) return <div>{children}</div>; // 모션 민감 — 지연/이동 없이 그대로
+  return (
+    <div
+      onTransitionEnd={() => setSettled(true)}
+      style={{
+        opacity: shown ? 1 : 0,
+        transform: shown ? "none" : "translateY(24px)",
+        transition: `opacity 0.6s ease ${delay}ms, transform 0.6s cubic-bezier(0.22, 1, 0.36, 1) ${delay}ms`,
+        willChange: settled ? "auto" : "opacity, transform",
+      }}
+    >
+      {children}
+    </div>
+  );
+}
+
+// Reveal의 그리드 버전 — 컨테이너가 뷰포트에 들어오면 자식을 인덱스 순서로 cascade 등장.
+// 자식 배열을 셀로 감싸므로 grid의 직접 자식은 셀(=원래 카드 자리). gap/컬럼 규칙 그대로 적용.
+function Stagger({ children, className, style, step = 70 }) {
+  const [ref, shown] = useReveal();
+  const reduced = prefersReducedMotion();
+  const kids = Array.isArray(children) ? children : [children];
+  return (
+    <div ref={ref} className={className} style={style}>
+      {kids.map((child, i) => (
+        <StaggerCell key={i} shown={shown} delay={i * step} reduced={reduced}>
+          {child}
+        </StaggerCell>
+      ))}
     </div>
   );
 }
@@ -219,17 +267,7 @@ export default function Home() {
             >
               GitHub 저장소를
               <br />
-              <span
-                style={{
-                  background:
-                    "linear-gradient(120deg, #6672d5 0%, #a78bfa 45%, #d8b4fe 75%, #818be0 100%)",
-                  WebkitBackgroundClip: "text",
-                  WebkitTextFillColor: "transparent",
-                  backgroundClip: "text",
-                }}
-              >
-                한 번에 배포
-              </span>
+              <span className="kd-gradient-text">한 번에 배포</span>
               합니다
             </h1>
 
@@ -284,7 +322,7 @@ export default function Home() {
           style={{ maxWidth: 1080, padding: "10vh 24px 0" }}
         >
           <SectionHead eyebrow="Included" title="앱에 필요한 인프라, 전부 포함" />
-          <Reveal
+          <Stagger
             className="grid gap-3"
             style={{ gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))" }}
           >
@@ -293,20 +331,10 @@ export default function Home() {
               return (
                 <div
                   key={p.title}
-                  className="p-5 rounded-xl transition-all"
+                  className="kd-included-card p-5 rounded-xl"
                   style={{
-                    background: "rgba(20,21,24,0.55)",
-                    border: "1px solid rgba(255,255,255,0.06)",
                     backdropFilter: "blur(16px)",
                     WebkitBackdropFilter: "blur(16px)",
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.borderColor = "rgba(129,139,224,0.3)";
-                    e.currentTarget.style.background = "rgba(28,29,33,0.7)";
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.borderColor = "rgba(255,255,255,0.06)";
-                    e.currentTarget.style.background = "rgba(20,21,24,0.55)";
                   }}
                 >
                   <div
@@ -333,7 +361,7 @@ export default function Home() {
                 </div>
               );
             })}
-          </Reveal>
+          </Stagger>
         </section>
 
         {/* ── How it works: 3단계 (CTA 직전) ── */}
@@ -342,7 +370,7 @@ export default function Home() {
           style={{ maxWidth: 900, padding: "12vh 24px 4vh" }}
         >
           <SectionHead eyebrow="How it works" title="3단계면 충분합니다" />
-          <Reveal className="grid gap-8 md:grid-cols-3">
+          <Stagger className="grid gap-8 md:grid-cols-3" step={90}>
             {STEPS.map((s) => (
               <div key={s.n}>
                 <div
@@ -365,7 +393,7 @@ export default function Home() {
                 </p>
               </div>
             ))}
-          </Reveal>
+          </Stagger>
         </section>
 
         {/* ── 하단 CTA ── */}
@@ -409,21 +437,8 @@ function FeatureRow({ title, body, image, reverse }) {
         <img
           src={image}
           alt={title}
-          className="block w-full rounded-xl"
-          style={{
-            border: "1px solid rgba(255,255,255,0.07)",
-            boxShadow: "0 20px 50px rgba(0,0,0,0.4)",
-            transition: "transform 0.4s ease, box-shadow 0.4s ease",
-          }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.transform = "translateY(-6px)";
-            e.currentTarget.style.boxShadow =
-              "0 30px 70px rgba(0,0,0,0.5), 0 0 60px rgba(102,114,213,0.18)";
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.transform = "none";
-            e.currentTarget.style.boxShadow = "0 20px 50px rgba(0,0,0,0.4)";
-          }}
+          className="kd-feature-img block w-full rounded-xl"
+          style={{ border: "1px solid rgba(255,255,255,0.07)" }}
         />
       </div>
       <div className="w-full md:flex-1">
@@ -455,26 +470,8 @@ function CtaButton({ children, onClick }) {
   return (
     <button
       onClick={onClick}
-      className="inline-flex items-center justify-center min-w-[130px] px-6 py-3 rounded-md text-[14px] text-white transition-all"
-      style={{
-        background: "linear-gradient(135deg, #6672d5 0%, #7d6dd5 100%)",
-        fontWeight: 510,
-        border: "1px solid transparent",
-        boxShadow:
-          "0 8px 24px rgba(102,114,213,0.35), 0 0 0 1px rgba(255,255,255,0.06) inset",
-      }}
-      onMouseEnter={(e) => {
-        e.currentTarget.style.background =
-          "linear-gradient(135deg, #828fff 0%, #9e8aff 100%)";
-        e.currentTarget.style.boxShadow =
-          "0 12px 32px rgba(130,143,255,0.5), 0 0 0 1px rgba(255,255,255,0.1) inset";
-      }}
-      onMouseLeave={(e) => {
-        e.currentTarget.style.background =
-          "linear-gradient(135deg, #6672d5 0%, #7d6dd5 100%)";
-        e.currentTarget.style.boxShadow =
-          "0 8px 24px rgba(102,114,213,0.35), 0 0 0 1px rgba(255,255,255,0.06) inset";
-      }}
+      className="kd-cta inline-flex items-center justify-center min-w-[130px] px-6 py-3 rounded-md text-[14px] text-white"
+      style={{ fontWeight: 510, border: "1px solid transparent" }}
     >
       {children}
     </button>

@@ -95,3 +95,80 @@ body,
 .kd-slide-in-right {
   animation: kd-slide-in-right 400ms cubic-bezier(0.22, 0.61, 0.36, 1);
 }
+
+/* ── Hover 인터랙션 — JS onMouseEnter 대체 (터치 stuck 방지 + reduced-motion 일괄 적용) ── */
+
+/* Home hero·하단 CTA 프라이머리 버튼 (그라데이션 + 그림자) */
+.kd-cta {
+  background: linear-gradient(135deg, #6672d5 0%, #7d6dd5 100%);
+  box-shadow: 0 8px 24px rgba(102, 114, 213, 0.35),
+    0 0 0 1px rgba(255, 255, 255, 0.06) inset;
+  transition: background 250ms ease, box-shadow 250ms ease;
+}
+.kd-cta:hover {
+  background: linear-gradient(135deg, #828fff 0%, #9e8aff 100%);
+  box-shadow: 0 12px 32px rgba(130, 143, 255, 0.5),
+    0 0 0 1px rgba(255, 255, 255, 0.1) inset;
+}
+
+/* Included 인프라 카드 — 배경·보더 hover (이동 없음) */
+.kd-included-card {
+  background: rgba(20, 21, 24, 0.55);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  transition: background 200ms ease, border-color 200ms ease;
+}
+.kd-included-card:hover {
+  background: rgba(28, 29, 33, 0.7);
+  border-color: rgba(129, 139, 224, 0.3);
+}
+
+/* 패널 UI 지그재그 이미지 — hover lift */
+.kd-feature-img {
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.4);
+  transition: transform 400ms ease, box-shadow 400ms ease;
+}
+.kd-feature-img:hover {
+  transform: translateY(-6px);
+  box-shadow: 0 30px 70px rgba(0, 0, 0, 0.5), 0 0 60px rgba(102, 114, 213, 0.18);
+}
+
+/* Hero 헤드라인 — 보라 그라데이션이 텍스트 안에서 천천히 일렁인다 (배경 fluid/aurora와 같은 결).
+   색은 그대로 두고 background-size 200%를 좌우로 oscillate(alternate)해 seam 없이 흐른다. */
+@keyframes kd-gradient-shift {
+  to {
+    background-position: 100% center;
+  }
+}
+.kd-gradient-text {
+  background: linear-gradient(
+    120deg,
+    #6672d5 0%,
+    #a78bfa 45%,
+    #d8b4fe 75%,
+    #818be0 100%
+  );
+  background-size: 200% auto; /* background 단축 뒤에 와야 auto로 리셋되지 않음 */
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: kd-gradient-shift 5s ease-in-out infinite alternate;
+}
+
+/* 모션 민감 사용자 — 장식 애니메이션과 이동(lift)만 끈다.
+   색/보더 전환과 기능성 스피너(kd-spin)는 모션이 아니라 유지. */
+@media (prefers-reduced-motion: reduce) {
+  .kd-fade-in,
+  .kd-pulse,
+  .kd-pulse-soft,
+  .kd-slide-in-right {
+    animation: none;
+  }
+  .kd-feature-img:hover {
+    transform: none;
+  }
+  /* 그라데이션 흐름 정지 + 원래 정적 프레이밍(background-size auto)으로 복원 */
+  .kd-gradient-text {
+    animation: none;
+    background-size: auto;
+  }
+}

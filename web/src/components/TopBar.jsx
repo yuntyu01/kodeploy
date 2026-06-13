@@ -97,10 +97,8 @@ export default function TopBar({ onLogin }) {
         ) : (
           <button
             onClick={onLogin}
-            className="flex items-center px-3 py-1.5 rounded-md text-[13px] text-white transition-colors"
-            style={{ background: "#6672d5", fontWeight: 510 }}
-            onMouseEnter={(e) => (e.currentTarget.style.background = "#828fff")}
-            onMouseLeave={(e) => (e.currentTarget.style.background = "#6672d5")}
+            className="flex items-center px-3 py-1.5 rounded-md text-[13px] text-white transition-colors bg-[#6672d5] hover:bg-[#828fff]"
+            style={{ fontWeight: 510 }}
           >
             로그인
           </button>
