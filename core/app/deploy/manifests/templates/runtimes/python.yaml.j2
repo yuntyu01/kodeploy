@@ -54,6 +54,9 @@ spec:
             - secretRef:
                 name: r2-secret                          # use_storage=true일 때 자동 주입 (S3_*/AWS_* 자격증명)
                 optional: true                           # storage 미사용이면 Secret 없음 — optional이라 안전
+            - secretRef:
+                name: redis-secret                       # use_redis=true일 때 자동 주입 (REDIS_*/SPRING_DATA_REDIS_*)
+                optional: true                           # redis 미사용이면 Secret 없음 — optional이라 안전
           env:                                           # 플랫폼 주입값 — envFrom과 충돌 시 이쪽이 이김
             - name: PYTHONUNBUFFERED
               value: "1"                                 # stdout 즉시 flush (kubectl logs 실시간 반영)

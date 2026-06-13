@@ -138,6 +138,9 @@ export default function Dashboard() {
   // 그대로 쓰면 서버 앱의 스토리지 패널이 잘못 숨겨짐.
   const storageEnabled =
     builds.find((b) => b.runtime !== "static")?.use_storage ?? false;
+  // Redis 터미널 카드 노출 — storageEnabled와 동일하게 최신 서버 빌드의 use_redis 기준.
+  const redisEnabled =
+    builds.find((b) => b.runtime !== "static")?.use_redis ?? false;
 
   return (
     <div className="flex-1 flex flex-col min-h-0 h-full">
@@ -160,6 +163,7 @@ export default function Dashboard() {
             key={selected.build_id}
             build={selected}
             storageEnabled={storageEnabled}
+            redisEnabled={redisEnabled}
           />
         ) : (
           <div className="h-full flex items-center justify-center text-[12px] text-fg-4">

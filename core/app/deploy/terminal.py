@@ -206,3 +206,39 @@ async def handle_db_terminal(ws: WebSocket, tenant_id: str):
             container=db_type,
             command=command,
         )
+
+
+async def _get_redis_password(core: client.CoreV1Api, namespace: str) -> str:
+    try:
+        secret = await core.read_namespaced_secret(name="redis-secret", namespace=namespace)
+        encoded = secret.data.get("REDIS_PASSWORD", "")
+        return base64.b64decode(encoded).decode("utf-8")
+    except Exception:
+        return ""
+
+
+async def handle_redis_terminal(ws: WebSocket, tenant_id: str):
+    await ws.accept()
+    await _ensure_loaded()
+
+    async with client.ApiClient() as api:
+        core = client.CoreV1Api(api)
+        pod_name = await _find_app_pod(core, tenant_id, "redis")  # app=redis 라벨로 redis Pod 탐색
+        if not pod_name:
+            await ws.send_text("\x1b[1;31mRedis Pod 없음 — Redis를 활성화하세요\x1b[0m\r\n")
+            await ws.close()
+            return
+        password = await _get_redis_password(core, tenant_id)
+
+    # requirepass가 걸려 있어 -a로 인증, --no-auth-warning으로 stderr 경고 억제.
+    # 인자 배열로 넘기므로(셸 미경유) 비밀번호 이스케이프/주입 우려 없음.
+    command = ["redis-cli", "--no-auth-warning", "-a", password]
+
+    async with WsApiClient() as ws_api:
+        await _exec_and_relay(
+            ws, ws_api,
+            pod_name=pod_name,
+            namespace=tenant_id,
+            container="redis",
+            command=command,
+        )

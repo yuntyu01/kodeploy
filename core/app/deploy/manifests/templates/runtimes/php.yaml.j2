@@ -57,6 +57,9 @@ spec:
             - secretRef:
                 name: r2-secret                          # use_storage=true일 때 자동 주입 (S3_*/AWS_* 자격증명)
                 optional: true                           # storage 미사용이면 Secret 없음 — optional이라 안전
+            - secretRef:
+                name: redis-secret                       # use_redis=true일 때 자동 주입 (REDIS_*/SPRING_DATA_REDIS_*)
+                optional: true                           # redis 미사용이면 Secret 없음 — optional이라 안전
           resources:
             requests:
               cpu: {{ req_cpu }}m                        # 스케줄러 보장값

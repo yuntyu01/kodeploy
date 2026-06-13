@@ -285,6 +285,33 @@ async def app_db_terminal(ws: WebSocket):
     await terminal.handle_db_terminal(ws, tenant_id)
 
 
+# Redis Pod exec WebSocket — redis-cli. cookie 인증. db-terminal과 동일 격리/검증.
+@router.websocket("/app/redis-terminal")
+async def app_redis_terminal(ws: WebSocket):
+    if not _ws_origin_allowed(ws):
+        await ws.close(code=4403, reason="origin not allowed")
+        return
+    sid = ws.cookies.get("kd_session")
+    if not sid:
+        await ws.close(code=4001, reason="인증 필요")
+        return
+    from app.shared.db import SessionLocal
+    db = SessionLocal()
+    try:
+        sess = auth_service.get_active_session(db, sid)
+        if not sess:
+            await ws.close(code=4001, reason="세션 만료")
+            return
+        user = db.query(User).filter_by(id=sess.user_id).first()
+        if not user or not user.app_name:
+            await ws.close(code=4002, reason="앱 없음")
+            return
+        tenant_id = f"tenant-{user.id.hex[:8]}"
+    finally:
+        db.close()
+    await terminal.handle_redis_terminal(ws, tenant_id)
+
+
 # DB 콘솔 — 단발 SQL 실행 후 구조화된 결과(columns/rows) 반환. 표 UI가 렌더.
 # raw 터미널(/app/db-terminal)과 같은 exec 인프라를 쓰되 결과를 JSON으로 파싱해 돌려줌.
 # /{build_id} 핸들러보다 위에 등록해야 "app"이 build_id로 잡히지 않음.

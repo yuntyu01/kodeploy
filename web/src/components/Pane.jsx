@@ -14,11 +14,13 @@ import {
   Server,
   TerminalSquare,
   X,
+  Zap,
 } from "lucide-react";
 import MonitoringPanel from "./panels/MonitoringPanel.jsx";
 import RuntimeLogPanel from "./panels/RuntimeLogPanel.jsx";
 import TerminalPanel from "./panels/TerminalPanel.jsx";
 import DbConsolePanel from "./panels/DbConsolePanel.jsx";
+import RedisTerminalPanel from "./panels/RedisTerminalPanel.jsx";
 import StoragePanel from "./panels/StoragePanel.jsx";
 
 const PANEL_TYPES = [
@@ -56,7 +58,7 @@ const PANEL_TYPES = [
   },
 ];
 
-export default function Pane({ build, storageEnabled = false, splitLevel = 0, onSplit, onUnsplit, excludeSplitDir, style }) {
+export default function Pane({ build, storageEnabled = false, redisEnabled = false, splitLevel = 0, onSplit, onUnsplit, excludeSplitDir, style }) {
   // 스토리지 토글 꺼진 앱엔 스토리지 카드 자체를 안 보여줌 (선택해도 빈 패널뿐).
   const panelTypes = PANEL_TYPES.filter(
     (opt) => opt.id !== "storage" || storageEnabled,
@@ -268,7 +270,7 @@ export default function Pane({ build, storageEnabled = false, splitLevel = 0, on
               {t.type === "logs" ? (
                 <RuntimeLogPanel build={build} splitLevel={splitLevel} />
               ) : t.type === "terminal" ? (
-                <TerminalSelector compact={compact} />
+                <TerminalSelector compact={compact} redisEnabled={redisEnabled} />
               ) : t.type === "monitoring" ? (
                 <MonitoringPanel />
               ) : t.type === "storage" ? (
@@ -282,23 +284,30 @@ export default function Pane({ build, storageEnabled = false, splitLevel = 0, on
   );
 }
 
-function TerminalSelector({ compact }) {
+function TerminalSelector({ compact, redisEnabled = false }) {
   const [target, setTarget] = useState(null);
 
   if (target === "app") return <TerminalPanel />;
   if (target === "db") return <DbConsolePanel />;
+  if (target === "redis") return <RedisTerminalPanel />;
 
   const cardSize = compact ? "w-[160px] h-[160px]" : "w-[200px] h-[200px]";
   const iconSize = compact ? 30 : 36;
   const labelSize = compact ? "text-[14px]" : "text-[16px]";
   const subSize = compact ? "text-[10.5px]" : "text-[11.5px]";
 
+  // Redis 카드는 use_redis일 때만 (storage 카드를 storageEnabled로 거는 것과 동일 방침).
+  const options = [
+    { id: "app", icon: Server, label: "WAS", sub: "앱 Pod 쉘 접속", color: "#a4abee" },
+    { id: "db", icon: Database, label: "DB", sub: "쿼리 콘솔 · 쉘", color: "#7fb6db" },
+    ...(redisEnabled
+      ? [{ id: "redis", icon: Zap, label: "Redis", sub: "redis-cli 쉘", color: "#f87171" }]
+      : []),
+  ];
+
   return (
     <div className="flex-1 min-h-0 flex items-center justify-center gap-3 p-6">
-      {[
-        { id: "app", icon: Server, label: "WAS", sub: "앱 Pod 쉘 접속", color: "#a4abee" },
-        { id: "db", icon: Database, label: "DB", sub: "쿼리 콘솔 · 쉘", color: "#7fb6db" },
-      ].map((opt) => {
+      {options.map((opt) => {
         const Icon = opt.icon;
         return (
           <button
