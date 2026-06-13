@@ -45,9 +45,7 @@ spec:
           # 그래서 env: 블록 없이 envFrom(시크릿 흡수)만. db_type=mysql이면 mysql-secret의 DB_* 를
           # 그누보드 entrypoint가 읽어 dbconfig 생성.
           envFrom:
-            - secretRef:
-                name: {{ app_name }}-env                 # 유저가 UI에서 추가한 envvar 묶음 (Secret 통째 흡수)
-                optional: true                           # Secret 없어도 Pod 시작 가능 (첫 배포 시 자연스러움)
+            # dep 시크릿 먼저, 유저 env를 맨 뒤 — envFrom은 뒤 소스가 이기므로 충돌 키는 유저 값이 우선.
             - secretRef:
                 name: mysql-secret                       # db_type=mysql일 때 자동 주입 (DB_HOST/PORT/NAME/USER/PASSWORD)
                 optional: true                           # db_type≠mysql이면 Secret 없음 — optional이라 안전
@@ -60,6 +58,9 @@ spec:
             - secretRef:
                 name: redis-secret                       # use_redis=true일 때 자동 주입 (REDIS_*/SPRING_DATA_REDIS_*)
                 optional: true                           # redis 미사용이면 Secret 없음 — optional이라 안전
+            - secretRef:
+                name: {{ app_name }}-env                 # 유저 env — 맨 뒤라 dep 시크릿과 충돌 시 사용자 값이 이김 (외부 DB 등 override 허용)
+                optional: true                           # Secret 없어도 Pod 시작 가능 (첫 배포 시 자연스러움)
           resources:
             requests:
               cpu: {{ req_cpu }}m                        # 스케줄러 보장값

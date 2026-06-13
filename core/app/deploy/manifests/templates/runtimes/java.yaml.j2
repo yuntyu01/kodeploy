@@ -42,9 +42,7 @@ spec:
           ports:
             - containerPort: {{ port | default(8080) }}  # Spring Boot 기본 포트
           envFrom:
-            - secretRef:
-                name: {{ app_name }}-env                 # 유저가 UI에서 추가한 envvar 묶음 (Secret 통째 흡수)
-                optional: true                           # Secret 없어도 Pod 시작 가능 (첫 배포 시 자연스러움)
+            # dep 시크릿 먼저, 유저 env를 맨 뒤 — envFrom은 뒤 소스가 이기므로 충돌 키는 유저 값이 우선.
             - secretRef:
                 name: mysql-secret                       # db_type=mysql일 때 자동 주입 (DB_HOST/PORT/NAME/USER/PASSWORD)
                 optional: true                           # db_type≠mysql이면 Secret 없음 — optional이라 안전
@@ -57,6 +55,9 @@ spec:
             - secretRef:
                 name: redis-secret                       # use_redis=true일 때 자동 주입 (REDIS_*/SPRING_DATA_REDIS_*)
                 optional: true                           # redis 미사용이면 Secret 없음 — optional이라 안전
+            - secretRef:
+                name: {{ app_name }}-env                 # 유저 env — 맨 뒤라 dep 시크릿과 충돌 시 사용자 값이 이김 (외부 DB 등 override 허용)
+                optional: true                           # Secret 없어도 Pod 시작 가능 (첫 배포 시 자연스러움)
           env:                                           # 플랫폼 주입값 — envFrom과 충돌 시 이쪽이 이김
             - name: JAVA_TOOL_OPTIONS                    # JVM이 cgroup limits 인식 + heap 75%로 설정
               value: "-XX:+UseContainerSupport -XX:MaxRAMPercentage=75.0 -XX:InitialRAMPercentage=50.0"
