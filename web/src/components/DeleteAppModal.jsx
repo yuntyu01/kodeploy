@@ -44,8 +44,8 @@ export default function DeleteAppModal({ appName, onClose }) {
       <div
         className="relative w-[440px] max-w-[92vw] px-8 pt-8 pb-7 rounded-xl"
         style={{
-          background: "#08090a",
-          border: "1px solid rgba(255,255,255,0.08)",
+          background: "var(--kd-bg)",
+          border: "1px solid var(--line-2)",
           boxShadow: "0 24px 60px rgba(0,0,0,0.6), 0 4px 12px rgba(0,0,0,0.4)",
         }}
         onClick={(e) => e.stopPropagation()}
@@ -53,7 +53,7 @@ export default function DeleteAppModal({ appName, onClose }) {
         <button
           onClick={onClose}
           disabled={submitting}
-          className="absolute top-3 right-3 w-8 h-8 rounded-md text-fg-4 hover:text-fg-1 hover:bg-white/[0.04] transition-colors flex items-center justify-center disabled:opacity-40"
+          className="absolute top-3 right-3 w-8 h-8 rounded-md text-fg-4 hover:text-fg-1 hover:bg-[var(--line-1)] transition-colors flex items-center justify-center disabled:opacity-40"
           aria-label="닫기"
         >
           <X size={14} strokeWidth={1.8} />
@@ -79,7 +79,7 @@ export default function DeleteAppModal({ appName, onClose }) {
             style={{ fontWeight: 590 }}
           >
             확인하려면 앱 이름{" "}
-            <span style={{ color: "#818be0" }}>{appName}</span>을 입력하세요
+            <span style={{ color: "var(--accent)" }}>{appName}</span>을 입력하세요
           </div>
           <input
             value={typed}
@@ -89,7 +89,7 @@ export default function DeleteAppModal({ appName, onClose }) {
             autoFocus
             disabled={submitting}
             className="w-full px-3 py-2 rounded-md bg-transparent outline-none text-[13px] text-fg-1 placeholder:text-fg-4"
-            style={{ border: "1px solid rgba(255,255,255,0.09)", fontWeight: 510 }}
+            style={{ border: "1px solid var(--line-3)", fontWeight: 510 }}
           />
         </div>
 
@@ -100,8 +100,8 @@ export default function DeleteAppModal({ appName, onClose }) {
             className="flex-1 py-2.5 rounded-md text-[13px] transition-colors disabled:opacity-40"
             style={{
               background: "transparent",
-              border: "1px solid rgba(255,255,255,0.09)",
-              color: "#f87171",
+              border: "1px solid var(--line-3)",
+              color: "var(--err-fg)",
               fontWeight: 510,
             }}
           >
@@ -110,15 +110,15 @@ export default function DeleteAppModal({ appName, onClose }) {
           <button
             onClick={onClose}
             disabled={submitting}
-            className="px-4 py-2.5 rounded-md text-[13px] text-fg-2 hover:text-fg-1 hover:bg-white/[0.04] transition-colors disabled:opacity-40"
-            style={{ fontWeight: 510, border: "1px solid rgba(255,255,255,0.09)" }}
+            className="px-4 py-2.5 rounded-md text-[13px] text-fg-2 hover:text-fg-1 hover:bg-[var(--line-1)] transition-colors disabled:opacity-40"
+            style={{ fontWeight: 510, border: "1px solid var(--line-3)" }}
           >
             취소
           </button>
         </div>
 
         {error && (
-          <p className="mt-3 text-[12px]" style={{ color: "#fca5a5", fontWeight: 510 }}>
+          <p className="mt-3 text-[12px]" style={{ color: "var(--err-fg)", fontWeight: 510 }}>
             {error}
           </p>
         )}

@@ -94,7 +94,7 @@ export default function Dashboard() {
               border: "1px solid rgba(129,139,224,0.25)",
             }}
           >
-            <GitBranch size={20} strokeWidth={1.5} className="text-[#818be0]" />
+            <GitBranch size={20} strokeWidth={1.5} className="text-[var(--accent)]" />
           </div>
           <h2
             className="text-fg-1 mb-3"
@@ -119,7 +119,7 @@ export default function Dashboard() {
               background: "linear-gradient(135deg, #6672d5 0%, #7d6dd5 100%)",
               fontWeight: 510,
               boxShadow:
-                "0 8px 24px rgba(102,114,213,0.35), 0 0 0 1px rgba(255,255,255,0.06) inset",
+                "0 8px 24px rgba(102,114,213,0.35), 0 0 0 1px var(--line-2) inset",
             }}
           >
             배포하기
@@ -150,7 +150,7 @@ export default function Dashboard() {
           style={{
             background: "rgba(239,68,68,0.08)",
             border: "1px solid rgba(239,68,68,0.25)",
-            color: "#fca5a5",
+            color: "var(--err-fg)",
           }}
         >
           {error}

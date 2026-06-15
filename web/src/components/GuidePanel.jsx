@@ -31,8 +31,8 @@ export default function GuidePanel({ runtime, onClose }) {
         right: 0,
         width: 520,
         zIndex: 20,               // BuildListWidget(z-30)보다 낮게 — widget 위에 보임
-        background: "#0f1011",
-        borderLeft: "1px solid rgba(255,255,255,0.08)",
+        background: "var(--kd-panel)",
+        borderLeft: "1px solid var(--line-2)",
         padding: "20px 24px",
       }}
     >
@@ -45,7 +45,7 @@ export default function GuidePanel({ runtime, onClose }) {
         </h3>
         <button
           onClick={onClose}
-          className="w-7 h-7 rounded-md text-fg-4 hover:text-fg-1 hover:bg-white/[0.04] transition-colors flex items-center justify-center"
+          className="w-7 h-7 rounded-md text-fg-4 hover:text-fg-1 hover:bg-[var(--line-1)] transition-colors flex items-center justify-center"
           aria-label="가이드 닫기"
         >
           <X size={14} strokeWidth={1.8} />

@@ -62,8 +62,8 @@ function BlogSection() {
           rel="noopener noreferrer"
           className="group flex gap-6 rounded-xl overflow-hidden no-underline transition-all p-5"
           style={{
-            border: "1px solid rgba(255,255,255,0.06)",
-            background: "rgba(255,255,255,0.02)",
+            border: "1px solid var(--line-2)",
+            background: "var(--kd-surface)",
           }}
           onMouseEnter={(e) => {
             e.currentTarget.style.borderColor = "rgba(129,139,224,0.25)";
@@ -71,7 +71,7 @@ function BlogSection() {
             e.currentTarget.style.boxShadow = "0 8px 24px rgba(0,0,0,0.3)";
           }}
           onMouseLeave={(e) => {
-            e.currentTarget.style.borderColor = "rgba(255,255,255,0.06)";
+            e.currentTarget.style.borderColor = "var(--line-2)";
             e.currentTarget.style.transform = "translateY(0)";
             e.currentTarget.style.boxShadow = "none";
           }}
@@ -94,7 +94,7 @@ function BlogSection() {
                 className="text-[11px] px-2 py-0.5 rounded"
                 style={{
                   background: "rgba(129,139,224,0.12)",
-                  color: "#818be0",
+                  color: "var(--accent)",
                   fontWeight: 590,
                 }}
               >
@@ -124,9 +124,9 @@ function BlogSection() {
                     key={tag}
                     className="text-[11px] px-2 py-0.5 rounded"
                     style={{
-                      background: "rgba(255,255,255,0.04)",
-                      border: "1px solid rgba(255,255,255,0.08)",
-                      color: "#8a8f98",
+                      background: "var(--line-1)",
+                      border: "1px solid var(--line-2)",
+                      color: "var(--fg-3)",
                       fontWeight: 510,
                     }}
                   >
@@ -142,7 +142,7 @@ function BlogSection() {
         href="https://velog.io/@yun60/series/KoDeploy"
         target="_blank"
         rel="noopener noreferrer"
-        className="inline-flex items-center gap-1.5 text-[13px] text-[#818be0] hover:text-[#a4abee] transition-colors no-underline mt-2"
+        className="inline-flex items-center gap-1.5 text-[13px] text-[var(--accent)] hover:text-[var(--brand-fg)] transition-colors no-underline mt-2"
         style={{ fontWeight: 510 }}
       >
         시리즈 전체 보기
@@ -228,7 +228,7 @@ function FeedbackSection() {
         >
           <ArrowLeft size={14} strokeWidth={2} /> 목록으로
         </button>
-        <div className="px-5 py-4 rounded-xl mb-4" style={{ border: "1px solid rgba(255,255,255,0.06)", background: "rgba(255,255,255,0.02)" }}>
+        <div className="px-5 py-4 rounded-xl mb-4" style={{ border: "1px solid var(--line-2)", background: "var(--kd-surface)" }}>
           <div className="flex items-center gap-2 mb-2">
             <span className="text-[13px] text-fg-1" style={{ fontWeight: 510 }}>{selectedPost.author}</span>
             {selectedPost.is_secret && <Lock size={12} className="text-fg-4" />}
@@ -246,7 +246,7 @@ function FeedbackSection() {
           <div className="text-[12px] text-fg-3 mb-3" style={{ fontWeight: 510 }}>댓글 {selectedPost.comments.length}개</div>
           <div className="flex flex-col gap-2">
             {selectedPost.comments.map((c) => (
-              <div key={c.id} className="px-4 py-3 rounded-lg" style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.04)" }}>
+              <div key={c.id} className="px-4 py-3 rounded-lg" style={{ background: "var(--kd-surface)", border: "1px solid var(--line-1)" }}>
                 <div className="flex items-center gap-2 mb-1">
                   <span className="text-[12px] text-fg-2" style={{ fontWeight: 510 }}>{c.author}</span>
                   {c.is_secret && <Lock size={11} className="text-fg-4" />}
@@ -269,21 +269,21 @@ function FeedbackSection() {
             onChange={(e) => setCommentText(e.target.value)}
             placeholder="댓글을 입력하세요"
             className="flex-1 px-3 py-2 rounded-md bg-transparent outline-none text-[13px] text-fg-1 placeholder:text-fg-4"
-            style={{ border: "1px solid rgba(255,255,255,0.09)", fontWeight: 450 }}
+            style={{ border: "1px solid var(--line-3)", fontWeight: 450 }}
             onKeyDown={(e) => e.key === "Enter" && handleComment()}
           />
           <button
             onClick={() => setCommentSecret((v) => !v)}
             className="w-8 h-8 rounded-md flex items-center justify-center transition-colors"
-            style={{ border: "1px solid rgba(255,255,255,0.09)", background: commentSecret ? "rgba(129,139,224,0.12)" : "transparent" }}
+            style={{ border: "1px solid var(--line-3)", background: commentSecret ? "rgba(129,139,224,0.12)" : "transparent" }}
             title={commentSecret ? "비밀 댓글" : "공개 댓글"}
           >
-            <Lock size={13} strokeWidth={1.8} style={{ color: commentSecret ? "#818be0" : "#62666d" }} />
+            <Lock size={13} strokeWidth={1.8} style={{ color: commentSecret ? "#818be0" : "var(--fg-4)" }} />
           </button>
           <button
             onClick={handleComment}
             disabled={!commentText.trim()}
-            className="w-8 h-8 rounded-md flex items-center justify-center text-[#818be0] disabled:opacity-40 transition-colors"
+            className="w-8 h-8 rounded-md flex items-center justify-center text-[var(--accent)] disabled:opacity-40 transition-colors"
             style={{ border: "1px solid rgba(129,139,224,0.2)", background: "rgba(129,139,224,0.05)" }}
           >
             <Send size={13} strokeWidth={2} />
@@ -314,14 +314,14 @@ function FeedbackSection() {
             placeholder="불편한 점, 있으면 좋겠는 기능, 버그 등 자유롭게 적어주세요"
             rows={4}
             className="w-full px-3 py-2 rounded-md bg-transparent outline-none text-[14px] text-fg-1 placeholder:text-fg-4 resize-none mb-3"
-            style={{ border: "1px solid rgba(255,255,255,0.09)", fontWeight: 450, lineHeight: 1.6 }}
+            style={{ border: "1px solid var(--line-3)", fontWeight: 450, lineHeight: 1.6 }}
             autoFocus
           />
           <div className="flex items-center gap-3">
             <button
               onClick={() => setIsSecret((v) => !v)}
               className="flex items-center gap-1.5 text-[12px] transition-colors"
-              style={{ background: "none", border: "none", cursor: "pointer", color: isSecret ? "#818be0" : "#8a8f98", fontWeight: 510 }}
+              style={{ background: "none", border: "none", cursor: "pointer", color: isSecret ? "#818be0" : "var(--fg-3)", fontWeight: 510 }}
             >
               <Lock size={12} strokeWidth={2} />
               {isSecret ? "비밀글" : "공개"}
@@ -330,7 +330,7 @@ function FeedbackSection() {
               <button
                 onClick={() => { setWriting(false); setContent(""); setIsSecret(false); }}
                 className="px-3 py-1.5 rounded-md text-[12px] text-fg-3 hover:text-fg-1 transition-colors"
-                style={{ background: "none", border: "1px solid rgba(255,255,255,0.09)", cursor: "pointer", fontWeight: 510 }}
+                style={{ background: "none", border: "1px solid var(--line-3)", cursor: "pointer", fontWeight: 510 }}
               >
                 취소
               </button>
@@ -358,9 +358,9 @@ function FeedbackSection() {
               key={p.id}
               onClick={() => fetchDetail(p.id)}
               className="flex items-center gap-3 px-4 py-2.5 rounded-lg text-left w-full transition-all"
-              style={{ border: "1px solid rgba(255,255,255,0.06)", background: "rgba(255,255,255,0.02)", cursor: "pointer" }}
-              onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(255,255,255,0.04)"; }}
-              onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(255,255,255,0.02)"; }}
+              style={{ border: "1px solid var(--line-2)", background: "var(--kd-surface)", cursor: "pointer" }}
+              onMouseEnter={(e) => { e.currentTarget.style.background = "var(--kd-bg)"; }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = "var(--kd-surface)"; }}
             >
               {p.is_secret && <Lock size={13} className="text-fg-4 shrink-0" />}
               <div className="flex-1 min-w-0">
@@ -409,7 +409,7 @@ export default function Community() {
                   onClick={() => setSection(s.id)}
                   className="flex items-center gap-2.5 px-3 py-2 rounded-md text-[14px] text-left transition-colors w-full"
                   style={{
-                    color: isActive ? "#dde0e4" : "#8a8f98",
+                    color: isActive ? "var(--fg-1)" : "var(--fg-3)",
                     background: isActive ? "rgba(129,139,224,0.08)" : "transparent",
                     fontWeight: 510,
                     border: "none",

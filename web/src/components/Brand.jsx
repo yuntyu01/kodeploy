@@ -13,8 +13,8 @@ export default function Brand({ size = 22 }) {
         userSelect: "none",
       }}
     >
-      <span style={{ color: "#dde0e4" }}>Ko</span>
-      <span style={{ color: "#818be0" }}>Deploy</span>
+      <span style={{ color: "var(--fg-1)" }}>Ko</span>
+      <span style={{ color: "var(--accent)" }}>Deploy</span>
     </span>
   );
 }

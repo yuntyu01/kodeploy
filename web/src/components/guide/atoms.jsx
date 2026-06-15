@@ -20,7 +20,7 @@ export function Section({ title, children }) {
 export function Bullet({ children }) {
   return (
     <div className="flex gap-2 mb-1.5">
-      <span style={{ color: "#818be0" }}>·</span>
+      <span style={{ color: "var(--accent)" }}>·</span>
       <span>{children}</span>
     </div>
   );
@@ -28,7 +28,7 @@ export function Bullet({ children }) {
 
 // inline 코드 - mono 폰트 X. 본문(fg-3)보다 한 단계 밝은 fg-2로 강조.
 export function Code({ children }) {
-  return <span style={{ color: "#d0d6e0" }}>{children}</span>;
+  return <span style={{ color: "var(--fg-2)" }}>{children}</span>;
 }
 
 // 여러 줄 코드 - sans 폰트 유지(inherit), 줄바꿈/들여쓰기는 whiteSpace: pre.
@@ -54,8 +54,8 @@ export function CodeBlock({ children }) {
         ref={ref}
         className="text-[13px] text-fg-2 p-3 rounded-md overflow-auto scroll-thin"
         style={{
-          background: "rgba(255,255,255,0.02)",
-          border: "1px solid rgba(255,255,255,0.06)",
+          background: "var(--line-1)",
+          border: "1px solid var(--line-2)",
           whiteSpace: "pre",
           fontFamily: "inherit",
         }}
@@ -68,7 +68,7 @@ export function CodeBlock({ children }) {
         aria-label="복사"
         className="absolute top-2 right-2 p-1.5 rounded-md transition-colors"
         style={{
-          color: copied ? "#818be0" : "#8a8f98",
+          color: copied ? "#818be0" : "var(--fg-3)",
         }}
       >
         {copied ? <Check size={14} strokeWidth={2} /> : <Copy size={14} strokeWidth={1.8} />}

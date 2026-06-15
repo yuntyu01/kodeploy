@@ -17,9 +17,9 @@ export default function InfoHint({ children }) {
         <span
           className="absolute left-0 top-6 z-30 w-64 px-3 py-2 rounded-md text-[11px]"
           style={{
-            background: "#16181b",
-            border: "1px solid rgba(255,255,255,0.12)",
-            color: "#c5cad2",
+            background: "var(--kd-surface)",
+            border: "1px solid var(--line-3)",
+            color: "var(--fg-1)",
             lineHeight: 1.6,
             fontWeight: 450,
             boxShadow: "0 8px 24px rgba(0,0,0,0.45)",

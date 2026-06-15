@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from "react";
-import { ArrowUpRight, LogOut } from "lucide-react";
+import { ArrowUpRight, LogOut, Moon, Sun } from "lucide-react";
 import { Link } from "react-router-dom";
 import Brand from "./Brand.jsx";
 import { useAuth } from "../contexts/AuthContext.jsx";
+import { useTheme } from "../contexts/ThemeContext.jsx";
 
 const NAV_ITEMS = [
   { label: "소통", to: "/community" },
@@ -32,8 +33,8 @@ export default function TopBar({ onLogin }) {
     <header
       className="relative flex items-center h-[60px] px-6 shrink-0 gap-4"
       style={{
-        borderBottom: "1px solid rgba(255,255,255,0.09)",
-        background: "#08090a",
+        borderBottom: "1px solid var(--kd-border)",
+        background: "var(--nav-bg)",
       }}
     >
       {/* Brand (left) */}
@@ -55,7 +56,7 @@ export default function TopBar({ onLogin }) {
           ...(user && ADMIN_ROLES.includes(user.role) ? [ADMIN_NAV_ITEM] : []),
         ].map((item) => {
           const className =
-            "px-3 py-1.5 rounded-md text-[14px] text-fg-2 hover:text-fg-1 hover:bg-white/[0.04] transition-colors flex items-center gap-1.5 no-underline";
+            "kd-hoverable px-3 py-1.5 rounded-md text-[14px] text-fg-2 hover:text-fg-1 transition-colors flex items-center gap-1.5 no-underline";
           const style = { fontWeight: 510 };
           if (item.to) {
             return (
@@ -89,8 +90,9 @@ export default function TopBar({ onLogin }) {
         })}
       </nav>
 
-      {/* Right: 인증 영역만 (GitHub은 center NAV 끝으로 이동됨) */}
+      {/* Right: 테마 토글 + 인증 영역 (GitHub은 center NAV 끝으로 이동됨) */}
       <div className="ml-auto flex items-center gap-3 shrink-0">
+        <ThemeToggle />
         {/* /me 첫 호출 완료 전엔 깜빡임 방지 — placeholder는 비워둠 */}
         {loading ? null : user ? (
           <UserMenu />
@@ -105,6 +107,26 @@ export default function TopBar({ onLogin }) {
         )}
       </div>
     </header>
+  );
+}
+
+// 다크/라이트 토글 — 현재 테마의 반대 아이콘을 보여준다 (다크면 해, 라이트면 달).
+function ThemeToggle() {
+  const { theme, toggle } = useTheme();
+  const isLight = theme === "light";
+  return (
+    <button
+      onClick={toggle}
+      aria-label={isLight ? "다크 모드로 전환" : "라이트 모드로 전환"}
+      title={isLight ? "다크 모드" : "라이트 모드"}
+      className="kd-hoverable flex items-center justify-center w-8 h-8 rounded-md text-fg-3 hover:text-fg-1 transition-colors"
+    >
+      {isLight ? (
+        <Moon size={19} fill="currentColor" fillOpacity={0.6} stroke="none" />
+      ) : (
+        <Sun size={20} fill="currentColor" strokeWidth={2.5} />
+      )}
+    </button>
   );
 }
 
@@ -134,14 +156,14 @@ function UserMenu() {
     <div className="relative" ref={ref}>
       <button
         onClick={() => setOpen((v) => !v)}
-        className="flex items-center gap-2 pl-1 pr-2.5 py-1 rounded-md hover:bg-white/[0.04] transition-colors"
+        className="kd-hoverable flex items-center gap-2 pl-1 pr-2.5 py-1 rounded-md transition-colors"
       >
         {user.avatar_url ? (
           <img
             src={user.avatar_url}
             alt=""
             className="w-6 h-6 rounded-full"
-            style={{ border: "1px solid rgba(255,255,255,0.08)" }}
+            style={{ border: "1px solid var(--kd-border)" }}
           />
         ) : (
           <span
@@ -163,9 +185,9 @@ function UserMenu() {
         <div
           className="absolute right-0 top-[calc(100%+6px)] w-40 rounded-md py-1 kd-fade-in"
           style={{
-            background: "#131415",
-            border: "1px solid rgba(255,255,255,0.09)",
-            boxShadow: "0 8px 24px rgba(0,0,0,0.5)",
+            background: "var(--dropdown-bg)",
+            border: "1px solid var(--kd-border)",
+            boxShadow: "var(--shadow-pop)",
             zIndex: 30,
           }}
         >
@@ -174,7 +196,7 @@ function UserMenu() {
               setOpen(false);
               logout();
             }}
-            className="w-full flex items-center gap-2 px-3 py-2 text-[12.5px] text-fg-2 hover:text-fg-1 hover:bg-white/[0.04] transition-colors"
+            className="kd-hoverable w-full flex items-center gap-2 px-3 py-2 text-[12.5px] text-fg-2 hover:text-fg-1 transition-colors"
             style={{ fontWeight: 510 }}
           >
             <LogOut size={13} strokeWidth={1.8} className="text-fg-3" />

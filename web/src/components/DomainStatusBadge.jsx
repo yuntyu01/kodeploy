@@ -6,7 +6,7 @@ const STYLES = {
 };
 
 export default function DomainStatusBadge({ status }) {
-  const s = STYLES[status] || { color: "#8a8f98", label: status || "—" };
+  const s = STYLES[status] || { color: "var(--fg-3)", label: status || "—" };
   return (
     <span
       className="inline-flex items-center gap-1.5 text-[10.5px] text-fg-1 shrink-0"

@@ -42,8 +42,8 @@ export default function LoginModal({ onClose }) {
       <div
         className="relative w-[420px] max-w-[92vw] px-10 pt-12 pb-10 rounded-xl"
         style={{
-          background: "#08090a",
-          border: "1px solid rgba(255,255,255,0.08)",
+          background: "var(--kd-bg)",
+          border: "1px solid var(--line-2)",
           boxShadow:
             "0 24px 60px rgba(0,0,0,0.6), 0 4px 12px rgba(0,0,0,0.4)",
         }}
@@ -51,7 +51,7 @@ export default function LoginModal({ onClose }) {
       >
         <button
           onClick={onClose}
-          className="absolute top-3 right-3 w-8 h-8 rounded-md text-fg-4 hover:text-fg-1 hover:bg-white/[0.04] transition-colors flex items-center justify-center"
+          className="absolute top-3 right-3 w-8 h-8 rounded-md text-fg-4 hover:text-fg-1 hover:bg-[var(--line-1)] transition-colors flex items-center justify-center"
           aria-label="닫기"
         >
           <X size={14} strokeWidth={1.8} />

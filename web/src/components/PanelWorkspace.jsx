@@ -63,13 +63,13 @@ export default function PanelWorkspace({ build, storageEnabled = false, redisEna
       className={`shrink-0 transition-colors ${
         axis === "h" ? "w-[3px] cursor-col-resize" : "h-[3px] cursor-row-resize"
       }`}
-      style={{ background: "rgba(255,255,255,0.06)" }}
+      style={{ background: "var(--line-2)" }}
       onMouseEnter={(e) =>
         (e.currentTarget.style.background = "rgba(129,139,224,0.5)")
       }
       onMouseLeave={(e) => {
         if (draggingRef.current) return;
-        e.currentTarget.style.background = "rgba(255,255,255,0.06)";
+        e.currentTarget.style.background = "var(--line-2)";
       }}
     />
   );
@@ -170,7 +170,7 @@ export default function PanelWorkspace({ build, storageEnabled = false, redisEna
     <div
       ref={containerRef}
       className="flex-1 min-h-0 h-full flex flex-col overflow-hidden"
-      style={{ background: "#0c0d0e" }}
+      style={{ background: "var(--kd-panel)" }}
     >
       <div
         className={`flex-1 min-h-0 flex ${
@@ -183,7 +183,7 @@ export default function PanelWorkspace({ build, storageEnabled = false, redisEna
           style={{
             [sizeProp]: primaryDir ? `${primaryRatio}%` : "100%",
             flexShrink: 0,
-            background: "#0c0d0e",
+            background: "var(--kd-panel)",
           }}
         >
           {renderSlot(slotA, slotDirs[slotA], slotRatios[slotA], primaryDir ? closePrimaryA : null)}
@@ -199,7 +199,7 @@ export default function PanelWorkspace({ build, storageEnabled = false, redisEna
           <div
             key={primaryKeys.b}
             className="min-h-0 min-w-0 flex flex-col flex-1 overflow-hidden"
-            style={{ background: "#0c0d0e" }}
+            style={{ background: "var(--kd-panel)" }}
           >
             {renderSlot(slotB, slotDirs[slotB], slotRatios[slotB], closePrimaryB)}
           </div>

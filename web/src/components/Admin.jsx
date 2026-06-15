@@ -46,16 +46,16 @@ const fmtDuration = (sec) => {
 };
 
 const BUILD_STATUS_COLORS = {
-  running: "#6dd5a0",   // 성공 (롤아웃 완료)
-  failed: "#f87171",
-  cancelled: "#8a8f98",
-  building: "#d8a657",  // 진행 중 (아직 마감 안 됨)
+  running: "var(--ok-fg)",   // 성공 (롤아웃 완료)
+  failed: "var(--err-fg)",
+  cancelled: "var(--fg-3)",
+  building: "var(--warn-fg)",  // 진행 중 (아직 마감 안 됨)
 };
 
 const ROLE_COLORS = {
-  root: "#d8a657",
+  root: "var(--warn-fg)",
   admin: "#818be0",
-  user: "#8a8f98",
+  user: "var(--fg-3)",
 };
 
 export default function Admin() {
@@ -162,7 +162,7 @@ export default function Admin() {
   return (
     <div className="kd-fade-in mx-auto px-6 py-10" style={{ maxWidth: 1040 }}>
       <div className="flex items-center gap-2.5 mb-1">
-        <ShieldCheck size={18} strokeWidth={1.8} className="text-[#818be0]" />
+        <ShieldCheck size={18} strokeWidth={1.8} className="text-[var(--accent)]" />
         <h1
           className="text-[20px] text-fg-1"
           style={{ fontWeight: 590, letterSpacing: -0.4 }}
@@ -180,7 +180,7 @@ export default function Admin() {
           style={{
             background: "rgba(239,68,68,0.08)",
             border: "1px solid rgba(239,68,68,0.25)",
-            color: "#fca5a5",
+            color: "var(--err-fg)",
           }}
         >
           {error}
@@ -238,8 +238,8 @@ export default function Admin() {
       <div
         className="rounded-xl overflow-hidden"
         style={{
-          border: "1px solid rgba(255,255,255,0.07)",
-          background: "rgba(255,255,255,0.015)",
+          border: "1px solid var(--line-2)",
+          background: "var(--kd-surface)",
         }}
       >
         <table className="w-full text-[12.5px]" style={{ borderCollapse: "collapse" }}>
@@ -250,7 +250,7 @@ export default function Admin() {
                   <th
                     key={h}
                     className="px-4 py-2.5 uppercase tracking-[0.06em]"
-                    style={{ borderBottom: "1px solid rgba(255,255,255,0.07)" }}
+                    style={{ borderBottom: "1px solid var(--line-2)" }}
                   >
                     {h}
                   </th>
@@ -311,8 +311,8 @@ function StatCard({ label, value, sub, onClick, active }) {
       onClick={onClick}
       className={`rounded-xl px-4 py-3.5 text-left ${onClick ? "transition-colors" : ""}`}
       style={{
-        border: `1px solid ${active ? "rgba(129,139,224,0.4)" : "rgba(255,255,255,0.07)"}`,
-        background: active ? "rgba(129,139,224,0.06)" : "rgba(255,255,255,0.015)",
+        border: `1px solid ${active ? "rgba(129,139,224,0.4)" : "var(--line-2)"}`,
+        background: active ? "rgba(129,139,224,0.06)" : "var(--line-1)",
         cursor: onClick ? "pointer" : "default",
       }}
     >
@@ -347,8 +347,8 @@ function BuildRecordsTable({ records }) {
     <div
       className="rounded-xl overflow-x-auto scroll-thin"
       style={{
-        border: "1px solid rgba(255,255,255,0.07)",
-        background: "rgba(255,255,255,0.015)",
+        border: "1px solid var(--line-2)",
+        background: "var(--kd-surface)",
       }}
     >
       <table className="w-full text-[12px]" style={{ borderCollapse: "collapse" }}>
@@ -358,7 +358,7 @@ function BuildRecordsTable({ records }) {
               <th
                 key={h}
                 className="px-3 py-2 uppercase tracking-[0.06em] whitespace-nowrap"
-                style={{ borderBottom: "1px solid rgba(255,255,255,0.07)" }}
+                style={{ borderBottom: "1px solid var(--line-2)" }}
               >
                 {h}
               </th>
@@ -370,13 +370,13 @@ function BuildRecordsTable({ records }) {
             <tr
               key={r.id}
               className="text-fg-2"
-              style={{ borderBottom: "1px solid rgba(255,255,255,0.04)" }}
+              style={{ borderBottom: "1px solid var(--line-1)" }}
               title={r.error || undefined}
             >
               <td className="px-3 py-2 text-fg-3 tabular-nums whitespace-nowrap">
                 {relativeTime(r.started_at)}
               </td>
-              <td className="px-3 py-2" style={{ fontWeight: 510, color: "#dde0e4" }}>
+              <td className="px-3 py-2" style={{ fontWeight: 510, color: "var(--fg-1)" }}>
                 {r.login}
               </td>
               <td className="px-3 py-2">{r.app_name}</td>
@@ -386,13 +386,13 @@ function BuildRecordsTable({ records }) {
               </td>
               <td className="px-3 py-2 tabular-nums">{fmtDuration(r.nixpacks_seconds)}</td>
               <td className="px-3 py-2 tabular-nums">{fmtDuration(r.buildkit_seconds)}</td>
-              <td className="px-3 py-2 tabular-nums" style={{ fontWeight: 510, color: "#dde0e4" }}>
+              <td className="px-3 py-2 tabular-nums" style={{ fontWeight: 510, color: "var(--fg-1)" }}>
                 {fmtDuration(r.total_seconds)}
               </td>
               <td className="px-3 py-2">
                 <span
                   style={{
-                    color: BUILD_STATUS_COLORS[r.status] || "#8a8f98",
+                    color: BUILD_STATUS_COLORS[r.status] || "var(--fg-3)",
                     fontWeight: 590,
                   }}
                 >
@@ -415,7 +415,7 @@ function UserRow({ u, me, expanded, detail, onToggle, onRoleChange }) {
         onClick={onToggle}
         className="text-fg-2 transition-colors"
         style={{
-          borderBottom: "1px solid rgba(255,255,255,0.04)",
+          borderBottom: "1px solid var(--line-1)",
           cursor: "pointer",
           background: expanded ? "rgba(129,139,224,0.05)" : "transparent",
         }}
@@ -428,10 +428,10 @@ function UserRow({ u, me, expanded, detail, onToggle, onRoleChange }) {
                 src={u.avatar_url}
                 alt=""
                 className="w-5 h-5 rounded-full shrink-0"
-                style={{ border: "1px solid rgba(255,255,255,0.08)" }}
+                style={{ border: "1px solid var(--line-2)" }}
               />
             )}
-            <span className="truncate" style={{ fontWeight: 510, color: "#dde0e4" }}>
+            <span className="truncate" style={{ fontWeight: 510, color: "var(--fg-1)" }}>
               {u.login}
             </span>
             <ChevronDown
@@ -453,7 +453,7 @@ function UserRow({ u, me, expanded, detail, onToggle, onRoleChange }) {
                 target="_blank"
                 rel="noopener noreferrer"
                 className="hover:underline"
-                style={{ color: "#818be0", fontWeight: 510 }}
+                style={{ color: "var(--accent)", fontWeight: 510 }}
                 onClick={(e) => e.stopPropagation()}
               >
                 {u.app_name}
@@ -476,7 +476,7 @@ function UserRow({ u, me, expanded, detail, onToggle, onRoleChange }) {
         </td>
       </tr>
       {expanded && (
-        <tr style={{ borderBottom: "1px solid rgba(255,255,255,0.04)" }}>
+        <tr style={{ borderBottom: "1px solid var(--line-1)" }}>
           <td colSpan={7} className="px-4 py-4" style={{ background: "rgba(0,0,0,0.25)" }}>
             <TenantDetail detail={detail} />
           </td>
@@ -491,7 +491,7 @@ function TenantDetail({ detail }) {
   if (!detail) return <Hint>테넌트 정보를 불러오는 중…</Hint>;
   if (detail.error)
     return (
-      <div className="text-[11.5px]" style={{ color: "#fca5a5" }}>
+      <div className="text-[11.5px]" style={{ color: "var(--err-fg)" }}>
         {detail.error}
       </div>
     );
@@ -504,15 +504,15 @@ function TenantDetail({ detail }) {
   // 선택 스택 → chips. db "none"/redis off/storage off는 표시 안 함.
   const chips = [];
   if (cfg) {
-    chips.push({ label: { python: "Python", java: "Java", php: "PHP" }[cfg.runtime] || cfg.runtime, color: "#a4abee" });
+    chips.push({ label: { python: "Python", java: "Java", php: "PHP" }[cfg.runtime] || cfg.runtime, color: "var(--brand-fg)" });
     if (cfg.db_type && cfg.db_type !== "none")
-      chips.push({ label: cfg.db_type === "mysql" ? "MySQL" : "PostgreSQL", color: "#7fb6db" });
-    if (cfg.use_redis) chips.push({ label: "Redis", color: "#f87171" });
-    if (cfg.use_storage) chips.push({ label: "스토리지 (R2)", color: "#d8a657" });
-    if (cfg.volume_mount_path) chips.push({ label: "스토리지 (로컬)", color: "#d8a657" });
+      chips.push({ label: cfg.db_type === "mysql" ? "MySQL" : "PostgreSQL", color: "var(--info-fg)" });
+    if (cfg.use_redis) chips.push({ label: "Redis", color: "var(--err-fg)" });
+    if (cfg.use_storage) chips.push({ label: "스토리지 (R2)", color: "var(--warn-fg)" });
+    if (cfg.volume_mount_path) chips.push({ label: "스토리지 (로컬)", color: "var(--warn-fg)" });
     chips.push({
       label: cfg.build_mode === "auto" ? "auto (nixpacks)" : "Dockerfile",
-      color: "#8a8f98",
+      color: "var(--fg-3)",
     });
   }
 
@@ -526,8 +526,8 @@ function TenantDetail({ detail }) {
                 key={c.label}
                 className="text-[11px] px-2 py-0.5 rounded"
                 style={{
-                  background: "rgba(255,255,255,0.04)",
-                  border: "1px solid rgba(255,255,255,0.08)",
+                  background: "var(--line-1)",
+                  border: "1px solid var(--line-2)",
                   color: c.color,
                   fontWeight: 590,
                 }}
@@ -543,7 +543,7 @@ function TenantDetail({ detail }) {
               target="_blank"
               rel="noopener noreferrer"
               className="hover:underline"
-              style={{ color: "#818be0" }}
+              style={{ color: "var(--accent)" }}
             >
               {cfg.repo_url.replace(/^https?:\/\/(www\.)?github\.com\//, "").replace(/\.git$/, "")}
             </a>
@@ -554,7 +554,7 @@ function TenantDetail({ detail }) {
       {detail.pods.length > 0 ? (
         <div
           className="rounded-lg overflow-x-auto scroll-thin"
-          style={{ border: "1px solid rgba(255,255,255,0.06)" }}
+          style={{ border: "1px solid var(--line-2)" }}
         >
           <table className="w-full text-[11.5px]" style={{ borderCollapse: "collapse" }}>
             <thead>
@@ -563,7 +563,7 @@ function TenantDetail({ detail }) {
                   <th
                     key={h}
                     className="px-3 py-1.5 tracking-[0.06em] whitespace-nowrap"
-                    style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}
+                    style={{ borderBottom: "1px solid var(--line-2)" }}
                   >
                     {h}
                   </th>
@@ -575,9 +575,9 @@ function TenantDetail({ detail }) {
                 <tr
                   key={p.name}
                   className="text-fg-2"
-                  style={{ borderBottom: "1px solid rgba(255,255,255,0.03)" }}
+                  style={{ borderBottom: "1px solid var(--line-1)" }}
                 >
-                  <td className="px-3 py-1.5 font-mono" style={{ color: "#dde0e4" }}>
+                  <td className="px-3 py-1.5 font-mono" style={{ color: "var(--fg-1)" }}>
                     {p.name}
                   </td>
                   <td className="px-3 py-1.5 text-fg-3">{p.component || "—"}</td>
@@ -586,10 +586,10 @@ function TenantDetail({ detail }) {
                       style={{
                         color:
                           p.phase === "Running" && p.ready
-                            ? "#6dd5a0"
+                            ? "var(--ok-fg)"
                             : p.phase === "Running"
-                              ? "#d8a657"
-                              : "#f87171",
+                              ? "var(--warn-fg)"
+                              : "var(--err-fg)",
                         fontWeight: 590,
                       }}
                     >
@@ -621,9 +621,9 @@ function RoleCell({ user: target, me, onChange }) {
       <span
         className="text-[11px] px-2 py-0.5 rounded"
         style={{
-          background: "rgba(255,255,255,0.04)",
-          border: "1px solid rgba(255,255,255,0.08)",
-          color: ROLE_COLORS[target.role] || "#8a8f98",
+          background: "var(--line-1)",
+          border: "1px solid var(--line-2)",
+          color: ROLE_COLORS[target.role] || "var(--fg-3)",
           fontWeight: 590,
         }}
       >
@@ -637,9 +637,9 @@ function RoleCell({ user: target, me, onChange }) {
       onChange={(e) => onChange(target, e.target.value)}
       className="text-[11.5px] px-1.5 py-1 rounded-md"
       style={{
-        background: "#131415",
-        border: "1px solid rgba(255,255,255,0.09)",
-        color: ROLE_COLORS[target.role] || "#dde0e4",
+        background: "var(--kd-surface)",
+        border: "1px solid var(--line-3)",
+        color: ROLE_COLORS[target.role] || "var(--fg-1)",
         fontWeight: 510,
       }}
     >
@@ -682,8 +682,8 @@ function NodeCard({ node }) {
     <div
       className="rounded-xl px-4 py-3.5"
       style={{
-        border: `1px solid ${expanded ? "rgba(129,139,224,0.3)" : "rgba(255,255,255,0.07)"}`,
-        background: "rgba(255,255,255,0.015)",
+        border: `1px solid ${expanded ? "rgba(129,139,224,0.3)" : "var(--line-2)"}`,
+        background: "var(--kd-surface)",
       }}
     >
       <button
@@ -694,7 +694,7 @@ function NodeCard({ node }) {
       >
         <span
           className="w-1.5 h-1.5 rounded-full shrink-0"
-          style={{ background: node.ready ? "#6dd5a0" : "#f87171" }}
+          style={{ background: node.ready ? "var(--ok-fg)" : "var(--err-fg)" }}
           title={node.ready ? "Ready" : "NotReady"}
         />
         <span className="text-[13px] text-fg-1" style={{ fontWeight: 590 }}>
@@ -703,9 +703,9 @@ function NodeCard({ node }) {
         <span
           className="text-[10.5px] px-1.5 py-0.5 rounded"
           style={{
-            background: "rgba(255,255,255,0.04)",
-            border: "1px solid rgba(255,255,255,0.08)",
-            color: node.role === "master" ? "#d8a657" : "#8a8f98",
+            background: "var(--line-1)",
+            border: "1px solid var(--line-2)",
+            color: node.role === "master" ? "var(--warn-fg)" : "var(--fg-3)",
             fontWeight: 590,
           }}
         >
@@ -717,7 +717,7 @@ function NodeCard({ node }) {
           </span>
         )}
         {node.error && (
-          <span className="text-[11px]" style={{ color: "#fca5a5" }}>
+          <span className="text-[11px]" style={{ color: "var(--err-fg)" }}>
             {node.error}
           </span>
         )}
@@ -750,7 +750,7 @@ function NodeCard({ node }) {
       {expanded && (
         <div className="mt-4 kd-fade-in">
           {podsError && (
-            <div className="text-[11.5px] py-2" style={{ color: "#fca5a5" }}>
+            <div className="text-[11.5px] py-2" style={{ color: "var(--err-fg)" }}>
               {podsError}
             </div>
           )}
@@ -768,7 +768,7 @@ function NodePodsTable({ pods }) {
   return (
     <div
       className="rounded-lg overflow-x-auto scroll-thin"
-      style={{ border: "1px solid rgba(255,255,255,0.06)" }}
+      style={{ border: "1px solid var(--line-2)" }}
     >
       <table className="w-full text-[11.5px]" style={{ borderCollapse: "collapse" }}>
         <thead>
@@ -777,7 +777,7 @@ function NodePodsTable({ pods }) {
               <th
                 key={h}
                 className="px-3 py-1.5 tracking-[0.06em] whitespace-nowrap"
-                style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}
+                style={{ borderBottom: "1px solid var(--line-2)" }}
               >
                 {h}
               </th>
@@ -789,12 +789,12 @@ function NodePodsTable({ pods }) {
             <tr
               key={`${p.namespace}/${p.name}`}
               className="text-fg-2"
-              style={{ borderBottom: "1px solid rgba(255,255,255,0.03)" }}
+              style={{ borderBottom: "1px solid var(--line-1)" }}
             >
               <td className="px-3 py-1.5 text-fg-4 font-mono whitespace-nowrap">
                 {p.namespace}
               </td>
-              <td className="px-3 py-1.5 font-mono" style={{ color: "#dde0e4" }}>
+              <td className="px-3 py-1.5 font-mono" style={{ color: "var(--fg-1)" }}>
                 {p.name}
               </td>
               <td className="px-3 py-1.5 tabular-nums whitespace-nowrap">
@@ -821,12 +821,12 @@ function NodePodsTable({ pods }) {
 function UsageBar({ label, percent, detail }) {
   const color =
     percent == null
-      ? "rgba(255,255,255,0.15)"
+      ? "var(--line-3)"
       : percent >= 85
-        ? "#f87171"
+        ? "var(--err-fg)"
         : percent >= 65
-          ? "#d8a657"
-          : "#6dd5a0";
+          ? "var(--warn-fg)"
+          : "var(--ok-fg)";
   return (
     <div>
       <div className="flex items-baseline justify-between mb-1">
@@ -840,7 +840,7 @@ function UsageBar({ label, percent, detail }) {
       </div>
       <div
         className="h-1.5 rounded-full overflow-hidden"
-        style={{ background: "rgba(255,255,255,0.05)" }}
+        style={{ background: "var(--line-1)" }}
       >
         <div
           className="h-full rounded-full transition-all duration-500"

@@ -11,6 +11,7 @@ import createFluid from "../lib/fluid.js";
 
 // 브랜드 보라 팔레트 (#6672d5 · #818be0 · #7d6dd5 · 딥 인디고) — 0~1 RGB.
 // 밝기 배율은 fluid.js generateColor의 톤 지터가 적용.
+// 다크 전용 — 라이트 모드에선 Home이 이 컴포넌트를 렌더하지 않는다.
 const PALETTE = [
   [0.40, 0.45, 0.84],
   [0.51, 0.55, 0.88],
@@ -35,7 +36,7 @@ const FLUID_CONFIG = {
   COLORFUL: false,           // 무지개 색 순환 금지 — 팔레트 고정
   BLOOM: false,              // 네온 방지 + 후처리 패스 통째 절약
   SUNRAYS: false,
-  TRANSPARENT: true,         // 페이지 배경(#0f1011)·Aurora 위에 잉크만 합성
+  TRANSPARENT: true,         // 페이지 배경·Aurora 위에 잉크만 합성
   PALETTE,
 };
 

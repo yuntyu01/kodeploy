@@ -22,9 +22,9 @@ const DEFAULT_PORTS = {
 
 // 섹션 토글 / 선택지 버튼 공통 스타일 - 백엔드·프론트엔드·DB·빌드방식 등에서 재사용.
 const choiceStyle = (active) => ({
-  background: active ? "rgba(129,139,224,0.12)" : "rgba(255,255,255,0.03)",
-  border: `1px solid ${active ? "rgba(129,139,224,0.25)" : "rgba(255,255,255,0.06)"}`,
-  color: active ? "#818be0" : "#8a8f98",
+  background: active ? "rgba(129,139,224,0.12)" : "var(--kd-surface)",
+  border: `1px solid ${active ? "rgba(129,139,224,0.25)" : "var(--line-2)"}`,
+  color: active ? "#818be0" : "var(--fg-3)",
   fontWeight: 510,
 });
 
@@ -426,8 +426,8 @@ export default function DeployForm({ onRequestGuide }) {
           <div
             className="flex items-center rounded-md px-3"
             style={{
-              border: "1px solid rgba(255,255,255,0.09)",
-              background: "rgba(255,255,255,0.02)",
+              border: "1px solid var(--line-3)",
+              background: "var(--kd-surface)",
             }}
           >
             <GitBranch size={15} strokeWidth={1.6} className="text-fg-3 mr-2 shrink-0" />
@@ -458,8 +458,8 @@ export default function DeployForm({ onRequestGuide }) {
             <div
               className="mt-1.5 rounded-md overflow-y-auto scroll-thin"
               style={{
-                border: "1px solid rgba(255,255,255,0.09)",
-                background: "rgba(255,255,255,0.02)",
+                border: "1px solid var(--line-3)",
+                background: "var(--kd-surface)",
                 maxHeight: 96, // 항목 32px × 3 = 최대 3개, 넘으면 스크롤
               }}
             >
@@ -474,7 +474,7 @@ export default function DeployForm({ onRequestGuide }) {
                       setRepoListCollapsed(true); // 선택하면 자동 접기
                     }}
                     disabled={submitting}
-                    className="w-full flex items-center justify-between px-3 text-left hover:bg-white/[0.04] transition-colors"
+                    className="w-full flex items-center justify-between px-3 text-left hover:bg-[var(--line-1)] transition-colors"
                     style={{ height: 32 }}
                   >
                     <span
@@ -500,7 +500,7 @@ export default function DeployForm({ onRequestGuide }) {
                       window.location.href = GITHUB_INSTALL_URL;
                     }}
                     className="underline hover:text-fg-1 transition-colors"
-                    style={{ color: "#818be0", fontWeight: 510 }}
+                    style={{ color: "var(--accent)", fontWeight: 510 }}
                   >
                     저장소 추가
                   </button>
@@ -519,8 +519,8 @@ export default function DeployForm({ onRequestGuide }) {
           <div
             className="flex items-center rounded-md px-3"
             style={{
-              border: "1px solid rgba(255,255,255,0.09)",
-              background: "rgba(255,255,255,0.02)",
+              border: "1px solid var(--line-3)",
+              background: "var(--kd-surface)",
             }}
           >
             <input
@@ -548,8 +548,8 @@ export default function DeployForm({ onRequestGuide }) {
             <div
               className="absolute right-0 z-20 mt-1 rounded-md overflow-y-auto scroll-thin"
               style={{
-                border: "1px solid rgba(255,255,255,0.12)",
-                background: "#16181b",
+                border: "1px solid var(--line-3)",
+                background: "var(--kd-surface)",
                 minWidth: 180,
                 maxHeight: 96,
               }}
@@ -563,7 +563,7 @@ export default function DeployForm({ onRequestGuide }) {
                     setBranchOpen(false);
                   }}
                   disabled={submitting}
-                  className="w-full flex items-center justify-between px-3 text-left hover:bg-white/[0.04] transition-colors"
+                  className="w-full flex items-center justify-between px-3 text-left hover:bg-[var(--line-1)] transition-colors"
                   style={{ height: 32 }}
                 >
                   <span
@@ -600,7 +600,7 @@ export default function DeployForm({ onRequestGuide }) {
                     window.location.href = GITHUB_INSTALL_URL;
                   }}
                   className="underline hover:text-fg-1 transition-colors"
-                  style={{ color: "#818be0", fontWeight: 510 }}
+                  style={{ color: "var(--accent)", fontWeight: 510 }}
                 >
                   GitHub 연결하기
                 </button>
@@ -612,7 +612,7 @@ export default function DeployForm({ onRequestGuide }) {
             <span className="text-fg-4">저장소 확인 중…</span>
           )}
           {repoCheck.state === "ok" && (
-            <span style={{ color: "#818be0" }}>저장소와 브랜치 확인됨</span>
+            <span style={{ color: "var(--accent)" }}>저장소와 브랜치 확인됨</span>
           )}
           {repoCheck.state === "invalid" && (
             <span style={{ color: "#a13c3c", fontWeight: 510 }}>
@@ -761,8 +761,8 @@ export default function DeployForm({ onRequestGuide }) {
                 <div
                   className="mt-3 flex flex-col gap-6 px-4 py-4 rounded-xl"
                   style={{
-                    border: "1px solid rgba(255,255,255,0.07)",
-                    background: "rgba(255,255,255,0.02)",
+                    border: "1px solid var(--line-2)",
+                    background: "var(--kd-surface)",
                   }}
                 >
                   {/* Build mode - 서버 빌드 방식 + 포트 */}
@@ -774,9 +774,9 @@ export default function DeployForm({ onRequestGuide }) {
                             빌드 방식
                           </span>
                           <InfoHint>
-                            <b style={{ color: "#dde0e4", fontWeight: 590 }}>선택 안 함</b> - Dockerfile 있으면 그걸로, 없으면 Nixpacks 자동 빌드<br />
-                            <b style={{ color: "#dde0e4", fontWeight: 590 }}>Dockerfile</b> - 내 Dockerfile로 빌드<br />
-                            <b style={{ color: "#dde0e4", fontWeight: 590 }}>자동 빌드</b> - Dockerfile 무시하고 Nixpacks로 빌드
+                            <b style={{ color: "var(--fg-1)", fontWeight: 590 }}>선택 안 함</b> - Dockerfile 있으면 그걸로, 없으면 Nixpacks 자동 빌드<br />
+                            <b style={{ color: "var(--fg-1)", fontWeight: 590 }}>Dockerfile</b> - 내 Dockerfile로 빌드<br />
+                            <b style={{ color: "var(--fg-1)", fontWeight: 590 }}>자동 빌드</b> - Dockerfile 무시하고 Nixpacks로 빌드
                           </InfoHint>
                           {buildMode === "dockerfile" && (
                             <button
@@ -826,8 +826,8 @@ export default function DeployForm({ onRequestGuide }) {
                             onChange={(e) => setPort(e.target.value)}
                             className="w-full h-10 bg-transparent outline-none text-fg-1 text-[14px] rounded-md px-3"
                             style={{
-                              border: "1px solid rgba(255,255,255,0.09)",
-                              background: "rgba(255,255,255,0.02)",
+                              border: "1px solid var(--line-3)",
+                              background: "var(--kd-surface)",
                               fontWeight: 510,
                             }}
                             disabled={submitting}
@@ -842,7 +842,7 @@ export default function DeployForm({ onRequestGuide }) {
                             Dockerfile 경로
                           </span>
                           <InfoHint>
-                            프로젝트 루트에 Dockerfile이 있어야 합니다 서브 디렉토리에 있으면 <span style={{ color: "#dde0e4" }}>subdir/Dockerfile</span> 같이 입력
+                            프로젝트 루트에 Dockerfile이 있어야 합니다 서브 디렉토리에 있으면 <span style={{ color: "var(--fg-1)" }}>subdir/Dockerfile</span> 같이 입력
                           </InfoHint>
                         </div>
                         <input
@@ -851,8 +851,8 @@ export default function DeployForm({ onRequestGuide }) {
                           placeholder="Dockerfile"
                           className="w-full bg-transparent outline-none text-fg-1 text-[14px] rounded-md px-3 py-2 placeholder:text-fg-3"
                           style={{
-                            border: "1px solid rgba(255,255,255,0.09)",
-                            background: "rgba(255,255,255,0.02)",
+                            border: "1px solid var(--line-3)",
+                            background: "var(--kd-surface)",
                             fontWeight: 510,
                           }}
                           disabled={submitting}
@@ -866,7 +866,7 @@ export default function DeployForm({ onRequestGuide }) {
                             앱 디렉토리 (선택)
                           </span>
                           <InfoHint>
-                            <span style={{ color: "#dde0e4" }}>pom.xml</span>, <span style={{ color: "#dde0e4" }}>requirements.txt</span> 같은 파일이 있는 폴더 경로를 입력하세요 모노레포·비표준 구조면 자동 탐색이 실패할 수 있어요
+                            <span style={{ color: "var(--fg-1)" }}>pom.xml</span>, <span style={{ color: "var(--fg-1)" }}>requirements.txt</span> 같은 파일이 있는 폴더 경로를 입력하세요 모노레포·비표준 구조면 자동 탐색이 실패할 수 있어요
                           </InfoHint>
                         </div>
                         <input
@@ -875,8 +875,8 @@ export default function DeployForm({ onRequestGuide }) {
                           placeholder="비워두면 자동 탐색 (예: backend)"
                           className="w-full bg-transparent outline-none text-fg-1 text-[14px] rounded-md px-3 py-2 placeholder:text-fg-3"
                           style={{
-                            border: "1px solid rgba(255,255,255,0.09)",
-                            background: "rgba(255,255,255,0.02)",
+                            border: "1px solid var(--line-3)",
+                            background: "var(--kd-surface)",
                             fontWeight: 510,
                           }}
                           disabled={submitting}
@@ -922,9 +922,9 @@ export default function DeployForm({ onRequestGuide }) {
                         영속 저장소
                       </span>
                       <InfoHint>
-                        <b style={{ color: "#dde0e4", fontWeight: 590 }}>사용 안 함</b> - 임시 디스크만(재배포 시 초기화)<br />
-                        <b style={{ color: "#dde0e4", fontWeight: 590 }}>로컬(PVC)</b> - 지정 절대경로에 영속 디스크 마운트, 재시작·재배포에도 데이터 유지(예: <span style={{ color: "#dde0e4" }}>/var/www/html/data</span>)<br />
-                        <b style={{ color: "#dde0e4", fontWeight: 590 }}>오브젝트(R2)</b> - 앱당 R2 버킷 + S3 호환 자격증명 자동 주입
+                        <b style={{ color: "var(--fg-1)", fontWeight: 590 }}>사용 안 함</b> - 임시 디스크만(재배포 시 초기화)<br />
+                        <b style={{ color: "var(--fg-1)", fontWeight: 590 }}>로컬(PVC)</b> - 지정 절대경로에 영속 디스크 마운트, 재시작·재배포에도 데이터 유지(예: <span style={{ color: "var(--fg-1)" }}>/var/www/html/data</span>)<br />
+                        <b style={{ color: "var(--fg-1)", fontWeight: 590 }}>오브젝트(R2)</b> - 앱당 R2 버킷 + S3 호환 자격증명 자동 주입
                       </InfoHint>
                       {storage !== "none" && (
                         <button
@@ -967,7 +967,7 @@ export default function DeployForm({ onRequestGuide }) {
                           spellCheck={false}
                           autoCapitalize="off"
                           className="w-full px-2.5 py-1.5 rounded-md bg-transparent outline-none text-[12.5px] text-fg-1 placeholder:text-fg-4"
-                          style={{ border: "1px solid rgba(255,255,255,0.09)", fontWeight: 510 }}
+                          style={{ border: "1px solid var(--line-3)", fontWeight: 510 }}
                           disabled={submitting}
                         />
                       </div>
@@ -1003,7 +1003,7 @@ export default function DeployForm({ onRequestGuide }) {
                             style={{
                               border: conflict
                                 ? "1px solid rgba(239,68,68,0.5)"
-                                : "1px solid rgba(255,255,255,0.09)",
+                                : "1px solid var(--line-3)",
                               fontWeight: 510,
                             }}
                             disabled={submitting}
@@ -1023,7 +1023,7 @@ export default function DeployForm({ onRequestGuide }) {
                             spellCheck={false}
                             className="flex-1 min-w-0 px-2.5 py-1.5 rounded-md bg-transparent outline-none text-[12.5px] text-fg-1 placeholder:text-fg-4"
                             style={{
-                              border: "1px solid rgba(255,255,255,0.09)",
+                              border: "1px solid var(--line-3)",
                               fontWeight: 510,
                             }}
                             disabled={submitting}
@@ -1031,7 +1031,7 @@ export default function DeployForm({ onRequestGuide }) {
                           <button
                             type="button"
                             onClick={() => toggleEnvVisible(i)}
-                            className="w-7 h-7 rounded-md text-fg-4 hover:text-fg-1 hover:bg-white/[0.04] flex items-center justify-center shrink-0"
+                            className="w-7 h-7 rounded-md text-fg-4 hover:text-fg-1 hover:bg-[var(--line-1)] flex items-center justify-center shrink-0"
                             title={row.visible ? "숨기기" : "보기"}
                           >
                             {row.visible ? (
@@ -1043,7 +1043,7 @@ export default function DeployForm({ onRequestGuide }) {
                           <button
                             type="button"
                             onClick={() => removeEnvRow(i)}
-                            className="w-7 h-7 rounded-md text-fg-4 hover:text-red-300 hover:bg-white/[0.04] flex items-center justify-center shrink-0"
+                            className="w-7 h-7 rounded-md text-fg-4 hover:text-red-300 hover:bg-[var(--line-1)] flex items-center justify-center shrink-0"
                             title="삭제"
                           >
                             <Trash2 size={12} strokeWidth={1.8} />
@@ -1052,7 +1052,7 @@ export default function DeployForm({ onRequestGuide }) {
                         {conflict && (
                           <span
                             className="text-[10.5px] px-1"
-                            style={{ color: "#fca5a5", fontWeight: 450 }}
+                            style={{ color: "var(--err-fg)", fontWeight: 450 }}
                           >
                             선택한 의존성이 자동 주입하는 예약 키예요 — 빼거나 해당 의존성을 끄세요
                           </span>
@@ -1064,7 +1064,7 @@ export default function DeployForm({ onRequestGuide }) {
                     <button
                       type="button"
                       onClick={addEnvRow}
-                      className="mt-3 flex items-center gap-1 px-2 py-1 rounded-md text-[11.5px] text-fg-3 hover:text-fg-1 hover:bg-white/[0.04]"
+                      className="mt-3 flex items-center gap-1 px-2 py-1 rounded-md text-[11.5px] text-fg-3 hover:text-fg-1 hover:bg-[var(--line-1)]"
                       style={{ fontWeight: 510 }}
                     >
                       <Plus size={11} strokeWidth={2} /> 변수 추가
@@ -1085,7 +1085,7 @@ export default function DeployForm({ onRequestGuide }) {
                       <div className="flex items-center gap-2.5">
                         <label
                           className="px-3 py-1.5 rounded-lg text-[12px] cursor-pointer shrink-0 transition-colors"
-                          style={{ background: "rgba(255,255,255,0.05)", color: "#dde0e4", fontWeight: 510, border: "1px solid rgba(255,255,255,0.08)" }}
+                          style={{ background: "var(--line-1)", color: "var(--fg-1)", fontWeight: 510, border: "1px solid var(--line-2)" }}
                         >
                           파일 선택
                           <input
@@ -1096,7 +1096,7 @@ export default function DeployForm({ onRequestGuide }) {
                             disabled={submitting}
                           />
                         </label>
-                        <span className="text-[11px] truncate min-w-0" style={{ color: initDumpFile ? "#c5cad2" : "#6b7280" }}>
+                        <span className="text-[11px] truncate min-w-0" style={{ color: initDumpFile ? "var(--fg-1)" : "var(--fg-4)" }}>
                           {initDumpFile ? initDumpFile.name : "선택된 파일 없음"}
                         </span>
                         {initDumpFile && (
@@ -1120,7 +1120,7 @@ export default function DeployForm({ onRequestGuide }) {
       </div>
 
       {/* ===== 프론트엔드 섹션 - 백엔드와 대칭. 켜면 GitHub·빌드 + 고급옵션(빌드 타임 변수). ===== */}
-      <div className="mb-6" style={{ borderTop: "1px solid rgba(255,255,255,0.07)", paddingTop: 24 }}>
+      <div className="mb-6" style={{ borderTop: "1px solid var(--line-2)", paddingTop: 24 }}>
         <div className="flex items-center gap-2 mb-2.5">
           <div className="text-[13px] text-fg-2" style={{ fontWeight: 590 }}>
             프론트엔드
@@ -1170,7 +1170,7 @@ export default function DeployForm({ onRequestGuide }) {
                 </div>
                 <div
                   className="flex items-center rounded-md px-3"
-                  style={{ border: "1px solid rgba(255,255,255,0.09)", background: "rgba(255,255,255,0.02)" }}
+                  style={{ border: "1px solid var(--line-3)", background: "var(--kd-surface)" }}
                 >
                   <GitBranch size={15} strokeWidth={1.6} className="text-fg-3 mr-2 shrink-0" />
                   <input
@@ -1195,9 +1195,9 @@ export default function DeployForm({ onRequestGuide }) {
                   value={staticBranch}
                   onChange={(e) => setStaticBranch(e.target.value)}
                   placeholder={serverNone ? "main" : (branch.trim() || "main")}
-                  className="w-full bg-white/[0.02] outline-none text-fg-1 text-[14px] rounded-md px-3 py-2 placeholder:text-fg-3"
+                  className="w-full bg-[var(--line-1)] outline-none text-fg-1 text-[14px] rounded-md px-3 py-2 placeholder:text-fg-3"
                   style={{
-                    border: "1px solid rgba(255,255,255,0.09)",
+                    border: "1px solid var(--line-3)",
                     fontWeight: 510,
                   }}
                   disabled={submitting}
@@ -1217,9 +1217,9 @@ export default function DeployForm({ onRequestGuide }) {
                 value={staticProjectPath}
                 onChange={(e) => setStaticProjectPath(e.target.value)}
                 placeholder="모노레포면 프론트 폴더 (예: frontend)"
-                className="w-full bg-white/[0.02] outline-none text-fg-1 text-[14px] rounded-md px-3 py-2 placeholder:text-fg-3"
+                className="w-full bg-[var(--line-1)] outline-none text-fg-1 text-[14px] rounded-md px-3 py-2 placeholder:text-fg-3"
                 style={{
-                  border: "1px solid rgba(255,255,255,0.09)",
+                  border: "1px solid var(--line-3)",
                   fontWeight: 510,
                 }}
                 disabled={submitting}
@@ -1251,8 +1251,8 @@ export default function DeployForm({ onRequestGuide }) {
                 <div
                   className="mt-3 flex flex-col gap-5 px-4 py-4 rounded-xl"
                   style={{
-                    border: "1px solid rgba(255,255,255,0.07)",
-                    background: "rgba(255,255,255,0.02)",
+                    border: "1px solid var(--line-2)",
+                    background: "var(--kd-surface)",
                   }}
                 >
                   {/* 빌드 커맨드 + 출력 디렉토리 */}
@@ -1264,7 +1264,7 @@ export default function DeployForm({ onRequestGuide }) {
                             빌드 커맨드
                           </span>
                           <InfoHint>
-                            빌드 결과물(출력 디렉토리)만 서빙돼요 - Vite는 <span style={{ color: "#dde0e4" }}>dist</span>, CRA는 <span style={{ color: "#dde0e4" }}>build</span> 커맨드를 비우면 빌드 없이 저장소 파일을 그대로 서빙합니다(순수 HTML)
+                            빌드 결과물(출력 디렉토리)만 서빙돼요 - Vite는 <span style={{ color: "var(--fg-1)" }}>dist</span>, CRA는 <span style={{ color: "var(--fg-1)" }}>build</span> 커맨드를 비우면 빌드 없이 저장소 파일을 그대로 서빙합니다(순수 HTML)
                           </InfoHint>
                         </div>
                         <input
@@ -1272,9 +1272,9 @@ export default function DeployForm({ onRequestGuide }) {
                           onChange={(e) => setBuildCmd(e.target.value)}
                           placeholder="npm ci && npm run build"
                           spellCheck={false}
-                          className="w-full bg-white/[0.02] outline-none text-fg-1 text-[14px] rounded-md px-3 py-2 placeholder:text-fg-3"
+                          className="w-full bg-[var(--line-1)] outline-none text-fg-1 text-[14px] rounded-md px-3 py-2 placeholder:text-fg-3"
                           style={{
-                            border: "1px solid rgba(255,255,255,0.09)",
+                            border: "1px solid var(--line-3)",
                             fontWeight: 510,
                           }}
                           disabled={submitting}
@@ -1292,9 +1292,9 @@ export default function DeployForm({ onRequestGuide }) {
                           onChange={(e) => setOutputDir(e.target.value)}
                           placeholder="dist"
                           spellCheck={false}
-                          className="w-full bg-white/[0.02] outline-none text-fg-1 text-[14px] rounded-md px-3 py-2 placeholder:text-fg-3"
+                          className="w-full bg-[var(--line-1)] outline-none text-fg-1 text-[14px] rounded-md px-3 py-2 placeholder:text-fg-3"
                           style={{
-                            border: "1px solid rgba(255,255,255,0.09)",
+                            border: "1px solid var(--line-3)",
                             fontWeight: 510,
                           }}
                           disabled={submitting}
@@ -1310,7 +1310,7 @@ export default function DeployForm({ onRequestGuide }) {
                       빌드 타임 변수 (선택)
                     </span>
                     <InfoHint>
-                      <span style={{ color: "#dde0e4" }}>VITE_</span> 같은 빌드 타임 값은 번들에 박혀 공개되니 시크릿 금지, 서버 환경변수(백엔드 고급 옵션)와는 별개
+                      <span style={{ color: "var(--fg-1)" }}>VITE_</span> 같은 빌드 타임 값은 번들에 박혀 공개되니 시크릿 금지, 서버 환경변수(백엔드 고급 옵션)와는 별개
                     </InfoHint>
                   </div>
                   <div className="flex flex-col gap-1.5">
@@ -1326,7 +1326,7 @@ export default function DeployForm({ onRequestGuide }) {
                           autoCapitalize="characters"
                           className="flex-1 min-w-0 px-2.5 py-1.5 rounded-md bg-transparent outline-none text-[12.5px] text-fg-1 placeholder:text-fg-4"
                           style={{
-                            border: "1px solid rgba(255,255,255,0.09)",
+                            border: "1px solid var(--line-3)",
                             fontWeight: 510,
                           }}
                           disabled={submitting}
@@ -1338,7 +1338,7 @@ export default function DeployForm({ onRequestGuide }) {
                           spellCheck={false}
                           className="flex-1 min-w-0 px-2.5 py-1.5 rounded-md bg-transparent outline-none text-[12.5px] text-fg-1 placeholder:text-fg-4"
                           style={{
-                            border: "1px solid rgba(255,255,255,0.09)",
+                            border: "1px solid var(--line-3)",
                             fontWeight: 510,
                           }}
                           disabled={submitting}
@@ -1346,7 +1346,7 @@ export default function DeployForm({ onRequestGuide }) {
                         <button
                           type="button"
                           onClick={() => removeStaticEnvRow(i)}
-                          className="w-7 h-7 rounded-md text-fg-4 hover:text-red-300 hover:bg-white/[0.04] flex items-center justify-center shrink-0"
+                          className="w-7 h-7 rounded-md text-fg-4 hover:text-red-300 hover:bg-[var(--line-1)] flex items-center justify-center shrink-0"
                           title="삭제"
                         >
                           <Trash2 size={12} strokeWidth={1.8} />
@@ -1357,7 +1357,7 @@ export default function DeployForm({ onRequestGuide }) {
                   <button
                     type="button"
                     onClick={addStaticEnvRow}
-                    className="mt-2.5 flex items-center gap-1 px-2 py-1 rounded-md text-[11.5px] text-fg-3 hover:text-fg-1 hover:bg-white/[0.04]"
+                    className="mt-2.5 flex items-center gap-1 px-2 py-1 rounded-md text-[11.5px] text-fg-3 hover:text-fg-1 hover:bg-[var(--line-1)]"
                     style={{ fontWeight: 510 }}
                   >
                     <Plus size={11} strokeWidth={2} /> 변수 추가
@@ -1371,17 +1371,17 @@ export default function DeployForm({ onRequestGuide }) {
       </div>
 
       {/* ===== 도메인 - 백엔드/프론트와 별개. 첫 배포에만 입력, 이후 고정. ===== */}
-      <div className="mb-1" style={{ borderTop: "1px solid rgba(255,255,255,0.07)", paddingTop: 24 }}>
+      <div className="mb-1" style={{ borderTop: "1px solid var(--line-2)", paddingTop: 24 }}>
         <div className="flex items-center gap-1 mb-2.5">
           <span className="text-[13px] text-fg-2" style={{ fontWeight: 590 }}>
             도메인
           </span>
           <InfoHint>
-            <b style={{ color: "#dde0e4", fontWeight: 590 }}>백엔드만</b><br />
+            <b style={{ color: "var(--fg-1)", fontWeight: 590 }}>백엔드만</b><br />
             - {appLabel}.kodeploy.com<br />
-            <b style={{ color: "#dde0e4", fontWeight: 590 }}>프론트만</b><br />
+            <b style={{ color: "var(--fg-1)", fontWeight: 590 }}>프론트만</b><br />
             - {appLabel}.kodeploy.com<br />
-            <b style={{ color: "#dde0e4", fontWeight: 590 }}>프론트+백엔드</b><br />
+            <b style={{ color: "var(--fg-1)", fontWeight: 590 }}>프론트+백엔드</b><br />
             - 프론트 = {appLabel}.kodeploy.com<br />
             - 백엔드 = {appLabel}-api.kodeploy.com
           </InfoHint>
@@ -1394,8 +1394,8 @@ export default function DeployForm({ onRequestGuide }) {
               placeholder="비워두면 자동으로 채워져요"
               className="bg-transparent outline-none text-fg-1 text-[14px] rounded-md px-3 py-2 w-1/2 placeholder:text-fg-3"
               style={{
-                border: "1px solid rgba(255,255,255,0.09)",
-                background: "rgba(255,255,255,0.02)",
+                border: "1px solid var(--line-3)",
+                background: "var(--kd-surface)",
                 fontWeight: 510,
               }}
               disabled={submitting}
@@ -1406,8 +1406,8 @@ export default function DeployForm({ onRequestGuide }) {
           <div
             className="flex items-center gap-2 px-3 py-2 rounded-md"
             style={{
-              border: "1px solid rgba(255,255,255,0.06)",
-              background: "rgba(255,255,255,0.02)",
+              border: "1px solid var(--line-2)",
+              background: "var(--kd-surface)",
             }}
           >
             <span className="text-[14px] text-fg-1" style={{ fontWeight: 510 }}>
@@ -1448,8 +1448,8 @@ export default function DeployForm({ onRequestGuide }) {
           <div
             className="mt-3 px-4 py-4 rounded-xl"
             style={{
-              border: "1px solid rgba(255,255,255,0.07)",
-              background: "rgba(255,255,255,0.015)",
+              border: "1px solid var(--line-2)",
+              background: "var(--kd-surface)",
             }}
           >
             <div className="flex items-center justify-between mb-2.5">
@@ -1458,10 +1458,10 @@ export default function DeployForm({ onRequestGuide }) {
                   커스텀 도메인 (선택)
                 </span>
                 <InfoHint>
-                  <b style={{ color: "#dde0e4", fontWeight: 590 }}>서브도메인만</b> 가능 (예: app.example.com)<br />
+                  <b style={{ color: "var(--fg-1)", fontWeight: 590 }}>서브도메인만</b> 가능 (예: app.example.com)<br />
                   배포 후 위 CNAME을 DNS에 추가하면 인증서 자동 발급 (루트 apex 미지원)<br />
-                  <b style={{ color: "#dde0e4", fontWeight: 590 }}>프론트+백엔드</b> = 프론트에 연결<br />
-                  <b style={{ color: "#dde0e4", fontWeight: 590 }}>백엔드만</b> = 백엔드에 연결
+                  <b style={{ color: "var(--fg-1)", fontWeight: 590 }}>프론트+백엔드</b> = 프론트에 연결<br />
+                  <b style={{ color: "var(--fg-1)", fontWeight: 590 }}>백엔드만</b> = 백엔드에 연결
                 </InfoHint>
               </div>
               <button
@@ -1480,18 +1480,18 @@ export default function DeployForm({ onRequestGuide }) {
               spellCheck={false}
               autoCapitalize="off"
               className="w-full px-2.5 py-1.5 rounded-md bg-transparent outline-none text-[12.5px] text-fg-1 placeholder:text-fg-4"
-              style={{ border: "1px solid rgba(255,255,255,0.09)", fontWeight: 510 }}
+              style={{ border: "1px solid var(--line-3)", fontWeight: 510 }}
               disabled={submitting}
             />
             {customDomain.trim() && (
               <div
                 className="mt-2 flex items-center gap-2 px-2.5 py-2 rounded-md text-[11.5px]"
-                style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)", fontWeight: 510 }}
+                style={{ background: "var(--line-1)", border: "1px solid var(--line-2)", fontWeight: 510 }}
               >
                 <span className="text-fg-4 w-12 shrink-0">CNAME</span>
                 <span className="text-fg-2 truncate">{customDomain.trim()}</span>
                 <span className="text-fg-4 shrink-0">→</span>
-                <span className="text-[#a4abee] truncate flex-1">{CUSTOM_DOMAIN_CNAME_TARGET}</span>
+                <span className="text-[var(--brand-fg)] truncate flex-1">{CUSTOM_DOMAIN_CNAME_TARGET}</span>
               </div>
             )}
           </div>
@@ -1511,7 +1511,7 @@ export default function DeployForm({ onRequestGuide }) {
       >
         {submitting ? (
           <span className="flex items-center justify-center gap-2">
-            <span className="w-3.5 h-3.5 rounded-full border-2 border-white/30 border-t-white kd-spin" />
+            <span className="w-3.5 h-3.5 rounded-full border-2 border-[var(--line-3)] border-t-white kd-spin" />
             배포 요청 중
           </span>
         ) : (
@@ -1525,7 +1525,7 @@ export default function DeployForm({ onRequestGuide }) {
           style={{
             background: "rgba(239,68,68,0.08)",
             border: "1px solid rgba(239,68,68,0.25)",
-            color: "#fca5a5",
+            color: "var(--err-fg)",
           }}
         >
           {error}

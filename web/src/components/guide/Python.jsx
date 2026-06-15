@@ -2,7 +2,7 @@
 import { Code, CodeBlock, Section } from "./atoms.jsx";
 
 // 강조용 inline 색 (브랜드 보라)
-const HL = { color: "#818be0", fontWeight: 510 };
+const HL = { color: "var(--accent)", fontWeight: 510 };
 
 export default function Python() {
   return (

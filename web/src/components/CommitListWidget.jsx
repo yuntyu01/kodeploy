@@ -442,16 +442,14 @@ export default function CommitListWidget() {
         <div
           className="rounded-xl overflow-hidden flex flex-col"
           style={{
-            background: "#131415",
-            border: "1px solid rgba(255,255,255,0.09)",
-            boxShadow:
-              "0 8px 32px rgba(0,0,0,0.5), 0 2px 8px rgba(0,0,0,0.3)",
+            background: "var(--kd-surface)",
+            border: "1px solid var(--line-3)",
           }}
         >
           {/* Tab header — 상태 / 커밋 / 빌드 / 환경변수 */}
           <div
             className="flex items-center px-1.5 pt-1 shrink-0"
-            style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}
+            style={{ borderBottom: "1px solid var(--line-2)" }}
           >
             <div className="flex items-stretch flex-1 min-w-0">
               <WidgetTab
@@ -572,7 +570,7 @@ export default function CommitListWidget() {
                 <button
                   onClick={() => setShowDeleteModal(true)}
                   className="w-8 h-8 rounded-md flex items-center justify-center text-fg-4 hover:text-red-300 transition-colors shrink-0"
-                  style={{ border: "1px solid rgba(255,255,255,0.09)", background: "transparent", cursor: "pointer" }}
+                  style={{ border: "1px solid var(--line-3)", background: "transparent", cursor: "pointer" }}
                   title="앱 삭제"
                 >
                   <Trash2 size={13} strokeWidth={1.8} />
@@ -604,7 +602,7 @@ export default function CommitListWidget() {
                   <div className="mt-0.5 flex items-center gap-1.5 text-[10px] text-fg-4 min-w-0">
                     <span
                       className="shrink-0"
-                      style={{ fontWeight: 510, color: "#818be0" }}
+                      style={{ fontWeight: 510, color: "var(--accent)" }}
                     >
                       {c.sha}
                     </span>
@@ -694,7 +692,7 @@ export default function CommitListWidget() {
                 >
                   <span
                     className="text-[10.5px] shrink-0 truncate max-w-[120px]"
-                    style={{ fontWeight: 510, color: "#818be0" }}
+                    style={{ fontWeight: 510, color: "var(--accent)" }}
                   >
                     {key}
                   </span>
@@ -716,7 +714,7 @@ export default function CommitListWidget() {
                 className="w-full py-2 rounded-md text-[12px] text-fg-2 flex items-center justify-center gap-1.5"
                 style={{
                   fontWeight: 510,
-                  border: "1px solid rgba(255,255,255,0.09)",
+                  border: "1px solid var(--line-3)",
                 }}
               >
                 <span>자세히 보기</span>
@@ -782,7 +780,7 @@ function WidgetTab({ active, onClick, label, count }) {
     <button
       onClick={onClick}
       className="relative flex items-center gap-1.5 px-2.5 h-7 text-[11.5px] shrink-0"
-      style={{ color: active ? "#dde0e4" : "#8a8f98", fontWeight: 510 }}
+      style={{ color: active ? "var(--fg-1)" : "var(--fg-3)", fontWeight: 510 }}
     >
       <span>{label}</span>
       {count != null && <span className="text-fg-4 text-[10.5px] tabular-nums">{count}</span>}

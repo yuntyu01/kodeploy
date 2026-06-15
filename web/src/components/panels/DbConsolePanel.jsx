@@ -14,12 +14,12 @@ export default function DbConsolePanel() {
       {/* 헤더 + 모드 토글 */}
       <div
         className="flex items-center gap-2 px-3 py-1.5 shrink-0"
-        style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}
+        style={{ borderBottom: "1px solid var(--line-2)" }}
       >
         <span className="text-[11px] text-fg-3" style={{ fontWeight: 510 }}>
           DB 콘솔
         </span>
-        <div className="ml-auto flex items-center gap-0.5 p-0.5 rounded-md" style={{ background: "rgba(255,255,255,0.04)" }}>
+        <div className="ml-auto flex items-center gap-0.5 p-0.5 rounded-md" style={{ background: "var(--line-1)" }}>
           <ToggleBtn active={mode === "table"} onClick={() => setMode("table")} icon={Table2} label="표" />
           <ToggleBtn active={mode === "terminal"} onClick={() => setMode("terminal")} icon={TerminalSquare} label="터미널" />
         </div>
@@ -43,11 +43,11 @@ function PageBtn({ icon: Icon, disabled, onClick }) {
       disabled={disabled}
       className="p-0.5 rounded transition-colors"
       style={{
-        color: disabled ? "#4a4f57" : "#aeb3bd",
+        color: disabled ? "var(--fg-4)" : "var(--fg-2)",
         cursor: disabled ? "default" : "pointer",
       }}
-      onMouseEnter={(e) => { if (!disabled) e.currentTarget.style.color = "#dde0e4"; }}
-      onMouseLeave={(e) => { if (!disabled) e.currentTarget.style.color = "#aeb3bd"; }}
+      onMouseEnter={(e) => { if (!disabled) e.currentTarget.style.color = "var(--fg-1)"; }}
+      onMouseLeave={(e) => { if (!disabled) e.currentTarget.style.color = "var(--fg-2)"; }}
     >
       <Icon size={13} strokeWidth={2} />
     </button>
@@ -61,7 +61,7 @@ function ToggleBtn({ active, onClick, icon: Icon, label }) {
       className="flex items-center gap-1 px-2 py-0.5 rounded text-[11px] transition-colors"
       style={{
         background: active ? "rgba(129,139,224,0.18)" : "transparent",
-        color: active ? "#c4c9f5" : "#8a8f98",
+        color: active ? "var(--brand-fg)" : "var(--fg-3)",
         fontWeight: 510,
       }}
     >
@@ -126,7 +126,7 @@ function QueryConsole() {
   };
 
   return (
-    <div className="flex-1 min-h-0 flex flex-col" style={{ background: "#0a0a0b" }}>
+    <div className="flex-1 min-h-0 flex flex-col" style={{ background: "var(--kd-bg)" }}>
       {/* 결과 영역 (위) */}
       <div className="flex-1 min-h-0 overflow-auto scroll-thin">
         <ResultView
@@ -142,7 +142,7 @@ function QueryConsole() {
       {result && !error && (
         <div
           className="flex items-center gap-3 px-3 py-1 shrink-0 text-[10.5px] text-fg-4"
-          style={{ borderTop: "1px solid rgba(255,255,255,0.06)" }}
+          style={{ borderTop: "1px solid var(--line-2)" }}
         >
           {hasTable && (
             <div className="flex items-center gap-1.5">
@@ -153,7 +153,7 @@ function QueryConsole() {
                 placeholder="결과 내 검색"
                 spellCheck={false}
                 className="bg-transparent outline-none text-[11px] w-32"
-                style={{ color: "#dde0e4" }}
+                style={{ color: "var(--fg-1)" }}
               />
               {filter && (
                 <button onClick={() => setFilter("")} className="text-fg-4 hover:text-fg-1">
@@ -189,14 +189,14 @@ function QueryConsole() {
             </div>
           )}
           {result.truncated && (
-            <span style={{ color: "#d9a441" }}>· 상위 {result.row_count}행만 표시 (페이징 불가)</span>
+            <span style={{ color: "var(--warn-fg)" }}>· 상위 {result.row_count}행만 표시 (페이징 불가)</span>
           )}
           <span className="ml-auto">{result.duration_ms}ms · {result.db_type}</span>
         </div>
       )}
 
       {/* 쿼리 입력 (아래) */}
-      <div className="shrink-0 flex flex-col" style={{ borderTop: "1px solid rgba(255,255,255,0.08)" }}>
+      <div className="shrink-0 flex flex-col" style={{ borderTop: "1px solid var(--line-2)" }}>
         <textarea
           ref={taRef}
           value={sql}
@@ -207,8 +207,8 @@ function QueryConsole() {
           className="w-full resize-none px-3 py-2 text-[12.5px] outline-none scroll-thin"
           style={{
             height: 96,
-            background: "#0c0d0e",
-            color: "#dde0e4",
+            background: "var(--kd-panel)",
+            color: "var(--fg-1)",
             fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
             lineHeight: 1.5,
           }}
@@ -221,7 +221,7 @@ function QueryConsole() {
             className="ml-auto flex items-center gap-1.5 px-3 py-1 rounded-md text-[12px] transition-colors"
             style={{
               background: loading || !sql.trim() ? "rgba(129,139,224,0.15)" : "#5b63b8",
-              color: loading || !sql.trim() ? "#8a8f98" : "#fff",
+              color: loading || !sql.trim() ? "var(--fg-3)" : "#fff",
               fontWeight: 510,
               cursor: loading || !sql.trim() ? "default" : "pointer",
             }}
@@ -246,7 +246,7 @@ function ResultView({ result, rows, filterActive, error, loading }) {
           className="text-[12px] whitespace-pre-wrap rounded-md p-3"
           style={{
             background: "rgba(224,108,117,0.08)",
-            color: "#e8a7ad",
+            color: "var(--err-fg-2)",
             border: "1px solid rgba(224,108,117,0.2)",
             fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
           }}
@@ -325,11 +325,11 @@ function ResultTable({ columns, rows }) {
                 title="클릭하면 정렬 (오름 → 내림 → 해제)"
                 className="text-left px-3 py-1.5 sticky top-0 select-none cursor-pointer"
                 style={{
-                  background: "#141517",
-                  color: active ? "#c4c9f5" : "#aeb3bd",
+                  background: "var(--kd-surface)",
+                  color: active ? "var(--brand-fg)" : "var(--fg-2)",
                   fontWeight: 560,
-                  borderBottom: "1px solid rgba(255,255,255,0.12)",
-                  borderRight: "1px solid rgba(255,255,255,0.04)",
+                  borderBottom: "1px solid var(--line-3)",
+                  borderRight: "1px solid var(--line-1)",
                   whiteSpace: "nowrap",
                 }}
               >
@@ -346,16 +346,16 @@ function ResultTable({ columns, rows }) {
       </thead>
       <tbody>
         {sortedRows.map((row, ri) => (
-          <tr key={ri} style={{ background: ri % 2 ? "rgba(255,255,255,0.015)" : "transparent" }}>
+          <tr key={ri} style={{ background: ri % 2 ? "var(--line-1)" : "transparent" }}>
             {row.map((val, ci) => (
               <td
                 key={ci}
                 title={val}
                 className="px-3 py-1"
                 style={{
-                  color: "#dde0e4",
-                  borderBottom: "1px solid rgba(255,255,255,0.05)",
-                  borderRight: "1px solid rgba(255,255,255,0.03)",
+                  color: "var(--fg-1)",
+                  borderBottom: "1px solid var(--line-1)",
+                  borderRight: "1px solid var(--line-1)",
                   whiteSpace: "nowrap",
                   maxWidth: 420,
                   overflow: "hidden",
@@ -363,7 +363,7 @@ function ResultTable({ columns, rows }) {
                   fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
                 }}
               >
-                {val === "NULL" ? <span style={{ color: "#5c6370", fontStyle: "italic" }}>NULL</span> : val}
+                {val === "NULL" ? <span style={{ color: "var(--fg-4)", fontStyle: "italic" }}>NULL</span> : val}
               </td>
             ))}
           </tr>

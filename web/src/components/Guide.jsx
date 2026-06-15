@@ -93,20 +93,20 @@ export default function Guide() {
                   to={g.tabs[0].path}
                   className="block px-3 py-1.5 rounded-md text-[14px] no-underline transition-colors"
                   style={{
-                    color: isActive ? "#dde0e4" : "#8a8f98",
+                    color: isActive ? "var(--fg-1)" : "var(--fg-3)",
                     background: isActive ? "rgba(129,139,224,0.08)" : "transparent",
                     fontWeight: 510,
                   }}
                   onMouseEnter={(e) => {
                     if (!isActive) {
-                      e.currentTarget.style.background = "rgba(255,255,255,0.03)";
-                      e.currentTarget.style.color = "#dde0e4";
+                      e.currentTarget.style.background = "var(--line-1)";
+                      e.currentTarget.style.color = "var(--fg-1)";
                     }
                   }}
                   onMouseLeave={(e) => {
                     if (!isActive) {
                       e.currentTarget.style.background = "transparent";
-                      e.currentTarget.style.color = "#8a8f98";
+                      e.currentTarget.style.color = "var(--fg-3)";
                     }
                   }}
                 >
@@ -133,7 +133,7 @@ export default function Guide() {
           {activeGuide.tabs.length > 1 && (
             <div
               className="flex gap-1 mb-8 -mx-1"
-              style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}
+              style={{ borderBottom: "1px solid var(--line-2)" }}
             >
               {activeGuide.tabs.map((t) => {
                 const isActive = t.id === activeTab.id;
@@ -143,7 +143,7 @@ export default function Guide() {
                     to={t.path}
                     className="px-3 py-2 text-[14px] no-underline transition-colors"
                     style={{
-                      color: isActive ? "#dde0e4" : "#8a8f98",
+                      color: isActive ? "var(--fg-1)" : "var(--fg-3)",
                       fontWeight: 510,
                       borderBottom: `2px solid ${isActive ? "#818be0" : "transparent"}`,
                       marginBottom: -1,

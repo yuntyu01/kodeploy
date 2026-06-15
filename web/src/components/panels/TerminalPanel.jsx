@@ -3,6 +3,8 @@ import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import "@xterm/xterm/css/xterm.css";
+import { useTheme } from "../../contexts/ThemeContext.jsx";
+import { xtermTheme } from "../../lib/xtermTheme.js";
 
 const API_BASE = (import.meta.env.VITE_API_BASE || "").replace(/\/$/, "");
 const WS_URL = API_BASE.replace(/^http/, "ws") + "/deploy/app/terminal";
@@ -10,6 +12,7 @@ const WS_URL = API_BASE.replace(/^http/, "ws") + "/deploy/app/terminal";
 export default function TerminalPanel() {
   const containerRef = useRef(null);
   const termRef = useRef(null);
+  const { theme } = useTheme();
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -18,12 +21,7 @@ export default function TerminalPanel() {
       cursorBlink: true,
       fontSize: 13,
       fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
-      theme: {
-        background: "#0a0a0b",
-        foreground: "#dde0e4",
-        cursor: "#818be0",
-        selectionBackground: "rgba(129,139,224,0.3)",
-      },
+      theme: xtermTheme(theme),
     });
     const fitAddon = new FitAddon();
     term.loadAddon(fitAddon);
@@ -77,11 +75,16 @@ export default function TerminalPanel() {
     };
   }, []);
 
+  // 테마 토글 시 색만 라이브 갱신 (재생성/재접속 없이)
+  useEffect(() => {
+    if (termRef.current) termRef.current.options.theme = xtermTheme(theme);
+  }, [theme]);
+
   return (
     <div className="flex-1 min-h-0 flex flex-col">
       <div
         className="flex items-center gap-2 px-4 py-1.5 shrink-0"
-        style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}
+        style={{ borderBottom: "1px solid var(--line-2)" }}
       >
         <span className="text-[11px] text-fg-3" style={{ fontWeight: 510 }}>
           터미널
@@ -90,7 +93,7 @@ export default function TerminalPanel() {
           Pod 쉘 접속
         </span>
       </div>
-      <div ref={containerRef} className="flex-1 min-h-0 p-1" style={{ background: "#0a0a0b" }} />
+      <div ref={containerRef} className="flex-1 min-h-0 p-1" style={{ background: "var(--kd-bg)" }} />
     </div>
   );
 }

@@ -29,7 +29,7 @@ const PANEL_TYPES = [
     icon: FileText,
     label: "로그",
     sub: "실시간 · 빌드 · Dockerfile",
-    color: "#7fb6db",
+    color: "var(--info-fg)",
     ready: true,
   },
   {
@@ -37,7 +37,7 @@ const PANEL_TYPES = [
     icon: TerminalSquare,
     label: "터미널",
     sub: "앱 · DB 쉘 접속",
-    color: "#a4abee",
+    color: "var(--brand-fg)",
     ready: true,
   },
   {
@@ -45,7 +45,7 @@ const PANEL_TYPES = [
     icon: Activity,
     label: "모니터링",
     sub: "CPU · 메모리 · 요청량",
-    color: "#6dd5a0",
+    color: "var(--ok-fg)",
     ready: true,
   },
   {
@@ -53,7 +53,7 @@ const PANEL_TYPES = [
     icon: HardDrive,
     label: "스토리지",
     sub: "R2 객체 · 이미지",
-    color: "#d8a657",
+    color: "var(--warn-fg)",
     ready: true,
   },
 ];
@@ -103,11 +103,11 @@ export default function Pane({ build, storageEnabled = false, redisEnabled = fal
   const titleSize = compact ? "text-[13px]" : "text-[14px]";
 
   return (
-    <div className="min-h-0 min-w-0 flex flex-col overflow-hidden" style={{ background: "#0c0d0e", ...style }}>
+    <div className="min-h-0 min-w-0 flex flex-col overflow-hidden" style={{ background: "var(--kd-panel)", ...style }}>
       {/* Tab bar */}
       <div
         className="flex items-center h-9 pl-1.5 pr-1.5 shrink-0"
-        style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}
+        style={{ borderBottom: "1px solid var(--line-2)" }}
       >
         <div className="flex items-stretch h-full overflow-hidden flex-1 min-w-0">
           {tabs.map((t) => {
@@ -121,7 +121,7 @@ export default function Pane({ build, storageEnabled = false, redisEnabled = fal
                   setCreating(false);
                 }}
                 className="relative flex items-center gap-1.5 px-2.5 h-full text-[12.5px] transition-colors group shrink-0"
-                style={{ color: active ? "#dde0e4" : "#8a8f98", fontWeight: 510 }}
+                style={{ color: active ? "var(--fg-1)" : "var(--fg-3)", fontWeight: 510 }}
               >
                 <Icon size={12} strokeWidth={1.8} />
                 <span>{t.label}</span>
@@ -130,7 +130,7 @@ export default function Pane({ build, storageEnabled = false, redisEnabled = fal
                     e.stopPropagation();
                     closeTab(t.id);
                   }}
-                  className="ml-0.5 p-0.5 rounded text-fg-4 hover:text-fg-1 hover:bg-white/[0.06] opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
+                  className="ml-0.5 p-0.5 rounded text-fg-4 hover:text-fg-1 hover:bg-[var(--line-2)] opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
                 >
                   <X size={9} strokeWidth={2} />
                 </span>
@@ -159,7 +159,7 @@ export default function Pane({ build, storageEnabled = false, redisEnabled = fal
               {excludeSplitDir !== "horizontal" && (
                 <button
                   onClick={() => onSplit("horizontal")}
-                  className="p-1 rounded hover:bg-white/[0.04] text-fg-4 hover:text-fg-1 transition-colors"
+                  className="p-1 rounded hover:bg-[var(--line-1)] text-fg-4 hover:text-fg-1 transition-colors"
                   title="좌우 분할"
                 >
                   <Columns2 size={12} strokeWidth={1.8} />
@@ -168,7 +168,7 @@ export default function Pane({ build, storageEnabled = false, redisEnabled = fal
               {excludeSplitDir !== "vertical" && (
                 <button
                   onClick={() => onSplit("vertical")}
-                  className="p-1 rounded hover:bg-white/[0.04] text-fg-4 hover:text-fg-1 transition-colors"
+                  className="p-1 rounded hover:bg-[var(--line-1)] text-fg-4 hover:text-fg-1 transition-colors"
                   title="상하 분할"
                 >
                   <Rows2 size={12} strokeWidth={1.8} />
@@ -179,7 +179,7 @@ export default function Pane({ build, storageEnabled = false, redisEnabled = fal
           {onUnsplit && (
             <button
               onClick={onUnsplit}
-              className="p-1 rounded hover:bg-white/[0.04] text-fg-4 hover:text-fg-1 transition-colors"
+              className="p-1 rounded hover:bg-[var(--line-1)] text-fg-4 hover:text-fg-1 transition-colors"
               title="닫기"
             >
               <X size={12} strokeWidth={1.8} />
@@ -209,8 +209,8 @@ export default function Pane({ build, storageEnabled = false, redisEnabled = fal
                     disabled={disabled}
                     className={`${cardSize} relative flex flex-col items-center justify-center gap-2.5 rounded-xl transition-all`}
                     style={{
-                      border: "1px solid rgba(255,255,255,0.08)",
-                      background: "rgba(255,255,255,0.02)",
+                      border: "1px solid var(--line-2)",
+                      background: "var(--kd-surface)",
                       opacity: disabled ? 0.55 : 1,
                       cursor: disabled ? "not-allowed" : "pointer",
                     }}
@@ -221,8 +221,8 @@ export default function Pane({ build, storageEnabled = false, redisEnabled = fal
                     }}
                     onMouseLeave={(e) => {
                       if (disabled) return;
-                      e.currentTarget.style.background = "rgba(255,255,255,0.02)";
-                      e.currentTarget.style.borderColor = "rgba(255,255,255,0.08)";
+                      e.currentTarget.style.background = "var(--kd-surface)";
+                      e.currentTarget.style.borderColor = "var(--line-2)";
                     }}
                   >
                     <Icon
@@ -245,8 +245,8 @@ export default function Pane({ build, storageEnabled = false, redisEnabled = fal
                       <span
                         className="absolute top-2 right-2 text-[9.5px] px-1.5 py-0.5 rounded"
                         style={{
-                          background: "rgba(255,255,255,0.05)",
-                          color: "#8a8f98",
+                          background: "var(--line-1)",
+                          color: "var(--fg-3)",
                           fontWeight: 510,
                         }}
                       >
@@ -298,10 +298,10 @@ function TerminalSelector({ compact, redisEnabled = false }) {
 
   // Redis 카드는 use_redis일 때만 (storage 카드를 storageEnabled로 거는 것과 동일 방침).
   const options = [
-    { id: "app", icon: Server, label: "WAS", sub: "앱 Pod 쉘 접속", color: "#a4abee" },
-    { id: "db", icon: Database, label: "DB", sub: "쿼리 콘솔 · 쉘", color: "#7fb6db" },
+    { id: "app", icon: Server, label: "WAS", sub: "앱 Pod 쉘 접속", color: "var(--brand-fg)" },
+    { id: "db", icon: Database, label: "DB", sub: "쿼리 콘솔 · 쉘", color: "var(--info-fg)" },
     ...(redisEnabled
-      ? [{ id: "redis", icon: Zap, label: "Redis", sub: "redis-cli 쉘", color: "#f87171" }]
+      ? [{ id: "redis", icon: Zap, label: "Redis", sub: "redis-cli 쉘", color: "var(--err-fg)" }]
       : []),
   ];
 
@@ -315,8 +315,8 @@ function TerminalSelector({ compact, redisEnabled = false }) {
             onClick={() => setTarget(opt.id)}
             className={`${cardSize} flex flex-col items-center justify-center gap-2.5 rounded-xl transition-all`}
             style={{
-              border: "1px solid rgba(255,255,255,0.08)",
-              background: "rgba(255,255,255,0.02)",
+              border: "1px solid var(--line-2)",
+              background: "var(--kd-surface)",
               cursor: "pointer",
             }}
             onMouseEnter={(e) => {
@@ -324,8 +324,8 @@ function TerminalSelector({ compact, redisEnabled = false }) {
               e.currentTarget.style.borderColor = "rgba(129,139,224,0.3)";
             }}
             onMouseLeave={(e) => {
-              e.currentTarget.style.background = "rgba(255,255,255,0.02)";
-              e.currentTarget.style.borderColor = "rgba(255,255,255,0.08)";
+              e.currentTarget.style.background = "var(--kd-surface)";
+              e.currentTarget.style.borderColor = "var(--line-2)";
             }}
           >
             <Icon size={iconSize} strokeWidth={1.3} style={{ color: opt.color }} />

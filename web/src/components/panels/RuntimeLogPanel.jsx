@@ -62,7 +62,7 @@ function SideButton({ active, onClick, disabled, icon: Icon, label, color }) {
       className="flex items-center gap-2 w-full px-3 py-2 rounded-lg text-[12px] transition-colors text-left disabled:opacity-50"
       style={{
         background: active ? "rgba(129,139,224,0.1)" : "transparent",
-        color: active ? (color || "#818be0") : "#9ca0a8",
+        color: active ? (color || "#818be0") : "var(--fg-3)",
         fontWeight: 500,
         cursor: disabled ? "not-allowed" : "pointer",
       }}
@@ -80,9 +80,9 @@ function NavToggle({ active, onClick, icon: Icon, children }) {
       className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-[11px] transition-colors flex-1 min-w-0"
       style={{
         background: active ? "rgba(129,139,224,0.1)" : "transparent",
-        color: active ? "#818be0" : "#9ca0a8",
+        color: active ? "#818be0" : "var(--fg-3)",
         fontWeight: 500,
-        border: "1px solid rgba(255,255,255,0.07)",
+        border: "1px solid var(--line-2)",
       }}
     >
       <Icon size={12} strokeWidth={1.8} className="shrink-0" />
@@ -97,7 +97,7 @@ function IssueList({ label, color, dotColor, items, emptyText, onJump }) {
     <>
       <div
         className="px-3 py-2 shrink-0 flex items-center gap-2"
-        style={{ borderBottom: "1px solid rgba(255,255,255,0.04)" }}
+        style={{ borderBottom: "1px solid var(--line-1)" }}
       >
         <span
           className="w-2 h-2 rounded-full"
@@ -121,8 +121,8 @@ function IssueList({ label, color, dotColor, items, emptyText, onJump }) {
             <button
               key={line.idx}
               onClick={() => onJump(line.idx)}
-              className="w-full text-left px-3 py-2 transition-colors hover:bg-white/[0.04]"
-              style={{ borderBottom: "1px solid rgba(255,255,255,0.04)" }}
+              className="w-full text-left px-3 py-2 transition-colors hover:bg-[var(--line-1)]"
+              style={{ borderBottom: "1px solid var(--line-1)" }}
             >
               <div className="text-[11px] break-all" style={{ color, lineHeight: 1.4 }}>
                 {line.text}
@@ -247,10 +247,10 @@ export default function RuntimeLogPanel({ build, splitLevel = 0 }) {
       return (
         <pre
           className="flex-1 min-h-0 overflow-auto scroll-thin p-5 text-[12px] font-sans text-fg-2 whitespace-pre-wrap break-all"
-          style={{ background: "rgba(0,0,0,0.2)", lineHeight: 1.7 }}
+          style={{ background: "var(--kd-bg)", lineHeight: 1.7 }}
         >
           {build?.error && (
-            <div className="text-[#fca5a5] mb-3">ERROR: {build.error}</div>
+            <div className="text-[var(--err-fg)] mb-3">ERROR: {build.error}</div>
           )}
           {build?.logs || "빌드 로그 없음"}
         </pre>
@@ -260,7 +260,7 @@ export default function RuntimeLogPanel({ build, splitLevel = 0 }) {
       return (
         <pre
           className="flex-1 min-h-0 overflow-auto scroll-thin p-5 text-[12px] font-sans text-fg-2 whitespace-pre-wrap"
-          style={{ background: "rgba(0,0,0,0.2)", lineHeight: 1.7 }}
+          style={{ background: "var(--kd-bg)", lineHeight: 1.7 }}
         >
           {build?.dockerfile_content || "Dockerfile 없음"}
         </pre>
@@ -270,10 +270,10 @@ export default function RuntimeLogPanel({ build, splitLevel = 0 }) {
       <div
         ref={scrollRef}
         className="flex-1 min-h-0 overflow-auto scroll-thin font-sans text-[12px]"
-        style={{ background: "rgba(0,0,0,0.2)" }}
+        style={{ background: "var(--kd-bg)" }}
       >
         {fetchError ? (
-          <div className="p-5 text-[12px] text-[#fca5a5]">{fetchError}</div>
+          <div className="p-5 text-[12px] text-[var(--err-fg)]">{fetchError}</div>
         ) : lines.length === 0 ? (
           <div className="p-5 text-fg-4 text-[12px]">
             {loading ? "불러오는 중..." : "로그 없음"}
@@ -284,8 +284,8 @@ export default function RuntimeLogPanel({ build, splitLevel = 0 }) {
               {lines.map((line, i) => {
                 const text = line.text;
                 let color = "";
-                if (isErrorLine(text)) color = "#fca5a5";
-                else if (isWarnLine(text)) color = "#fbbf24";
+                if (isErrorLine(text)) color = "var(--err-fg)";
+                else if (isWarnLine(text)) color = "var(--warn-fg)";
                 return (
                   <tr
                     key={i}
@@ -295,18 +295,18 @@ export default function RuntimeLogPanel({ build, splitLevel = 0 }) {
                     <td
                       className="pl-4 pr-3 py-0.5 align-top select-none whitespace-nowrap tabular-nums"
                       style={{
-                        color: "#6b7280",
+                        color: "var(--fg-4)",
                         fontSize: "11px",
                         fontWeight: 450,
                         width: "1%",
-                        borderRight: "1px solid rgba(255,255,255,0.05)",
+                        borderRight: "1px solid var(--line-1)",
                       }}
                     >
                       {line.ts ? formatKST(line.ts) : ""}
                     </td>
                     <td
                       className="pl-4 pr-5 py-0.5 break-all whitespace-pre-wrap"
-                      style={{ color: color || "#d1d5db" }}
+                      style={{ color: color || "var(--fg-2)" }}
                     >
                       {text}
                     </td>
@@ -333,7 +333,7 @@ export default function RuntimeLogPanel({ build, splitLevel = 0 }) {
           <div
             onMouseDown={startDrag("sidebar")}
             className="shrink-0 w-[4px] cursor-col-resize transition-colors hover:bg-[rgba(129,139,224,0.4)]"
-            style={{ background: "rgba(255,255,255,0.06)" }}
+            style={{ background: "var(--line-2)" }}
           />
         </>
       )}
@@ -343,13 +343,13 @@ export default function RuntimeLogPanel({ build, splitLevel = 0 }) {
         className={`flex flex-col ${showLeftPanel ? "shrink-0" : "flex-1"}`}
         style={{
           ...(showLeftPanel ? { width: sidebarWidth } : {}),
-          background: "rgba(0,0,0,0.1)",
+          background: "var(--kd-bg)",
         }}
       >
         <div
           data-nav
           className="px-2.5 py-2.5 shrink-0 flex flex-col gap-2"
-          style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}
+          style={{ borderBottom: "1px solid var(--line-2)" }}
         >
           <div className="flex items-center gap-1.5">
             <div className="flex-1 min-w-0">
@@ -368,7 +368,7 @@ export default function RuntimeLogPanel({ build, splitLevel = 0 }) {
                 className="flex items-center gap-1.5 px-2.5 py-2 rounded-lg text-[12px] transition-colors shrink-0"
                 style={{
                   background: mode === "stream" ? "rgba(129,139,224,0.1)" : "transparent",
-                  color: mode === "stream" ? "#818be0" : "#9ca0a8",
+                  color: mode === "stream" ? "#818be0" : "var(--fg-3)",
                   fontWeight: 500,
                 }}
               >
@@ -417,7 +417,7 @@ export default function RuntimeLogPanel({ build, splitLevel = 0 }) {
             <div className="min-h-0 flex flex-col" style={{ height: `${errorRatio}%` }}>
               <IssueList
                 label="에러"
-                color="#fca5a5"
+                color="var(--err-fg)"
                 dotColor="#ef4444"
                 items={errors}
                 emptyText="에러 없음"
@@ -428,13 +428,13 @@ export default function RuntimeLogPanel({ build, splitLevel = 0 }) {
             <div
               onMouseDown={startDrag("error-warn")}
               className="shrink-0 h-[4px] cursor-row-resize transition-colors hover:bg-[rgba(129,139,224,0.4)]"
-              style={{ background: "rgba(255,255,255,0.06)" }}
+              style={{ background: "var(--line-2)" }}
             />
 
             <div className="flex-1 min-h-0 flex flex-col">
               <IssueList
                 label="경고"
-                color="#fbbf24"
+                color="var(--warn-fg)"
                 dotColor="#f59e0b"
                 items={warnings}
                 emptyText="경고 없음"

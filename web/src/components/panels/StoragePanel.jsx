@@ -84,11 +84,11 @@ export default function StoragePanel() {
   const shown = q ? objects.filter((o) => o.key.toLowerCase().includes(q)) : objects;
 
   return (
-    <div className="relative flex-1 min-h-0 flex flex-col" style={{ background: "#0a0a0b" }}>
+    <div className="relative flex-1 min-h-0 flex flex-col" style={{ background: "var(--kd-bg)" }}>
       {/* 헤더 */}
       <div
         className="flex items-center gap-2 px-3 py-1.5 shrink-0"
-        style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}
+        style={{ borderBottom: "1px solid var(--line-2)" }}
       >
         <span className="text-[11px] text-fg-3" style={{ fontWeight: 510 }}>
           스토리지
@@ -104,7 +104,7 @@ export default function StoragePanel() {
               placeholder="이름 검색"
               spellCheck={false}
               className="bg-transparent outline-none text-[11px] w-28"
-              style={{ color: "#dde0e4" }}
+              style={{ color: "var(--fg-1)" }}
             />
             {filter && (
               <button onClick={() => setFilter("")} className="text-fg-4 hover:text-fg-1">
@@ -115,7 +115,7 @@ export default function StoragePanel() {
           <button
             onClick={load}
             disabled={loading}
-            className="p-1 rounded hover:bg-white/[0.06] text-fg-4 hover:text-fg-1 transition-colors"
+            className="p-1 rounded hover:bg-[var(--line-2)] text-fg-4 hover:text-fg-1 transition-colors"
             title="새로고침"
           >
             <RefreshCw size={12} strokeWidth={1.8} className={loading ? "animate-spin" : ""} />
@@ -127,7 +127,7 @@ export default function StoragePanel() {
       <div className="flex-1 min-h-0 overflow-auto scroll-thin p-3">
         {error ? (
           <Centered>
-            <span className="text-[12px]" style={{ color: "#e8a7ad" }}>{error}</span>
+            <span className="text-[12px]" style={{ color: "var(--err-fg-2)" }}>{error}</span>
           </Centered>
         ) : !loaded && loading ? (
           <Centered><span className="text-[12px] text-fg-4">불러오는 중…</span></Centered>
@@ -159,8 +159,8 @@ export default function StoragePanel() {
                   disabled={loading}
                   className="px-3 py-1 rounded-md text-[11.5px] transition-colors"
                   style={{
-                    background: "rgba(255,255,255,0.04)",
-                    color: "#aeb3bd",
+                    background: "var(--line-1)",
+                    color: "var(--fg-2)",
                     fontWeight: 510,
                     cursor: loading ? "default" : "pointer",
                   }}
@@ -210,13 +210,13 @@ function ObjectCard({ obj, onPreview, onDeleted }) {
   return (
     <div
       className="rounded-lg overflow-hidden flex flex-col"
-      style={{ border: "1px solid rgba(255,255,255,0.08)", background: "rgba(255,255,255,0.02)" }}
+      style={{ border: "1px solid var(--line-2)", background: "var(--kd-surface)" }}
     >
       {/* 미리보기 영역 */}
       <button
         onClick={onPreview}
         className="relative flex items-center justify-center h-[110px] overflow-hidden"
-        style={{ background: "#0c0d0e", cursor: img ? "zoom-in" : "default" }}
+        style={{ background: "var(--kd-panel)", cursor: img ? "zoom-in" : "default" }}
       >
         {img ? (
           <img
@@ -247,7 +247,7 @@ function ObjectCard({ obj, onPreview, onDeleted }) {
       <div className="px-2 py-1.5 flex flex-col gap-1">
         <span
           className="text-[11px] truncate"
-          style={{ color: "#dde0e4", fontWeight: 510 }}
+          style={{ color: "var(--fg-1)", fontWeight: 510 }}
           title={obj.key}
         >
           {name}
@@ -261,7 +261,7 @@ function ObjectCard({ obj, onPreview, onDeleted }) {
                 target="_blank"
                 rel="noreferrer"
                 download
-                className="p-1 rounded text-fg-4 hover:text-fg-1 hover:bg-white/[0.06] transition-colors"
+                className="p-1 rounded text-fg-4 hover:text-fg-1 hover:bg-[var(--line-2)] transition-colors"
                 title="다운로드 / 새 탭"
               >
                 <Download size={12} strokeWidth={1.8} />
@@ -270,11 +270,11 @@ function ObjectCard({ obj, onPreview, onDeleted }) {
             <button
               onClick={copy}
               disabled={!obj.url}
-              className="p-1 rounded text-fg-4 hover:text-fg-1 hover:bg-white/[0.06] transition-colors disabled:opacity-40"
+              className="p-1 rounded text-fg-4 hover:text-fg-1 hover:bg-[var(--line-2)] transition-colors disabled:opacity-40"
               title={obj.url ? "주소 복사" : "공개 URL 없음"}
             >
               {copied ? (
-                <Check size={12} strokeWidth={2} style={{ color: "#6dd5a0" }} />
+                <Check size={12} strokeWidth={2} style={{ color: "var(--ok-fg)" }} />
               ) : (
                 <Copy size={12} strokeWidth={1.8} />
               )}
@@ -284,7 +284,7 @@ function ObjectCard({ obj, onPreview, onDeleted }) {
                 onClick={del}
                 disabled={deleting}
                 className="px-1.5 py-0.5 rounded text-[9.5px] transition-colors"
-                style={{ background: "rgba(224,108,117,0.18)", color: "#e8a7ad", fontWeight: 560 }}
+                style={{ background: "rgba(224,108,117,0.18)", color: "var(--err-fg-2)", fontWeight: 560 }}
                 title="정말 삭제"
               >
                 {deleting ? "삭제 중…" : "확인"}
@@ -292,10 +292,10 @@ function ObjectCard({ obj, onPreview, onDeleted }) {
             ) : (
               <button
                 onClick={() => setConfirming(true)}
-                className="p-1 rounded text-fg-4 hover:bg-white/[0.06] transition-colors"
-                style={{ color: "#8a8f98" }}
-                onMouseEnter={(e) => (e.currentTarget.style.color = "#e06c75")}
-                onMouseLeave={(e) => (e.currentTarget.style.color = "#8a8f98")}
+                className="p-1 rounded text-fg-4 hover:bg-[var(--line-2)] transition-colors"
+                style={{ color: "var(--fg-3)" }}
+                onMouseEnter={(e) => (e.currentTarget.style.color = "var(--err-fg-2)")}
+                onMouseLeave={(e) => (e.currentTarget.style.color = "var(--fg-3)")}
                 title="삭제"
               >
                 <Trash2 size={12} strokeWidth={1.8} />
@@ -345,7 +345,7 @@ function Lightbox({ obj, onClose }) {
       <button
         onClick={onClose}
         className="absolute top-2 right-2 p-1.5 rounded-full text-fg-2 hover:text-fg-1"
-        style={{ background: "rgba(255,255,255,0.1)" }}
+        style={{ background: "var(--line-3)" }}
         title="닫기 (Esc)"
       >
         <X size={15} strokeWidth={2} />

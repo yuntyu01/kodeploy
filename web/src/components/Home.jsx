@@ -15,6 +15,7 @@ import {
   Zap,
 } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext.jsx";
+import { useTheme } from "../contexts/ThemeContext.jsx";
 import FluidBackground from "./FluidBackground.jsx";
 import monitoringImg from "../assets/monitoring.webp";
 import terminalImg from "../assets/db_terminel.webp";
@@ -180,7 +181,7 @@ function SectionHead({ eyebrow, title }) {
       }}
     >
       <div
-        className="text-[10.5px] tracking-[0.12em] text-[#818be0] mb-3 uppercase"
+        className="text-[10.5px] tracking-[0.12em] text-[var(--accent)] mb-3 uppercase"
         style={{ fontWeight: 590 }}
       >
         {eyebrow}
@@ -204,6 +205,7 @@ function SectionHead({ eyebrow, title }) {
 export default function Home() {
   const navigate = useNavigate();
   const { user, openLogin } = useAuth();
+  const { theme } = useTheme();
 
   // 미로그인은 로그인 모달, 로그인은 배포 폼으로 — CTA 두 곳에서 공유
   const handleStart = () => {
@@ -213,6 +215,9 @@ export default function Home() {
 
   return (
     <div className="flex-1 overflow-auto scroll-thin relative">
+      {/* 보라 배경(Aurora 글로우 + fluid 잉크)은 다크 전용 — 라이트는 평면 #f5f5f5 */}
+      {theme === "dark" && (
+        <>
       {/* Aurora — fixed viewport-relative blobs (ambient 보라 빛). pointer-events:none. */}
       <div
         aria-hidden
@@ -247,6 +252,8 @@ export default function Home() {
 
       {/* Fluid ink — 마우스 궤적 따라 번지는 보라 잉크 (Aurora와 같은 fixed z-0 레이어) */}
       <FluidBackground />
+        </>
+      )}
 
       {/* Content layer */}
       <div className="relative" style={{ zIndex: 1 }}>
@@ -292,8 +299,8 @@ export default function Home() {
                 className="inline-flex items-center justify-center min-w-[130px] px-6 py-3 rounded-md text-[14px] text-fg-2 hover:text-fg-1 transition-colors no-underline"
                 style={{
                   fontWeight: 510,
-                  background: "rgba(255,255,255,0.02)",
-                  border: "1px solid rgba(255,255,255,0.1)",
+                  background: "var(--line-1)",
+                  border: "1px solid var(--line-3)",
                   backdropFilter: "blur(8px)",
                   WebkitBackdropFilter: "blur(8px)",
                 }}
@@ -304,16 +311,15 @@ export default function Home() {
           </div>
         </section>
 
-        {/* ── 패널 UI 지그재그 (각 행 스크롤 등장) ── */}
-        <section
-          className="mx-auto px-6"
-          style={{ maxWidth: 1120, padding: "0 24px 4vh" }}
-        >
-          {FEATURES.map((f, i) => (
-            <Reveal key={f.title}>
-              <FeatureRow {...f} reverse={i % 2 === 1} />
-            </Reveal>
-          ))}
+        {/* ── 패널 UI 지그재그 (라이트=풀폭 흰 밴드, 다크=투명). 배경은 풀폭, 콘텐츠는 가운데 정렬 ── */}
+        <section className="mx-5" style={{ background: "var(--band-bg)", padding: "2vh 0", borderRadius: 24 }}>
+          <div className="mx-auto px-6" style={{ maxWidth: 1120 }}>
+            {FEATURES.map((f, i) => (
+              <Reveal key={f.title}>
+                <FeatureRow {...f} reverse={i % 2 === 1} />
+              </Reveal>
+            ))}
+          </div>
         </section>
 
         {/* ── Included: 제공 인프라 그리드 ── */}
@@ -344,7 +350,7 @@ export default function Home() {
                       border: "1px solid rgba(129,139,224,0.3)",
                     }}
                   >
-                    <Icon size={15} strokeWidth={1.7} style={{ color: "#a7adf0" }} />
+                    <Icon size={15} strokeWidth={1.7} style={{ color: "var(--brand-fg)" }} />
                   </div>
                   <h3
                     className="text-[14px] text-fg-1 mb-1"
@@ -364,17 +370,21 @@ export default function Home() {
           </Stagger>
         </section>
 
-        {/* ── How it works: 3단계 (CTA 직전) ── */}
+        {/* ── How it works: 3단계 카드 (CTA 직전) ── */}
         <section
           className="mx-auto px-6"
-          style={{ maxWidth: 900, padding: "12vh 24px 4vh" }}
+          style={{ maxWidth: 1000, padding: "12vh 24px 4vh" }}
         >
           <SectionHead eyebrow="How it works" title="3단계면 충분합니다" />
-          <Stagger className="grid gap-8 md:grid-cols-3" step={90}>
+          <Stagger className="grid gap-5 md:grid-cols-3" step={90}>
             {STEPS.map((s) => (
-              <div key={s.n}>
+              <div
+                key={s.n}
+                className="kd-included-card rounded-xl p-5 h-full"
+                style={{ backdropFilter: "blur(12px)", WebkitBackdropFilter: "blur(12px)" }}
+              >
                 <div
-                  className="text-[12px] text-[#818be0] mb-3 tracking-[0.1em]"
+                  className="text-[12px] text-[var(--accent)] mb-3 tracking-[0.1em]"
                   style={{ fontWeight: 700 }}
                 >
                   {s.n}
@@ -386,7 +396,7 @@ export default function Home() {
                   {s.title}
                 </h3>
                 <p
-                  className="text-[13.5px] text-fg-3"
+                  className="text-[13px] text-fg-3"
                   style={{ fontWeight: 450, lineHeight: 1.55, wordBreak: "keep-all" }}
                 >
                   {s.body}
@@ -438,7 +448,7 @@ function FeatureRow({ title, body, image, reverse }) {
           src={image}
           alt={title}
           className="kd-feature-img block w-full rounded-xl"
-          style={{ border: "1px solid rgba(255,255,255,0.07)" }}
+          style={{ border: "1px solid var(--line-2)" }}
         />
       </div>
       <div className="w-full md:flex-1">

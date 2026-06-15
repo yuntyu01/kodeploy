@@ -6,13 +6,13 @@
 //   - 텍스트는 fg-1 흰색 고정 — 색은 dot에만
 // 빌드 row용 — running은 "실행 중" (그 빌드 시점 Pod 정상 출발)
 const STYLES_BUILD = {
-  queued:    { color: "#8a8f98", label: "대기" },
+  queued:    { color: "var(--fg-3)", label: "대기" },
   building:  { color: "#b45309", label: "빌드 중", pulse: true },
   built:     { color: "#b45309", label: "빌드 완료" },
   deploying: { color: "#b45309", label: "배포 중", pulse: true },
   running:   { color: "#047857", label: "성공" },
   failed:    { color: "#991b1b", label: "실패" },
-  cancelled: { color: "#8a8f98", label: "중지" },
+  cancelled: { color: "var(--fg-3)", label: "중지" },
 };
 
 // env_change row용 — 같은 status값이지만 의미 다름: "그 변경이 성공/실패했나"
@@ -24,7 +24,7 @@ const STYLES_ENV = {
 
 export default function StatusBadge({ status, kind = "build" }) {
   const styles = kind === "env" ? STYLES_ENV : STYLES_BUILD;
-  const s = styles[status] || { color: "#8a8f98", label: status };
+  const s = styles[status] || { color: "var(--fg-3)", label: status };
   return (
     <span
       className="inline-flex items-center gap-1.5 text-[10.5px] text-fg-1 shrink-0"

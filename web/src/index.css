@@ -2,11 +2,95 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ──────────────────────────────────────────────────────────────────────────
+   테마 토큰 — 다크가 기본(:root), 라이트는 [data-theme="light"]로 값만 교체.
+   Tailwind 토큰(kd-*, fg-*)과 인라인 style 양쪽에서 var(--…)로 참조한다.
+   요소별 다크 값은 기존 하드코딩과 1:1 동일 — 라이트만 새로 추가(사용자 팔레트).
+   ────────────────────────────────────────────────────────────────────────── */
+:root {
+  color-scheme: dark;
+
+  /* 표면 — 바깥일수록 어둡고, 떠 있을수록 밝다 */
+  --kd-bg: #08090a; /* 최외곽 화면 */
+  --kd-panel: #0f1011; /* 메인 콘텐츠 영역 */
+  --kd-surface: #191a1b; /* 카드·입력 */
+  --kd-surface2: #28282c; /* 더 떠 있는 표면·배지 */
+  --nav-bg: #08090a; /* 상단 네비 */
+  --dropdown-bg: #131415; /* 팝오버/드롭다운 */
+  --band-bg: transparent; /* Home 지그재그 섹션 밴드 — 다크는 투명(fluid 비침) */
+
+  /* 보더·오버레이 — 흰색 반투명이 다크모드 관용구 */
+  --kd-border: rgba(255, 255, 255, 0.09); /* 카드/구분선 */
+  --line-1: rgba(255, 255, 255, 0.03); /* 헤어라인 */
+  --line-2: rgba(255, 255, 255, 0.06); /* 보통 보더 */
+  --line-3: rgba(255, 255, 255, 0.12); /* 강조 보더 */
+  --overlay-hover: rgba(255, 255, 255, 0.04); /* hover 표면 */
+  --shadow-pop: 0 8px 24px rgba(0, 0, 0, 0.5);
+
+  /* 텍스트 — 진할수록 강조 */
+  --fg-strong: #f4f6f8; /* 로고·최대 강조 */
+  --fg-1: #dde0e4; /* 제목 */
+  --fg-2: #d0d6e0; /* 본문 */
+  --fg-3: #8a8f98; /* 보조 */
+  --fg-4: #62666d; /* 아이콘·비활성 */
+  --fg-placeholder: #4a4e55;
+
+  /* 상태·액센트 텍스트/아이콘 — 다크 전용 밝은 틴트가 흰 배경에선 안 보여 테마별 분기.
+     다크값은 기존 대표색 보존, 라이트값은 흰 배경 가독성 확보(근사 셰이드는 한 변수로 묶음). */
+  --glass: rgba(20, 21, 24, 0.55); /* 반투명 카드(Home 인프라 카드 — fluid 위 합성) */
+  --glass-hover: rgba(28, 29, 33, 0.7);
+  --err-fg: #fca5a5; /* 에러 텍스트(밝은 적) */
+  --err-fg-2: #e0a0a0; /* 약한 에러/경고 텍스트(뮤트 적) */
+  --ok-fg: #6dd5a0; /* 성공 텍스트/아이콘(녹) */
+  --warn-fg: #d8a657; /* 경고/역할 표시(앰버) */
+  --info-fg: #7fb6db; /* 정보(블루) */
+  --brand-fg: #a4abee; /* 브랜드 틴트 텍스트/링크(보라) */
+  --accent: #818be0; /* 주 브랜드 액센트 텍스트(다크 그대로) */
+}
+
+[data-theme="light"] {
+  color-scheme: light;
+
+  /* 헤더바는 흰색(#fff), 그 아래 메인 배경은 연회색(#f5f5f5).
+     카드·드롭다운도 흰색으로 통일해 회색 바탕 위로 떠 보이게 한다. */
+  --kd-bg: #f5f5f5; /* 헤더 아래 메인 배경 */
+  --kd-panel: #f5f5f5; /* 메인 콘텐츠 영역(헤더 밑) */
+  --kd-surface: #ffffff; /* 카드·입력 — 흰 카드 */
+  --kd-surface2: #ececee; /* 배지·칩 */
+  --nav-bg: #ffffff; /* 헤더바 */
+  --dropdown-bg: #ffffff;
+  --band-bg: #ffffff; /* 라이트: 지그재그 섹션을 흰 밴드로 */
+
+  --kd-border: #e3e4e6; /* 구분선·카드 테두리 */
+  --line-1: rgba(0, 0, 0, 0.04);
+  --line-2: rgba(0, 0, 0, 0.07);
+  --line-3: rgba(0, 0, 0, 0.12);
+  --overlay-hover: rgba(0, 0, 0, 0.045);
+  --shadow-pop: 0 8px 24px rgba(0, 0, 0, 0.12);
+
+  --fg-strong: #040506; /* 거의 검정(로고) */
+  --fg-1: #383c46; /* 제목(진한 네이비그레이) */
+  --fg-2: #52555e; /* 본문 */
+  --fg-3: #70737a; /* 보조 */
+  --fg-4: #b6b7b9; /* 아이콘·비활성 */
+  --fg-placeholder: #909092;
+
+  --glass: rgba(255, 255, 255, 0.6); /* 라이트: 반투명 흰 카드 */
+  --glass-hover: rgba(255, 255, 255, 0.85);
+  --err-fg: #c0362f; /* 진한 적 — 흰 배경 가독 */
+  --err-fg-2: #a85a5a; /* 뮤트 적 */
+  --ok-fg: #157f4f; /* 진한 녹 */
+  --warn-fg: #b45309; /* 번트 앰버 */
+  --info-fg: #2b7da8; /* 진한 블루 */
+  --brand-fg: #5e6ad2; /* 브랜드 인디고 */
+  --accent: #5e6ad2; /* 흰 배경 가독 위해 진한 인디고 */
+}
+
 html,
 body,
 #root {
-  background: #08090a;
-  color: #dde0e4;
+  background: var(--kd-bg);
+  color: var(--fg-1);
   font-family: "Inter Variable", Inter, "Pretendard Variable", Pretendard,
     system-ui, sans-serif;
   font-feature-settings: "cv01", "ss03";
@@ -18,6 +102,43 @@ body,
   font-feature-settings: "cv01", "ss03";
 }
 
+/* 테마 전환 시 부드럽게 — 색 관련 속성만(레이아웃/모션 영향 없음) */
+html,
+body,
+#root,
+header,
+nav,
+aside,
+section,
+button,
+a,
+input,
+textarea,
+select {
+  transition: background-color 180ms ease, border-color 180ms ease,
+    color 180ms ease;
+}
+
+/* 모니터링 차트 그리드 — 패널이 넓으면 2열, 좁으면(분할) 1열 (컨테이너 쿼리, 뷰포트 아님) */
+.kd-chart-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 24px 28px;
+}
+@container (min-width: 440px) {
+  .kd-chart-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+/* JS onMouseEnter 없이 테마 대응 hover 표면 (흰/검 반투명 자동 전환) */
+.kd-hoverable {
+  transition: background-color 150ms ease;
+}
+.kd-hoverable:hover {
+  background-color: var(--overlay-hover);
+}
+
 .scroll-thin::-webkit-scrollbar {
   width: 8px;
   height: 8px;
@@ -26,11 +147,11 @@ body,
   background: transparent;
 }
 .scroll-thin::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--line-2);
   border-radius: 4px;
 }
 .scroll-thin::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.12);
+  background: var(--line-3);
 }
 
 @keyframes kd-fade-in {
@@ -113,12 +234,12 @@ body,
 
 /* Included 인프라 카드 — 배경·보더 hover (이동 없음) */
 .kd-included-card {
-  background: rgba(20, 21, 24, 0.55);
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: var(--glass);
+  border: 1px solid var(--line-2);
   transition: background 200ms ease, border-color 200ms ease;
 }
 .kd-included-card:hover {
-  background: rgba(28, 29, 33, 0.7);
+  background: var(--glass-hover);
   border-color: rgba(129, 139, 224, 0.3);
 }
 

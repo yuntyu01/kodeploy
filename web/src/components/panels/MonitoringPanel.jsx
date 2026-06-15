@@ -69,7 +69,7 @@ const STATUS_META = {
   running:  { color: "#047857", label: "실행 중" },
   pending:  { color: "#b45309", label: "시작 중" },
   crashing: { color: "#991b1b", label: "오류" },
-  missing:  { color: "#8a8f98", label: "중지" },
+  missing:  { color: "var(--fg-3)", label: "중지" },
 };
 
 function Stat({ label, value, sub, ok, statusColor }) {
@@ -96,7 +96,7 @@ function ChartCard({ title, color, data, formatValue, id, sub }) {
 
   if (!data || !data.length) {
     return (
-      <div className="py-3 mb-1" style={{ borderTop: "1px solid rgba(255,255,255,0.06)" }}>
+      <div className="py-3 mb-1" style={{ borderTop: "1px solid var(--line-2)" }}>
         <div className="flex items-baseline gap-2 mb-2">
           <span className="text-[11px] uppercase tracking-[0.08em] text-fg-2" style={{ fontWeight: 590 }}>{title}</span>
           {sub && <span className="text-[9.5px] text-fg-4">{sub}</span>}
@@ -110,10 +110,10 @@ function ChartCard({ title, color, data, formatValue, id, sub }) {
   const max = Math.max(...values) || 1;
   const current = values[values.length - 1];
 
-  const labelW = 30;
-  const bottomH = 16;
+  const labelW = 42;
+  const bottomH = 20;
   const chartW = 600 - labelW;
-  const chartH = 100;
+  const chartH = 125;
   const totalW = 600;
   const totalH = chartH + bottomH;
   const pad = 6;
@@ -159,7 +159,7 @@ function ChartCard({ title, color, data, formatValue, id, sub }) {
   const displayValue = hover !== null ? formatValue(data[hover].value) : formatValue(current);
 
   return (
-    <div ref={wrapRef} className="py-3 mb-1 relative" style={{ borderTop: "1px solid rgba(255,255,255,0.06)" }}>
+    <div ref={wrapRef} className="py-2 relative">
       <div className="flex items-baseline gap-2 mb-2">
         <span className="text-[11px] uppercase tracking-[0.08em] text-fg-2" style={{ fontWeight: 590 }}>{title}</span>
         {sub && <span className="text-[9.5px] text-fg-4">{sub}</span>}
@@ -183,8 +183,8 @@ function ChartCard({ title, color, data, formatValue, id, sub }) {
           const y = pad + ((max - tick) / max) * (chartH - pad * 2);
           return (
             <g key={`y-${i}`}>
-              <line x1={labelW} y1={y} x2={totalW} y2={y} stroke="rgba(255,255,255,0.04)" strokeWidth="0.5" />
-              <text x={1} y={y + 2} textAnchor="start" fill="#3f3f46" fontSize="5.5" style={{ fontFamily: "inherit" }}>
+              <line x1={labelW} y1={y} x2={totalW} y2={y} style={{ stroke: "var(--line-1)" }} strokeWidth="0.5" />
+              <text x={1} y={y + 2} textAnchor="start" fill="#3f3f46" fontSize="10" style={{ fontFamily: "inherit" }}>
                 {formatValue(tick)}
               </text>
             </g>
@@ -196,7 +196,7 @@ function ChartCard({ title, color, data, formatValue, id, sub }) {
           const x = labelW + pad + (idx / (data.length - 1 || 1)) * (chartW - pad * 2);
           const t = formatTime(d.ts);
           return (
-            <text key={`x-${i}`} x={x} y={chartH + 10} textAnchor="middle" fill="#3f3f46" fontSize="5.5" style={{ fontFamily: "inherit" }}>
+            <text key={`x-${i}`} x={x} y={chartH + 10} textAnchor="middle" fill="#3f3f46" fontSize="10" style={{ fontFamily: "inherit" }}>
               {showDate ? t.date : t.short}
             </text>
           );
@@ -224,8 +224,8 @@ function ChartCard({ title, color, data, formatValue, id, sub }) {
           <div
             className="px-2.5 py-1.5 rounded-md text-center whitespace-nowrap"
             style={{
-              background: "#1a1b1e",
-              border: "1px solid rgba(255,255,255,0.1)",
+              background: "var(--kd-surface)",
+              border: "1px solid var(--line-3)",
               boxShadow: "0 4px 12px rgba(0,0,0,0.5)",
             }}
           >
@@ -281,9 +281,9 @@ export default function MonitoringPanel() {
   const s = STATUS_META[appStatus] || STATUS_META.missing;
 
   return (
-    <div className="flex-1 min-h-0 flex flex-col overflow-hidden" style={{ background: "#0c0d0e" }}>
+    <div className="flex-1 min-h-0 flex flex-col overflow-hidden" style={{ background: "var(--kd-panel)" }}>
       {error ? (
-        <div className="flex-1 flex items-center justify-center text-[12px] text-[#fca5a5]">
+        <div className="flex-1 flex items-center justify-center text-[12px] text-[var(--err-fg)]">
           {error}
         </div>
       ) : !data ? (
@@ -339,7 +339,7 @@ export default function MonitoringPanel() {
                   className="px-2 py-0.5 rounded text-[10.5px] transition-colors"
                   style={{
                     background: range === r ? "rgba(129,139,224,0.12)" : "transparent",
-                    color: range === r ? "#818be0" : "#6b7280",
+                    color: range === r ? "#818be0" : "var(--fg-4)",
                     fontWeight: 510,
                   }}
                 >
@@ -356,13 +356,17 @@ export default function MonitoringPanel() {
             </button>
           </div>
 
-          <ChartCard title="메모리" id="memory" color="#5e6ad2" data={data.memory} formatValue={formatBytes} />
-          <ChartCard title="CPU" id="cpu" color="#10b981" data={data.cpu} formatValue={formatCpu} />
-          <ChartCard title="RPS" id="rps" color="#818be0" data={data.rps} formatValue={(v) => `${formatRps(v)}/s`} sub="초당 요청" />
-          <ChartCard title="응답 시간" id="latency" color="#f59e0b" data={data.latency_p95} formatValue={formatMs} sub="p95" />
-          <ChartCard title="에러율" id="error" color="#ef4444" data={data.error_rate} formatValue={(v) => `${formatRps(v)}/s`} sub="4xx+5xx" />
-          <ChartCard title="네트워크 수신" id="netrx" color="#7170ff" data={data.net_rx} formatValue={formatRate} />
-          <ChartCard title="네트워크 송신" id="nettx" color="#38bdf8" data={data.net_tx} formatValue={formatRate} />
+          <div style={{ containerType: "inline-size" }}>
+            <div className="kd-chart-grid">
+              <ChartCard title="메모리" id="memory" color="#5e6ad2" data={data.memory} formatValue={formatBytes} />
+              <ChartCard title="CPU" id="cpu" color="#10b981" data={data.cpu} formatValue={formatCpu} />
+              <ChartCard title="RPS" id="rps" color="#818be0" data={data.rps} formatValue={(v) => `${formatRps(v)}/s`} sub="초당 요청" />
+              <ChartCard title="응답 시간" id="latency" color="#f59e0b" data={data.latency_p95} formatValue={formatMs} sub="p95" />
+              <ChartCard title="에러율" id="error" color="#ef4444" data={data.error_rate} formatValue={(v) => `${formatRps(v)}/s`} sub="4xx+5xx" />
+              <ChartCard title="네트워크 수신" id="netrx" color="#7170ff" data={data.net_rx} formatValue={formatRate} />
+              <ChartCard title="네트워크 송신" id="nettx" color="#38bdf8" data={data.net_tx} formatValue={formatRate} />
+            </div>
+          </div>
         </div>
       )}
     </div>

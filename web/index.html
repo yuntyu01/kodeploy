@@ -4,6 +4,24 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>KoDeploy</title>
+    <!-- 테마 선반영 — React 마운트 전에 data-theme를 박아 라이트/다크 깜빡임(FOUC) 방지.
+         저장값 우선, 없으면 OS 선호(prefers-color-scheme), 그것도 없으면 dark. -->
+    <script>
+      (function () {
+        try {
+          var saved = localStorage.getItem("kd-theme");
+          var theme =
+            saved ||
+            (window.matchMedia &&
+            window.matchMedia("(prefers-color-scheme: light)").matches
+              ? "light"
+              : "dark");
+          document.documentElement.dataset.theme = theme;
+        } catch (e) {
+          document.documentElement.dataset.theme = "dark";
+        }
+      })();
+    </script>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link

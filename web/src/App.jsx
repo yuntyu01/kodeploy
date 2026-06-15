@@ -11,6 +11,7 @@ import Home from "./components/Home.jsx";
 import LoginModal from "./components/LoginModal.jsx";
 import TopBar from "./components/TopBar.jsx";
 import { AuthProvider } from "./contexts/AuthContext.jsx";
+import { ThemeProvider } from "./contexts/ThemeContext.jsx";
 
 function FormView() {
   // 가이드 패널 열림 여부 + 어떤 runtime의 가이드를 보여줄지.
@@ -56,10 +57,11 @@ export default function App() {
 
   return (
     <BrowserRouter>
-      <AuthProvider onOpenLogin={() => setShowLogin(true)}>
-        <div className="h-screen w-screen flex flex-col" style={{ background: "#08090a" }}>
+      <ThemeProvider>
+        <AuthProvider onOpenLogin={() => setShowLogin(true)}>
+        <div className="h-screen w-screen flex flex-col" style={{ background: "var(--kd-bg)" }}>
           <TopBar onLogin={() => setShowLogin(true)} />
-          <div className="flex-1 min-h-0 flex flex-col" style={{ background: "#0f1011" }}>
+          <div className="flex-1 min-h-0 flex flex-col" style={{ background: "var(--kd-panel)" }}>
             <Routes>
               <Route path="/" element={<Home />} />
               <Route path="/deploy" element={<FormView />} />
@@ -76,7 +78,8 @@ export default function App() {
           <CommitListWidget />
           {showLogin && <LoginModal onClose={() => setShowLogin(false)} />}
         </div>
-      </AuthProvider>
+        </AuthProvider>
+      </ThemeProvider>
     </BrowserRouter>
   );
 }
