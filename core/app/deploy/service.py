@@ -14,6 +14,7 @@ import urllib.request
 import uuid
 from datetime import datetime, timezone
 
+from kubernetes.client import V1ServicePort
 from kubernetes.client.exceptions import ApiException
 from publicsuffixlist import PublicSuffixList
 from sqlalchemy import func
@@ -1856,24 +1857,22 @@ def _apply_deployment(build: Build, hostnames: list[str]) -> None:
             raise
         apps.create_namespaced_deployment(namespace=ns, body=deploy)
 
-    # Service: strategic merge patch (clusterIP/selector 등은 건드리지 않음)
-    svc_patch = {
-        "spec": {
-            "ports": [
-                {
-                    "port": build.port,
-                    "targetPort": build.port,
-                    "protocol": "TCP",
-                }
-            ]
-        }
-    }
+    # Service: 포트를 통째 교체 (read-modify-replace) — strategic merge patch 금지.
+    # spec.ports의 strategic-merge merge key가 port라, 포트가 바뀌면(예: java 8080 →
+    # javascript 3000) 옛 포트가 안 지워지고 새 포트가 추가돼 "이름 없는 2-port" Service가 된다.
+    # 다중 포트 Service는 포트마다 name이 필수라 API가 422로 거부한다. → 병합하지 말고 통째 교체:
+    # 읽은 객체(clusterIP 등 immutable 필드 보존)에 desired 단일 포트만 세팅해 replace. 과거 이
+    # 버그로 이미 2-port가 된 서비스도 다음 배포 때 이 경로가 단일 포트로 치유한다.
+    # (Deployment의 포트변경 replace와 같은 대칭 — patch로는 옛 포트를 못 지운다.)
     try:
-        core.read_namespaced_service(name=build.app_name, namespace=ns)
-        core.patch_namespaced_service(
-            name=build.app_name,
-            namespace=ns,
-            body=svc_patch,
+        existing_svc = core.read_namespaced_service(name=build.app_name, namespace=ns)
+        existing_svc.spec.ports = [
+            V1ServicePort(
+                name="http", port=build.port, target_port=build.port, protocol="TCP"
+            )
+        ]
+        core.replace_namespaced_service(
+            name=build.app_name, namespace=ns, body=existing_svc,
         )
     except ApiException as e:
         if e.status != 404:

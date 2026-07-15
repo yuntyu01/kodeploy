@@ -12,7 +12,8 @@ spec:
   selector:
     app: {{ app_name }}                                  # 이 라벨 가진 Pod을 endpoint로 등록
   ports:
-    - port: {{ port }}                                   # Service가 노출하는 포트 (다른 Pod이 부르는 번호)
+    - name: http                                         # 단일 포트여도 명시 — 다중 포트가 되면 name 필수(422 예방)
+      port: {{ port }}                                   # Service가 노출하는 포트 (다른 Pod이 부르는 번호)
       targetPort: {{ port }}                             # 백엔드 Pod의 containerPort
       protocol: TCP
   type: ClusterIP                                        # 클러스터 내부 전용 — 외부 노출은 Gateway/HTTPRoute가 담당
