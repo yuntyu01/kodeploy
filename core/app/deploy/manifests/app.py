@@ -10,6 +10,7 @@ _RUNTIME_TEMPLATES = {
     "python": "runtimes/python.yaml.j2",
     "java": "runtimes/java.yaml.j2",
     "php": "runtimes/php.yaml.j2",
+    "javascript": "runtimes/javascript.yaml.j2",
     "static": "runtimes/static.yaml.j2",
 }
 

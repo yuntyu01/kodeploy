@@ -16,6 +16,9 @@ RUNTIME_RESOURCES: dict[str, dict[str, int]] = {
     # php = Apache(prefork) + PHP. mem lim을 python(600)보다 올림 — prefork가 요청마다 프로세스를
     #   띄우고 PHP memory_limit=256M + GD 썸네일 생성이 메모리를 확 써서 600이면 OOMKill 위험.
     "php":      {"req_cpu": 50,  "lim_cpu": 300, "req_mem": 256, "lim_mem": 768,  "req_eph": 100, "lim_eph": 1024},
+    # javascript = Node.js 서버(Express/Nest/Next SSR 등). 단일 이벤트루프 + V8 힙 —
+    #   python과 유사하되 힙 여유로 mem lim만 640. 정적 프론트(Next export 등)는 static 슬롯으로.
+    "javascript": {"req_cpu": 50, "lim_cpu": 300, "req_mem": 200, "lim_mem": 640, "req_eph": 100, "lim_eph": 1024},
     # static = nginx-unprivileged가 빌드 산출물(정적 파일)을 서빙. 유저 코드 실행 없음 —
     # idle nginx 실측 한 자릿수 MB라 요청값 최소. eph는 nginx temp 파일 방어용 소량.
     "static":   {"req_cpu": 10,  "lim_cpu": 50,  "req_mem": 16,  "lim_mem": 64,   "req_eph": 50,  "lim_eph": 256},
@@ -25,8 +28,7 @@ RUNTIME_RESOURCES: dict[str, dict[str, int]] = {
 }
 
 # 사용자가 선택 가능한 런타임 목록 (UI dropdown 등). mysql 같은 의존성은 제외.
-# node는 template 미연결 — 추가 시 RUNTIME_RESOURCES + runtimes/node.yaml.j2 + 여기 같이 추가.
-SELECTABLE_RUNTIMES = ("python", "java", "php", "static")
+SELECTABLE_RUNTIMES = ("python", "java", "php", "javascript", "static")
 
 
 def get_resources(component: str) -> dict[str, int]:

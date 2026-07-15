@@ -5,6 +5,7 @@
 import { X } from "lucide-react";
 import CustomDomain from "./guide/CustomDomain.jsx";
 import Java from "./guide/Java.jsx";
+import JavaScript from "./guide/JavaScript.jsx";
 import Php from "./guide/Php.jsx";
 import Python from "./guide/Python.jsx";
 import Static from "./guide/Static.jsx";
@@ -14,6 +15,7 @@ const GUIDES = {
   python: { title: "Python 가이드", Component: Python },
   java: { title: "Java 가이드", Component: Java },
   php: { title: "PHP 가이드", Component: Php },
+  javascript: { title: "JavaScript 가이드", Component: JavaScript },
   static: { title: "정적 사이트 가이드", Component: Static },
   storage: { title: "저장소 가이드", Component: Storage },
   "custom-domain": { title: "커스텀 도메인 가이드", Component: CustomDomain },

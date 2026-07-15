@@ -4,6 +4,7 @@
 import { Link, useParams } from "react-router-dom";
 import Basics from "./guide/Basics.jsx";
 import Java from "./guide/Java.jsx";
+import JavaScript from "./guide/JavaScript.jsx";
 import Php from "./guide/Php.jsx";
 import Python from "./guide/Python.jsx";
 import Static from "./guide/Static.jsx";
@@ -23,6 +24,7 @@ const GUIDES = [
       { id: "python", label: "Python", path: "/guide/python", Component: Python },
       { id: "java", label: "Java", path: "/guide/java", Component: Java },
       { id: "php", label: "PHP", path: "/guide/php", Component: Php },
+      { id: "javascript", label: "JavaScript", path: "/guide/javascript", Component: JavaScript },
     ],
   },
   {

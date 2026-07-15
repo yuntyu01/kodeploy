@@ -1,0 +1,89 @@
+// JavaScript (Node.js 서버 - Express/Nest/Next SSR 등) 가이드 - 단순 톤.
+// KoDeploy는 앱을 비-root(UID 1000)로 실행하고, 앱이 process.env.PORT(기본 3000)로
+// 바인딩하도록 PORT 환경변수를 자동 주입한다 - 양식이 그 처리를 포함한다.
+import { Bullet, Code, CodeBlock, Section } from "./atoms.jsx";
+
+export default function JavaScript() {
+  return (
+    <>
+      <Section title="빌드 방식">
+        <p className="text-[14px] text-fg-3 mb-3">
+          <Code>package.json</Code>이 있으면 별도 Dockerfile 없이 <Code>자동 빌드</Code>가
+          가능해요. 배포 폼 빌드 방식을 <Code>자동</Code>으로 두면 의존성 설치와{" "}
+          <Code>start</Code> 스크립트를 알아서 잡습니다. 직접 제어하고 싶으면 Dockerfile을
+          쓰면 됩니다.
+        </p>
+        <CodeBlock>
+{`{
+  "scripts": {
+    "start": "node server.js"   // 자동 빌드가 이 스크립트로 앱을 실행
+  }
+}`}
+        </CodeBlock>
+      </Section>
+
+      <Section title="포트 바인딩 (중요)">
+        <p className="text-[14px] text-fg-3 mb-3">
+          KoDeploy가 <Code>PORT</Code> 환경변수(기본 <Code>3000</Code>)를 주입해요. 앱은
+          반드시 <Code>process.env.PORT</Code>로 들어야 트래픽을 받습니다 - 하드코딩하지
+          마세요.
+        </p>
+        <CodeBlock>
+{`const express = require("express");
+const app = express();
+
+app.get("/", (req, res) => res.send("hello from KoDeploy"));
+
+// 반드시 process.env.PORT 사용 (KoDeploy가 3000으로 주입)
+app.listen(process.env.PORT || 3000);`}
+        </CodeBlock>
+        <p className="text-[13px] text-fg-4 mt-2" style={{ fontWeight: 450 }}>
+          배포 폼의 포트는 <Code>3000</Code> 그대로 두면 됩니다.
+        </p>
+      </Section>
+
+      <Section title="MySQL 쓸 때">
+        <p className="text-[14px] text-fg-3 mb-3">
+          MySQL을 켜면 접속 정보가 <Code>DB_*</Code> 환경변수로 자동 주입돼요.{" "}
+          <Code>process.env</Code>로 바로 읽으면 됩니다 (PostgreSQL도 같은 변수, 호스트만{" "}
+          <Code>postgres</Code>·포트 <Code>5432</Code>).
+        </p>
+        <CodeBlock>
+{`const mysql = require("mysql2/promise");
+
+const pool = mysql.createPool({
+  host: process.env.DB_HOST,          // mysql
+  port: Number(process.env.DB_PORT),  // 3306
+  user: process.env.DB_USER,          // app
+  password: process.env.DB_PASSWORD,
+  database: process.env.DB_NAME,      // app
+});`}
+        </CodeBlock>
+      </Section>
+
+      <Section title="Next.js는 어떻게?">
+        <Bullet>
+          <Code>서버 렌더링(SSR)</Code> 앱이면 이 JavaScript 런타임을 그대로 쓰세요 -{" "}
+          <Code>next start</Code>가 결국 <Code>PORT</Code>로 듣는 Node 서버라 자동 빌드가
+          그대로 띄웁니다.
+        </Bullet>
+        <Bullet>
+          <Code>정적 export</Code>(<Code>output: "export"</Code>)만 쓸 거면 서버가 필요
+          없어요 - 백엔드를 <Code>사용 안 함</Code>으로 두고 <Code>프론트엔드(정적)</Code>{" "}
+          슬롯에 빌드 커맨드·출력 디렉토리만 지정하면 됩니다.
+        </Bullet>
+      </Section>
+
+      <Section title="업로드 파일은 영속저장소에">
+        <Bullet>
+          컨테이너 안에 저장된 파일(업로드 이미지·첨부파일)은{" "}
+          <Code>재배포·재시작 때 사라져요</Code>. 업로드가 있는 앱은 영속저장소가 필요합니다.
+        </Bullet>
+        <Bullet>
+          배포 폼 <Code>고급 옵션 → 저장소 → 로컬 디스크</Code>를 켜고 업로드 디렉토리를
+          마운트 경로로 지정하세요. 저장소를 꺼도 데이터는 보존됩니다.
+        </Bullet>
+      </Section>
+    </>
+  );
+}

@@ -10,6 +10,7 @@ const RUNTIME_META = {
   python: { name: "Python", tag: "FastAPI · uvicorn" },
   java: { name: "Java", tag: "Spring Boot · JDK 17+" },
   php: { name: "PHP", tag: "Apache · PHP 8" },
+  javascript: { name: "JavaScript", tag: "Node.js · Express/Next" },
   none: { name: "사용 안 함", tag: "정적 사이트 단독" },
 };
 
@@ -18,6 +19,7 @@ const DEFAULT_PORTS = {
   python: 8000,
   java: 8080,
   php: 8080,
+  javascript: 3000,
 };
 
 // 섹션 토글 / 선택지 버튼 공통 스타일 - 백엔드·프론트엔드·DB·빌드방식 등에서 재사용.
