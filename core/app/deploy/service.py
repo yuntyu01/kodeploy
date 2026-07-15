@@ -30,6 +30,9 @@ from app.shared.db import SessionLocal
 
 logger = logging.getLogger(__name__)
 
+# ★ 이 마커 정규식 3개(_PUSH_DONE_RE / _EXPORT_IMAGE_RE / _IMPORT_HIT_RE)는 벤치·측정 스크립트의
+#   kodeploy-bench/markers.py와 "동일 문자열"이어야 한다. 여기(운영)가 실제 트리거를 쏘는 진실원이라,
+#   바꾸면 markers.py도 반드시 같이 바꿀 것. (markers.py가 이 파일을 역으로 가리킨다.)
 # early-trigger — buildkit이 이미지 매니페스트 push를 끝낸 마커. 이게 찍히면 이미지가
 # 레지스트리에 있다 = 배포 가능. 캐시를 켜면 매니페스트 push가 이미지+캐시로 2번 찍히는데,
 # 로그에 먼저 나타나는 건 이미지 쪽(cache export는 그 뒤에 끝남)이라 첫 감지가 곧 이미지다.
@@ -1423,18 +1426,33 @@ async def _tail_build_logs(
         db.close()
 
 
-# build_id들의 총 소요시간 조회 (BuildRecord append-only 기록에서). build_id→{total_seconds} dict.
+# build_id들의 "사용자 체감" 소요시간 조회 (BuildRecord append-only 기록에서). build_id→{total_seconds} dict.
+# ★ UI "소요"로 노출하는 값 = deploy_ready_at − started_at (rollout 완료 = 사용자가 앱을 본 시점).
+#   저장 컬럼 total_seconds(= finished_at − started_at)는 early-trigger 경로에서 뒤따르는 백그라운드
+#   cache export 회수(reap)까지 포함하는데, 그건 사용자가 실제로 안 기다린 시간이라 체감 지표론 부풀린다.
+#   그래서 노출값은 deploy_ready 기준으로 계산하고, deploy_ready_at이 없으면(구 레코드/실패/미완/
+#   env_change) 저장된 total_seconds로 폴백한다. (저장 컬럼 자체는 운영 분석용으로 그대로 둔다.)
 # 단계별(nixpacks/buildkit)은 내부 도구명이라 사용자에게 안 보냄 — BuildRecord엔 그대로 남아 운영 분석용.
 # env_change row 등 BuildRecord가 없는 빌드는 키 자체가 없음 → 호출부에서 빈 dict로 fallback.
 def get_build_timings(db: Session, build_ids: list[str]) -> dict[str, dict]:
     if not build_ids:
         return {}
     rows = (
-        db.query(BuildRecord.build_id, BuildRecord.total_seconds)
+        db.query(
+            BuildRecord.build_id,
+            BuildRecord.started_at,
+            BuildRecord.deploy_ready_at,
+            BuildRecord.total_seconds,
+        )
         .filter(BuildRecord.build_id.in_(build_ids))
         .all()
     )
-    return {build_id: {"total_seconds": total} for build_id, total in rows}
+    out: dict[str, dict] = {}
+    for build_id, started, ready, total in rows:
+        # 사용자 체감 = 빌드 시작 → rollout 완료. 둘 다 있을 때만 계산, 아니면 저장값 폴백.
+        secs = (ready - started).total_seconds() if (started and ready) else total
+        out[build_id] = {"total_seconds": secs}
+    return out
 
 
 # 빌드 Pod의 컨테이너 종료 정보에서 단계별 소요시간 추출 (BuildRecord용).
