@@ -11,6 +11,7 @@ metadata:
 spec:
   ttlSecondsAfterFinished: 1200                          # 종료 후 20분 뒤 자동 삭제
   backoffLimit: 0
+  activeDeadlineSeconds: {{ active_deadline_seconds }}    # Job 전체 상한 — early-trigger 후 export가 무한히 도는 걸 컷
   template:
     metadata:
       labels:
@@ -74,6 +75,10 @@ spec:
             - --local=dockerfile=/workspace/df
             - --opt=filename=Dockerfile
             - --output=type=image,name={{ image }},push=true
+{% if registry_cache %}
+            - --import-cache=type=registry,ref={{ cache_ref }}
+            - --export-cache=type=registry,ref={{ cache_ref }},mode=max
+{% endif %}
           env:
             - name: BUILDKITD_FLAGS
               value: --oci-worker-no-process-sandbox

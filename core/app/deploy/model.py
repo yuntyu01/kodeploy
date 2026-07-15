@@ -94,3 +94,25 @@ class BuildRecord(Base):
     total_seconds: Mapped[float | None] = mapped_column(Float, nullable=True)  # 시작→종료 전체 (배포/rollout 대기 포함)
     status: Mapped[str] = mapped_column(String(20), default="building")  # 최종: "running" | "failed" | "cancelled"
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # early-trigger + 레지스트리 캐시 계측 (config.BUILD_REGISTRY_CACHE_ENABLED / EARLY_TRIGGER_ENABLED).
+    # 원칙: 원본 "시각"만 저장하고 구간(duration)은 쿼리/뷰에서 뺀다. 시각→구간은 언제든 파생되지만
+    #   구간만 저장하면 원본과 어긋날 위험만 남는다(코드 바꿨을 때). 그래서 push_exposed_seconds 같은
+    #   파생 컬럼은 두지 않는다 — 노출시간은 job_ended_at − push_done_at으로 뷰에서 뺀다.
+    # cache_cold: 이 빌드가 import 캐시를 못 맞췄나 (로그에 "importing cache manifest" 없음 = clean 빌드).
+    #   캐시 켠 직후엔 모든 앱의 "다음 빌드 한 번"이 cold — seq==1이 아니라 로그로 판정. 캐시 OFF면 None.
+    # cache_export_failed: early-trigger로 배포는 성공했는데 뒤따르던 cache export(Job)가 실패/deadline.
+    #   이미지는 이미 push됐으니 배포는 유효 — build.status는 안 건드리고 이 지표로만 남긴다. 캐시 OFF면 None.
+    cache_cold: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    cache_export_failed: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    # ── early-trigger 타임라인 원본 시각 (started_at과 함께 5개; 모든 구간은 여기서 파생) ──
+    # push_done_at: 이미지 push 완료(레지스트리 도착) 시각 = early-trigger 트리거 지점이자 계측점.
+    #   플래그와 무관하게 마커 감지 시 기록(켜기 전 실측/대조군용). 마커 없으면 None.
+    # job_ended_at: Job(=cache export) 종료 시각. job_ended_at − push_done_at = export 노출시간(파생).
+    # deploy_started_at / deploy_ready_at: Deployment apply 직전 / rollout 완료(앱 뜸=사용자 대기 종료) 시각.
+    #   deploy_ready_at − started_at = 사용자 체감 시간(파생).
+    push_done_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    job_ended_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    deploy_started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    deploy_ready_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    # triggered_early: early-trigger로 배포를 먼저 시작했나(True) / 폴백·플래그OFF(False). A/B 비교 축.
+    triggered_early: Mapped[bool | None] = mapped_column(Boolean, nullable=True)

@@ -3,6 +3,7 @@
 import asyncio
 import base64
 import json
+import logging
 import os.path
 import re
 import threading
@@ -25,6 +26,19 @@ from app.deploy import crud, domains, env as env_module, manifests, r2, snapshot
 from app.deploy.model import Build, BuildRecord
 from app.shared import k8s
 from app.shared.db import SessionLocal
+
+logger = logging.getLogger(__name__)
+
+# early-trigger — buildkit이 이미지 매니페스트 push를 끝낸 마커. 이게 찍히면 이미지가
+# 레지스트리에 있다 = 배포 가능. 캐시를 켜면 매니페스트 push가 이미지+캐시로 2번 찍히는데,
+# 로그에 먼저 나타나는 건 이미지 쪽(cache export는 그 뒤에 끝남)이라 첫 감지가 곧 이미지다.
+_PUSH_DONE_RE = re.compile(r"pushing manifest .*\bdone\b")
+# 이미지 레이어 export 시작 마커 — 이 뒤에 처음 오는 push 완료가 곧 "이미지" 매니페스트 push다.
+# 캐시를 켜면 매니페스트 push가 이미지+캐시로 2번 찍히므로, 이 앵커 없이 첫 매치만 잡으면
+# (v0.27+ 병렬 export의 인터리브 로그에서) 캐시 push를 오탐할 여지가 있다. 벤치 parse.py와 동일 방어.
+_EXPORT_IMAGE_RE = re.compile(r"exporting to image")
+# 레지스트리 캐시 import 히트 여부 — 이게 없으면 cold(clean) 빌드.
+_IMPORT_HIT_RE = re.compile(r"importing cache manifest")
 
 
 # 백그라운드 오케스트레이션을 전용 daemon 스레드의 자체 이벤트 루프에서 실행.
@@ -915,6 +929,53 @@ def _build_job_name(build_id: str, user_id_str: str) -> str:
 
 
 # 백그라운드 빌드 코루틴 (Job 생성 → 폴링 → 성공 시 배포 / 실패 시 로그 저장)
+# event.set() 또는 task 완료 중 먼저 오는 것까지만 대기 (task는 취소하지 않음 — 호출부 소유).
+async def _wait_first(event: asyncio.Event, task: asyncio.Task) -> None:
+    waiter = asyncio.create_task(event.wait())
+    try:
+        await asyncio.wait({waiter, task}, return_when=asyncio.FIRST_COMPLETED)
+    finally:
+        if not waiter.done():
+            waiter.cancel()
+
+
+# import 캐시를 못 맞췄나(clean 빌드). 캐시 OFF면 판정 무의미 → None (컬럼 NULL).
+def _is_cache_cold(logs: str | None) -> bool | None:
+    if not config.BUILD_REGISTRY_CACHE_ENABLED:
+        return None
+    return not bool(_IMPORT_HIT_RE.search(logs or ""))
+
+
+# Job 종료 후 최종 로그 + 단계별 소요시간 + cache_cold를 build·record에 반영 (commit은 호출부).
+# early/기존 경로 양쪽이 공유 — 로그를 authoritative하게 덮고 auto 모드면 생성 Dockerfile도 추출.
+def _finalize_build_artifacts(
+    build: Build,
+    record: BuildRecord,
+    push_at: datetime | None = None,
+    job_ended_at: datetime | None = None,
+) -> None:
+    phases = _get_build_phase_seconds(build.build_id)
+    record.nixpacks_seconds = phases.get("nixpacks_seconds")
+    record.buildkit_seconds = phases.get("buildkit_seconds")
+    build.logs = _combined_job_logs(build.build_id, build.build_mode)
+    if build.build_mode == "auto":
+        init_logs = _get_init_container_logs(build.build_id, "nixpacks")
+        if init_logs:
+            extracted = _extract_between(
+                init_logs,
+                "===KODEPLOY_DOCKERFILE_START===",
+                "===KODEPLOY_DOCKERFILE_END===",
+            )
+            if extracted:
+                build.dockerfile_content = extracted
+    record.cache_cold = _is_cache_cold(build.logs)
+    # early-trigger 원본 시각만 저장 — 노출시간(= job_ended_at − push_done_at)은 파생값이라 뷰/쿼리에서 뺀다.
+    if push_at is not None:
+        record.push_done_at = push_at
+    if job_ended_at is not None:
+        record.job_ended_at = job_ended_at
+
+
 async def _run_build(
     build_id: str,
     initial_env: dict[str, str] | None = None,
@@ -956,6 +1017,11 @@ async def _run_build(
         db.commit()
 
         try:
+            # early-trigger: tail/job task 핸들 — 조기 return·예외 경로에서 finally가 정리하도록 선바인딩.
+            stop_tail = None
+            tail_task = None
+            job_task = None
+
             build.status = "building"
             db.commit()
 
@@ -1038,41 +1104,48 @@ async def _run_build(
             # job 폴링과 동시 task로 돌고, _wait_for_job이 끝나면 stop으로 종료시킨 뒤
             # 아래에서 최종 로그를 authoritative하게 덮는다.
             stop_tail = asyncio.Event()
+            push_done = asyncio.Event()   # early-trigger: 이미지 push 완료 시 tailer가 set
+            push_marker = {}              # tailer가 마커 감지 시각을 push_marker["at"]에 stamp
             tail_task = asyncio.create_task(
-                _tail_build_logs(build.build_id, build.build_mode, stop_tail)
+                _tail_build_logs(
+                    build.build_id, build.build_mode, stop_tail, push_done, push_marker
+                )
             )
-            try:
-                success = await _wait_for_job(job_name)
-            finally:
-                stop_tail.set()
-                await tail_task
+            job_task = asyncio.create_task(_wait_for_job(job_name))
 
-            # 단계별 소요시간 기록 — Job 종료 직후 Pod 컨테이너 상태에서 추출.
-            phases = _get_build_phase_seconds(build.build_id)
-            record.nixpacks_seconds = phases.get("nixpacks_seconds")
-            record.buildkit_seconds = phases.get("buildkit_seconds")
+            # early-trigger: push 마커를 보면 cache export를 안 기다리고 곧장 배포로 넘어간다.
+            # 이미지는 이미 레지스트리에 있어 배포는 유효 — Job(export)은 뒤에서 계속 돌고,
+            # 배포 판정이 끝난 뒤 아래 reap에서 회수한다. 마커를 못 보면 기존 경로로 자동 폴백.
+            # (플래그 OFF면 _wait_first를 건너뛰어 기존 동작과 완전히 동일.)
+            triggered_early = False
+            if config.EARLY_TRIGGER_ENABLED:
+                await _wait_first(push_done, job_task)
+                triggered_early = push_done.is_set()
+            record.triggered_early = triggered_early  # A/B 축 — early로 빠졌나 폴백/플래그OFF인가
 
-            # 최종 로그 — init(clone/nixpacks) + main(buildkit)을 헤더와 함께 저장.
-            # 빌드 실패가 init 단계일 때 main 로그는 비고 진짜 원인은 init에 있어 둘 다 노출.
-            build.logs = _combined_job_logs(build.build_id, build.build_mode)
-            # auto 모드: nixpacks init 로그에 박힌 생성 Dockerfile을 추출 (UI 노출 + 재현성).
-            if build.build_mode == "auto":
-                init_logs = _get_init_container_logs(build.build_id, "nixpacks")
-                if init_logs:
-                    extracted = _extract_between(
-                        init_logs,
-                        "===KODEPLOY_DOCKERFILE_START===",
-                        "===KODEPLOY_DOCKERFILE_END===",
-                    )
-                    if extracted:
-                        build.dockerfile_content = extracted
-            db.commit()
-
-            if not success:
-                build.status = "failed"
-                build.error = "빌드 실패"
+            if triggered_early:
+                # 이미지 push 완료 = 빌드 성공 확정. 최종 로그/단계 기록은 reap 시점으로 미룬다
+                # (그 사이 tailer가 export 로그까지 계속 흘려준다).
+                success = True
+            else:
+                # 기존 경로: Job 완료까지 대기 → 최종 로그/단계 기록.
+                try:
+                    success, job_ended_at = await job_task
+                finally:
+                    stop_tail.set()
+                    await tail_task
+                # 단계별 소요시간 + 최종 로그(init+main) + auto Dockerfile 추출 + cache_cold + job_ended_at.
+                # 빌드 실패가 init 단계여도 main/​init 로그를 함께 남긴다.
+                _finalize_build_artifacts(
+                    build, record, push_marker.get("at"), job_ended_at
+                )
                 db.commit()
-                return
+
+                if not success:
+                    build.status = "failed"
+                    build.error = "빌드 실패"
+                    db.commit()
+                    return
 
             if _check_cancelled():
                 return
@@ -1130,6 +1203,7 @@ async def _run_build(
             server_hosts, site_hosts = _slot_hostnames(owner)
             hostnames = site_hosts if build.runtime == "static" else server_hosts
 
+            record.deploy_started_at = datetime.now(timezone.utc)  # Deployment apply 직전
             _apply_deployment(build, hostnames)
 
             # 전체 route(서버 쌍 + 정적 쌍) hostnames reconcile — 슬롯 전환·커스텀 도메인·
@@ -1140,11 +1214,38 @@ async def _run_build(
             if _check_cancelled():
                 return
             if ready:
+                record.deploy_ready_at = datetime.now(timezone.utc)  # rollout 완료 = 사용자 대기 종료
                 build.status = "running"
             else:
                 build.status = "failed"
                 build.error = "Pod 시작 실패 (타임아웃)"
             db.commit()
+
+            # early-trigger reap: 배포 판정이 끝났다. 뒤에서 돌던 Job(cache export)을 회수한다.
+            # ★ 델타2 — Job이 실패해도 build.status를 덮지 않는다. push 마커를 봤으니 이미지는
+            #   레지스트리에 있고 배포는 이미 유효하다. Job 실패 = cache export만 실패 → 다음 빌드가
+            #   느려질 뿐, 이번 배포는 정상. best-effort 경고 + 지표로만 남긴다.
+            #   (rollout 자체가 실패해 status가 "failed"인 경우는 export와 무관한 진짜 실패라 그대로 둔다.)
+            if triggered_early:
+                try:
+                    # job_ended_at은 _wait_for_job이 종료를 감지한 순간 찍은 값 —
+                    # await 반환(배포 후) 시각이 아니라 실제 Job 종료 시각이다.
+                    export_ok, job_ended_at = await job_task
+                finally:
+                    stop_tail.set()
+                    await tail_task
+                # export 포함 최종 로그 + cache_cold + job_ended_at(노출시간은 파생: job_ended_at − push_done_at)
+                _finalize_build_artifacts(
+                    build, record, push_marker.get("at"), job_ended_at
+                )
+                if not export_ok:
+                    record.cache_export_failed = True
+                    logger.warning(
+                        "build %s: cache export 실패/미완(Job failed) — 배포는 정상, "
+                        "다음 빌드가 느려질 수 있음",
+                        build_id,
+                    )
+                db.commit()
 
         except Exception as e:
             db.rollback()
@@ -1154,6 +1255,15 @@ async def _run_build(
                 build.error = f"오케스트레이션 에러: {e}"
                 db.commit()
         finally:
+            # early-trigger: 조기 return·예외로 tail/job task가 아직 살아있으면 정리.
+            # stop_tail로 tailer를 깨우고 남은 task는 cancel — 이 스레드의 asyncio.run이
+            # teardown에서 취소된 task를 수거한다(고아 task/미완 commit 방지). 정상 경로에선
+            # 이미 await로 끝나 있어(.done()) 아무 일도 안 한다.
+            if stop_tail is not None:
+                stop_tail.set()
+            for _t in (tail_task, job_task):
+                if _t is not None and not _t.done():
+                    _t.cancel()
             # 어떤 경로(성공/실패/취소/예외)로 끝나든 기록 마감.
             # 기록 실패가 빌드 흐름이나 세션 정리를 막지 않게 자체 예외는 삼킨다.
             try:
@@ -1176,9 +1286,20 @@ async def _run_build(
         db.close()
 
 
-# Job 완료까지 3초 간격 폴링 (성공 True, 실패/타임아웃 False)
-async def _wait_for_job(job_name: str) -> bool:
-    timeout = config.BUILD_TIMEOUT_SECONDS
+# Job 완료까지 3초 간격 폴링. (성공/실패, 종료 감지 시각)을 반환한다.
+# 기본 대기 한계 = Job 자신의 activeDeadlineSeconds + 여유. Job은 그 시각에 반드시 종료상태(성공/
+# DeadlineExceeded 실패)에 이르므로, 그 전에 폴링을 포기하지 않아야 반환값이 Job의 실제 결말과 일치한다.
+# early-trigger reap이 이 값으로 export 성공/실패를 판정하는데, 더 짧게 잡으면 "아직 export 중"을
+# 실패로 오탐한다(대형 프로젝트의 긴 export). 빌드 시작 시점부터 잰다.
+# ★ 두 번째 반환값(종료 시각)을 여기서 찍는 이유: early-trigger 경로는 push 마커로 배포를 먼저
+#   시작하고 이 task는 배포 도중 종료를 감지해 끝난다. reap에서 await 반환 뒤에 now()를 찍으면
+#   그 사이 배포(rollout) 시간이 통째로 섞여 노출시간(job_ended_at − push_done_at)이 부풀려진다.
+#   감지 순간에 찍어야 실제 Job 종료 시각이다(폴링 간격 3초 내 오차).
+async def _wait_for_job(
+    job_name: str, timeout: float | None = None
+) -> tuple[bool, datetime]:
+    if timeout is None:
+        timeout = config.BUILD_ACTIVE_DEADLINE_SECONDS + 30
     deadline = time.time() + timeout
     batch = k8s.batch_v1()
     while time.time() < deadline:
@@ -1186,11 +1307,11 @@ async def _wait_for_job(job_name: str) -> bool:
             name=job_name, namespace=config.BUILD_NAMESPACE
         )
         if job.status.succeeded:
-            return True
+            return True, datetime.now(timezone.utc)
         if job.status.failed:
-            return False
+            return False, datetime.now(timezone.utc)
         await asyncio.sleep(3)
-    return False
+    return False, datetime.now(timezone.utc)
 
 
 ROLLOUT_TIMEOUT_SECONDS = 900
@@ -1262,7 +1383,11 @@ def _combined_job_logs(build_id: str, build_mode: str) -> str:
 # to_thread로 떼어낸다 (안 그러면 1초 로그 조회가 job 폴링을 지연시킴).
 # stop_event가 set되면(빌드 종료) 즉시 종료 — 이후 _run_build이 최종 로그를 authoritative하게 덮는다.
 async def _tail_build_logs(
-    build_id: str, build_mode: str, stop_event: asyncio.Event,
+    build_id: str,
+    build_mode: str,
+    stop_event: asyncio.Event,
+    push_done: asyncio.Event | None = None,
+    push_marker: dict | None = None,   # 마커 첫 감지 시각을 push_marker["at"]에 stamp (계측용)
 ) -> None:
     db = SessionLocal()
     last = None
@@ -1272,12 +1397,21 @@ async def _tail_build_logs(
                 logs = await asyncio.to_thread(
                     _combined_job_logs, build_id, build_mode
                 )
-                if logs and logs != last:
-                    row = db.query(Build).filter_by(build_id=build_id).first()
-                    if row and row.status != "cancelled":
-                        row.logs = logs
-                        db.commit()
-                        last = logs
+                if logs:
+                    # early-trigger: "exporting to image" 이후 첫 push 완료(=이미지 매니페스트)를
+                    # 보면 배포 트리거를 깨운다. 앵커 뒤부터 검색해 캐시 매니페스트 push를 안 잡는다.
+                    if push_done is not None and not push_done.is_set():
+                        exp = _EXPORT_IMAGE_RE.search(logs)
+                        if exp and _PUSH_DONE_RE.search(logs, exp.end()):
+                            if push_marker is not None:
+                                push_marker["at"] = datetime.now(timezone.utc)
+                            push_done.set()
+                    if logs != last:
+                        row = db.query(Build).filter_by(build_id=build_id).first()
+                        if row and row.status != "cancelled":
+                            row.logs = logs
+                            db.commit()
+                            last = logs
             except Exception:
                 db.rollback()  # 폴링 한 틱 실패가 tailer를 죽이지 않게
             try:

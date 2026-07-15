@@ -27,8 +27,23 @@ GHCR_USER = os.getenv("GHCR_USER", "")
 
 
 # --- BuildKit ---
-BUILDKIT_IMAGE = "moby/buildkit:rootless"           # rootless: privileged 권한 없이 빌드 가능. 거의 안 바뀌는 시스템 도구
+BUILDKIT_IMAGE = "moby/buildkit:v0.30.0-rootless"   # rootless: privileged 권한 없이 빌드 가능. 클러스터에서 검증된 버전으로 고정
 BUILD_TIMEOUT_SECONDS = int(os.getenv("BUILD_TIMEOUT_SECONDS", "600"))  # 운영 튜닝 가능
+# Job 전체(빌드+push+cache export) 상한. build 단계는 위 값이 재지만, early-trigger 후 Job은
+# 배포가 끝나도 export를 붙들고 살아 있으므로 그보다 넉넉해야 정상 빌드를 안 자른다.
+# Job의 activeDeadlineSeconds로 주입 — 무한 export를 컷.
+BUILD_ACTIVE_DEADLINE_SECONDS = int(
+    os.getenv("BUILD_ACTIVE_DEADLINE_SECONDS", str(BUILD_TIMEOUT_SECONDS + 300))
+)
+# early-trigger — push 마커(이미지가 레지스트리에 올라간 시점)에 배포를 시작하고 cache export는
+# 백그라운드로 넘긴다. 기본 OFF: 켜기 전 계측만 쌓고 전후 비교 후 켠다. 마커를 못 잡으면 어느
+# 쪽이든 Job 완료를 기다리는 기존 경로로 자동 폴백(느려질 뿐 안 깨짐).
+EARLY_TRIGGER_ENABLED = os.getenv("EARLY_TRIGGER", "false").lower() == "true"
+# 레지스트리 레이어 캐시(--import/export-cache, 이미지와 같은 repo의 :buildcache 태그). 기본 OFF —
+# 켜기 전 캐시 없는 기준선을 계측하고 전후 비교 후 켠다. early-trigger와 독립 플래그(캐시 없이도
+# push 마커는 찍히므로 early-trigger는 동작). 켜면 매 빌드 끝에 cache export 비용이 붙는데, 그 비용을
+# 응답 경로에서 빼는 게 early-trigger의 목적.
+BUILD_REGISTRY_CACHE_ENABLED = os.getenv("BUILD_REGISTRY_CACHE", "false").lower() == "true"
 
 # --- Cloudflare R2 (오브젝트 스토리지, 레벨2 = 앱당 버킷 + bucket-scoped 토큰) ---
 # 시크릿이라 env 주입. 비어 있으면 storage 토글 비활성(r2.is_configured()=False).

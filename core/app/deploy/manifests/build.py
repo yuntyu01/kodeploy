@@ -6,6 +6,22 @@ from app import config
 from app.deploy.manifests._renderer import render, render_text
 
 
+# 레지스트리 레이어 캐시 ref — 이미지와 같은 repo의 :buildcache 태그.
+# 이미지(=...:{build_id})와 같은 repo에 두면, 방금 이미지 push가 올린 blob을 cache export가
+# "이미 있네"로 스킵해 export를 싸게 만든다(존재확인은 repo 단위로 작동).
+def _cache_ref(image: str) -> str:
+    return image.rsplit(":", 1)[0] + ":buildcache"
+
+
+# 3개 빌더가 공유하는 캐시/deadline 컨텍스트. 캐시 플래그는 BUILD_REGISTRY_CACHE_ENABLED 게이트.
+def _build_ctx(image: str) -> dict:
+    return {
+        "registry_cache": config.BUILD_REGISTRY_CACHE_ENABLED,
+        "cache_ref": _cache_ref(image),
+        "active_deadline_seconds": config.BUILD_ACTIVE_DEADLINE_SECONDS,
+    }
+
+
 # rootless BuildKit 일회성 Job (git → GHCR push) — dockerfile 모드 전용
 # dockerfile_subdir: repo root 기준 Dockerfile이 있는 디렉토리 (없으면 root). BuildKit context로 사용됨.
 # dockerfile_filename: Dockerfile 파일 이름 (default "Dockerfile", "Dockerfile.multi" 등 가능).
@@ -31,6 +47,7 @@ def buildkit_job(
         buildkit_image=config.BUILDKIT_IMAGE,
         ghcr_auth_secret=config.GHCR_AUTH_SECRET_NAME,
         git_auth_secret=git_auth_secret,
+        **_build_ctx(image),
     )
 
 
@@ -59,6 +76,7 @@ def nixpacks_buildkit_job(
         buildkit_image=config.BUILDKIT_IMAGE,
         ghcr_auth_secret=config.GHCR_AUTH_SECRET_NAME,
         git_auth_secret=git_auth_secret,
+        **_build_ctx(image),
     )
 
 
@@ -111,4 +129,5 @@ def static_buildkit_job(
         buildkit_image=config.BUILDKIT_IMAGE,
         ghcr_auth_secret=config.GHCR_AUTH_SECRET_NAME,
         git_auth_secret=git_auth_secret,
+        **_build_ctx(image),
     )
