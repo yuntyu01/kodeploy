@@ -7,13 +7,13 @@ set_custom_domain의 apex 거절은 "PSL.privatesuffix(d)가 d 자신이면 apex
 
 import pytest
 
-from app.deploy import service as svc
+from app.deploy.routing import hostnames
 
 
 # --- _normalize_domain ---
 
 def test_normalize_lowercases_and_strips_trailing_dot():
-    assert svc._normalize_domain(" App.Example.COM. ") == "app.example.com"
+    assert hostnames._normalize_domain(" App.Example.COM. ") == "app.example.com"
 
 
 @pytest.mark.parametrize("domain", [
@@ -26,24 +26,24 @@ def test_normalize_lowercases_and_strips_trailing_dot():
 ])
 def test_normalize_rejects(domain):
     with pytest.raises(ValueError):
-        svc._normalize_domain(domain)
+        hostnames._normalize_domain(domain)
 
 
 def test_normalize_accepts_subdomain():
-    assert svc._normalize_domain("a.b.example.com") == "a.b.example.com"
+    assert hostnames._normalize_domain("a.b.example.com") == "a.b.example.com"
 
 
 # --- PSL apex 판정 가정 (set_custom_domain의 거절 로직이 의존) ---
 
 def test_psl_apex_is_itself():
-    assert svc._PSL.privatesuffix("example.com") == "example.com"
-    assert svc._PSL.privatesuffix("example.co.kr") == "example.co.kr"  # 라벨 3개지만 apex
+    assert hostnames._PSL.privatesuffix("example.com") == "example.com"
+    assert hostnames._PSL.privatesuffix("example.co.kr") == "example.co.kr"  # 라벨 3개지만 apex
 
 
 def test_psl_subdomain_returns_parent():
-    assert svc._PSL.privatesuffix("app.example.com") == "example.com"
-    assert svc._PSL.privatesuffix("app.example.co.kr") == "example.co.kr"
+    assert hostnames._PSL.privatesuffix("app.example.com") == "example.com"
+    assert hostnames._PSL.privatesuffix("app.example.co.kr") == "example.co.kr"
 
 
 def test_psl_public_suffix_itself_is_none():
-    assert svc._PSL.privatesuffix("co.kr") is None
+    assert hostnames._PSL.privatesuffix("co.kr") is None

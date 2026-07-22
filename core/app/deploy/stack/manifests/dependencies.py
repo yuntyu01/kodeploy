@@ -2,7 +2,7 @@
 
 import secrets
 
-from app.deploy.manifests._renderer import render_all
+from app.deploy.stack.manifests._renderer import render_all
 from app.deploy.runtimes import get_resources
 
 

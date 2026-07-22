@@ -6,7 +6,7 @@ _wrappable이 오판하면 SHOW/INSERT를 파생 테이블로 감싸 문법 오�
 
 import pytest
 
-from app.deploy import dbquery
+from app.deploy.console import dbquery
 
 
 # --- _wrappable — SELECT/WITH 단일 문장만 페이징 래핑 ---

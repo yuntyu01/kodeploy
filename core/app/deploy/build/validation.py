@@ -2,7 +2,7 @@
 
 import re
 
-from app.deploy import manifests, r2
+from app.deploy.stack import manifests, r2
 
 # static 빌드 입력 검증/정규화. 보안 경계 아님(유저는 어차피 자기 이미지 빌드 내용을 전부
 # 통제) — 개행 등으로 생성 Dockerfile이 조용히 깨져 정체불명 빌드 에러가 되는 걸 막는 친절벨트.

@@ -1,6 +1,6 @@
 """테넌트 ns 프로비저닝 매니페스트 (Namespace + ghcr-auth Secret)."""
 
-from app.deploy.manifests._renderer import render_all
+from app.deploy.stack.manifests._renderer import render_all
 
 
 # 테넌트 ns 한 묶음 — Namespace, Secret(ghcr-auth) 2개 dict 반환.

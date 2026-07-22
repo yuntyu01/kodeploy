@@ -24,7 +24,7 @@ import aiohttp
 from kubernetes_asyncio import client
 from kubernetes_asyncio.stream import WsApiClient
 
-from app.deploy.snapshots import _detect_target, _ensure_loaded
+from app.deploy.console.snapshots import _detect_target, _ensure_loaded
 
 # 한 페이지에 받아올 행 수. SELECT/WITH 쿼리는 OFFSET 페이지네이션으로 다음 페이지를 더
 # 받을 수 있고, 그 외(SHOW/INSERT 등)는 감쌀 수 없어 이 수에서 잘리고 truncated로 알린다.

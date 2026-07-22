@@ -3,7 +3,7 @@
 import base64
 
 from app import config
-from app.deploy.manifests._renderer import render, render_text
+from app.deploy.stack.manifests._renderer import render, render_text
 
 
 # 레지스트리 레이어 캐시 ref — 이미지와 같은 repo의 :buildcache 태그.

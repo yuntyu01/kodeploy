@@ -8,7 +8,8 @@ import uuid
 
 from app import config
 from app.auth.model import User
-from app.deploy import service as svc
+from app.deploy.build import pipeline
+from app.deploy.routing import hostnames
 from app.deploy.model import Build
 
 
@@ -25,19 +26,19 @@ def make_user(app_name="foo", site_enabled=False, custom_domain=None, extra_host
 # --- _slot_hostnames — (서버 호스트들, 정적 호스트들) ---
 
 def test_server_only_gets_both_hosts():
-    server, site = svc._slot_hostnames(make_user(site_enabled=False))
+    server, site = hostnames._slot_hostnames(make_user(site_enabled=False))
     assert server == ["foo.kodeploy.com", "foo-api.kodeploy.com"]
     assert site == []
 
 
 def test_static_enabled_splits_hosts():
-    server, site = svc._slot_hostnames(make_user(site_enabled=True))
+    server, site = hostnames._slot_hostnames(make_user(site_enabled=True))
     assert server == ["foo-api.kodeploy.com"]   # -api는 정적 유무와 무관하게 항상 서버
     assert site == ["foo.kodeploy.com"]
 
 
 def test_custom_domain_goes_to_server_when_no_static():
-    server, site = svc._slot_hostnames(
+    server, site = hostnames._slot_hostnames(
         make_user(site_enabled=False, custom_domain="x.example.com")
     )
     assert server == ["foo.kodeploy.com", "foo-api.kodeploy.com", "x.example.com"]
@@ -45,7 +46,7 @@ def test_custom_domain_goes_to_server_when_no_static():
 
 
 def test_custom_domain_goes_to_static_when_enabled():
-    server, site = svc._slot_hostnames(
+    server, site = hostnames._slot_hostnames(
         make_user(site_enabled=True, custom_domain="x.example.com")
     )
     assert server == ["foo-api.kodeploy.com"]
@@ -53,7 +54,7 @@ def test_custom_domain_goes_to_static_when_enabled():
 
 
 def test_extra_hostnames_ordering_before_custom_domain():
-    server, _ = svc._slot_hostnames(
+    server, _ = hostnames._slot_hostnames(
         make_user(custom_domain="x.example.com", extra_hostnames="a.com,b.com")
     )
     assert server == [
@@ -64,12 +65,12 @@ def test_extra_hostnames_ordering_before_custom_domain():
 # --- _extra_hostnames — 콤마 구분 텍스트 파싱 (운영자 DB 직접 등록 값) ---
 
 def test_extra_hostnames_none_is_empty():
-    assert svc._extra_hostnames(make_user(extra_hostnames=None)) == []
+    assert hostnames._extra_hostnames(make_user(extra_hostnames=None)) == []
 
 
 def test_extra_hostnames_strips_lowers_drops_empty():
     u = make_user(extra_hostnames=" A.com , ,b.COM ")
-    assert svc._extra_hostnames(u) == ["a.com", "b.com"]
+    assert hostnames._extra_hostnames(u) == ["a.com", "b.com"]
 
 
 # --- Build.tenant_id / user_id_str — P1 파생 공식 ---
@@ -93,8 +94,8 @@ def test_user_id_str_hex_or_anonymous():
 
 def test_build_job_name_truncates_user_to_8():
     uid_str = uuid.UUID("deadbeef-0000-0000-0000-000000000000").hex
-    assert svc._build_job_name("ab12cd34", uid_str) == "build-deadbeef-ab12cd34"
+    assert pipeline._build_job_name("ab12cd34", uid_str) == "build-deadbeef-ab12cd34"
 
 
 def test_build_job_name_anonymous():
-    assert svc._build_job_name("ab12cd34", "anonymous") == "build-anonymou-ab12cd34"
+    assert pipeline._build_job_name("ab12cd34", "anonymous") == "build-anonymou-ab12cd34"

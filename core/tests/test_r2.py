@@ -4,7 +4,7 @@ S3 호출 자체(SigV4)는 실 토큰 검증 영역이라 제외. 파서는 스�
 입력이라 네임스페이스/URL 인코딩 처리를 고정한다.
 """
 
-from app.deploy import r2
+from app.deploy.stack import r2
 
 _NS = 'xmlns="http://s3.amazonaws.com/doc/2006-03-01/"'
 

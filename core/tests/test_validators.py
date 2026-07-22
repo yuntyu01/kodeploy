@@ -6,105 +6,105 @@
 
 import pytest
 
-from app.deploy import env as env_module
-from app.deploy import service as svc
-from app.deploy import snapshots
-from app.deploy.snapshots import SnapshotError
+from app.deploy.stack import env as env_module
+from app.deploy.build import validation
+from app.deploy.console import snapshots
+from app.deploy.console.snapshots import SnapshotError
 
 
 # --- _validate_static_env — 빌드 타임 변수 (번들 공개값) ---
 
 def test_static_env_strips_keys():
-    assert svc._validate_static_env({" VITE_X ": "1"}) == {"VITE_X": "1"}
+    assert validation._validate_static_env({" VITE_X ": "1"}) == {"VITE_X": "1"}
 
 
 def test_static_env_allows_shell_specials_in_value():
     # 이스케이프는 manifests(_dockerfile_env_value) 몫 — 검증은 줄바꿈/길이만 본다
-    out = svc._validate_static_env({"VITE_X": 'a$b"c\\d'})
+    out = validation._validate_static_env({"VITE_X": 'a$b"c\\d'})
     assert out["VITE_X"] == 'a$b"c\\d'
 
 
 def test_static_env_too_many_keys():
     with pytest.raises(ValueError):
-        svc._validate_static_env({f"K{i}": "v" for i in range(21)})
+        validation._validate_static_env({f"K{i}": "v" for i in range(21)})
 
 
 @pytest.mark.parametrize("key", ["vite_x", "1A", "A-B"])
 def test_static_env_bad_key(key):
     with pytest.raises(ValueError):
-        svc._validate_static_env({key: "v"})
+        validation._validate_static_env({key: "v"})
 
 
 def test_static_env_value_too_long():
     with pytest.raises(ValueError):
-        svc._validate_static_env({"K": "a" * 1001})
+        validation._validate_static_env({"K": "a" * 1001})
 
 
 def test_static_env_newline_rejected():
     with pytest.raises(ValueError):
-        svc._validate_static_env({"K": "a\nb"})
+        validation._validate_static_env({"K": "a\nb"})
 
 
 # --- _validate_static_fields — 빌드 커맨드/출력 디렉토리 ---
 
 def test_static_fields_empty_passthrough():
-    assert svc._validate_static_fields("", "") == ("", "")
+    assert validation._validate_static_fields("", "") == ("", "")
 
 
 def test_static_fields_default_output_dir_dist():
-    assert svc._validate_static_fields("npm ci && npm run build", "") == (
+    assert validation._validate_static_fields("npm ci && npm run build", "") == (
         "npm ci && npm run build", "dist",
     )
 
 
 def test_static_fields_output_dir_slash_trim():
-    assert svc._validate_static_fields("x", "/dist/") == ("x", "dist")
+    assert validation._validate_static_fields("x", "/dist/") == ("x", "dist")
 
 
 def test_static_fields_newline_in_cmd():
     with pytest.raises(ValueError):
-        svc._validate_static_fields("a\nb", "")
+        validation._validate_static_fields("a\nb", "")
 
 
 def test_static_fields_cmd_too_long():
     with pytest.raises(ValueError):
-        svc._validate_static_fields("a" * 301, "")
+        validation._validate_static_fields("a" * 301, "")
 
 
 @pytest.mark.parametrize("outdir", ["../etc", "out put"])
 def test_static_fields_bad_output_dir(outdir):
     # build_cmd 유무와 무관하게 output_dir 형식은 검증된다
     with pytest.raises(ValueError):
-        svc._validate_static_fields("", outdir)
+        validation._validate_static_fields("", outdir)
 
 
 # --- _validate_volume_fields — 영속저장소 local(PVC) ---
 
 def test_volume_fields_normalizes_trailing_slash_and_defaults():
-    mp, sc, sz = svc._validate_volume_fields("/var/www/html/data/", "", "")
+    mp, sc, sz = validation._validate_volume_fields("/var/www/html/data/", "", "")
     assert (mp, sc, sz) == ("/var/www/html/data", "local-path", "5Gi")
 
 
 @pytest.mark.parametrize("mp", ["data", "/a/../b", "/a b", "/"])
 def test_volume_mount_path_rejected(mp):
     with pytest.raises(ValueError):
-        svc._validate_volume_fields(mp, "local-path", "5Gi")
+        validation._validate_volume_fields(mp, "local-path", "5Gi")
 
 
 def test_volume_storage_class_rejected():
     with pytest.raises(ValueError):
-        svc._validate_volume_fields("/d", "Bad_Class", "5Gi")
+        validation._validate_volume_fields("/d", "Bad_Class", "5Gi")
 
 
 @pytest.mark.parametrize("size", ["0Gi", "5G", "Gi", "5gi"])
 def test_volume_size_rejected(size):
     with pytest.raises(ValueError):
-        svc._validate_volume_fields("/d", "local-path", size)
+        validation._validate_volume_fields("/d", "local-path", size)
 
 
 @pytest.mark.parametrize("size", ["512Mi", "5Gi", "1Ti"])
 def test_volume_size_ok(size):
-    assert svc._validate_volume_fields("/d", "local-path", size)[2] == size
+    assert validation._validate_volume_fields("/d", "local-path", size)[2] == size
 
 
 # --- env.validate_env — 서버 런타임 환경변수 ({app}-env Secret) ---

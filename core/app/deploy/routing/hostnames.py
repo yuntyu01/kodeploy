@@ -7,7 +7,7 @@ from publicsuffixlist import PublicSuffixList
 from sqlalchemy.orm import Session
 
 from app.auth.model import User
-from app.deploy import domains
+from app.deploy.routing import domains
 from app.shared import k8s
 
 # --- 커스텀 도메인 (CF for SaaS custom hostname) -----------------------------

@@ -8,7 +8,7 @@ from kubernetes.client.exceptions import ApiException
 
 from app import config
 from app.auth.model import User
-from app.deploy import manifests, r2
+from app.deploy.stack import manifests, r2
 from app.deploy.model import Build
 from app.shared import k8s
 

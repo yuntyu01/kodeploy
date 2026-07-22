@@ -17,7 +17,9 @@ from sqlalchemy.orm import Session
 from app import config
 from app.auth import github_app
 from app.auth.model import User
-from app.deploy import crud, env as env_module, manifests, r2, snapshots
+from app.deploy import crud
+from app.deploy.console import snapshots
+from app.deploy.stack import env as env_module, manifests, r2
 from app.deploy.build.github import _detect_build, _fetch_github_raw
 from app.deploy.build.naming import _normalize_repo_url, _resolve_app_name
 from app.deploy.build.validation import (

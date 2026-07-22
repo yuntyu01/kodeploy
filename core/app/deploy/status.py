@@ -6,7 +6,9 @@ from kubernetes.client.exceptions import ApiException
 from sqlalchemy.orm import Session
 
 from app.auth.model import User
-from app.deploy import crud, domains, r2
+from app.deploy import crud
+from app.deploy.routing import domains
+from app.deploy.stack import r2
 from app.deploy.model import Build
 from app.deploy.stack.resources import _read_r2_token_id
 from app.shared import k8s

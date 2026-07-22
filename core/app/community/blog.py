@@ -1,7 +1,7 @@
 """velog 시리즈 프록시 — 블로그 글 목록.
 
 브라우저에서 velog API를 직접 호출하면 CORS에 막히므로 백엔드가 대신 가져온다.
-deploy.service.fetch_recent_commits(GitHub API 프록시)와 같은 철학 —
+deploy.build.github.fetch_recent_commits(GitHub API 프록시)와 같은 철학 —
 실패는 조용히 처리(stale 캐시 또는 빈 리스트), UI에서 fallback 표시되면 충분.
 
 RSS는 시리즈 필터·태그가 없어서, velog 웹 프론트가 쓰는 GraphQL

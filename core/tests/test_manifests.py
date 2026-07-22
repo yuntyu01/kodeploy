@@ -9,9 +9,9 @@
 import base64
 import uuid
 
-from app.deploy import manifests
-from app.deploy import service as svc
-from app.deploy.manifests.build import _dockerfile_env_value
+from app.deploy.stack import manifests
+from app.deploy.build import pipeline
+from app.deploy.stack.manifests.build import _dockerfile_env_value
 
 UID = uuid.UUID("deadbeef-0000-0000-0000-000000000000").hex
 IMAGE = "ghcr.io/op/deadbeef/foo:ab12cd34"
@@ -32,7 +32,7 @@ def test_buildkit_job_name_matches_service_convention():
     job = manifests.buildkit_job(
         build_id="ab12cd34", user_id=UID, image=IMAGE, repo_url=REPO, branch="main",
     )
-    assert job["metadata"]["name"] == svc._build_job_name("ab12cd34", UID)
+    assert job["metadata"]["name"] == pipeline._build_job_name("ab12cd34", UID)
     assert job["metadata"]["labels"]["build-id"] == "ab12cd34"
     assert job["metadata"]["labels"]["build-mode"] == "dockerfile"
 

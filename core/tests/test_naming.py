@@ -6,28 +6,28 @@
 
 import pytest
 
-from app.deploy import service as svc
+from app.deploy.build import naming, pipeline
 
 
 # --- _normalize_repo_url — BuildKit이 요구하는 .git 접미사 보장 ---
 
 def test_normalize_repo_url_appends_git():
-    assert svc._normalize_repo_url("https://github.com/u/r") == "https://github.com/u/r.git"
+    assert naming._normalize_repo_url("https://github.com/u/r") == "https://github.com/u/r.git"
 
 
 def test_normalize_repo_url_strips_space_and_trailing_slash():
-    assert svc._normalize_repo_url(" https://github.com/u/r/ ") == "https://github.com/u/r.git"
+    assert naming._normalize_repo_url(" https://github.com/u/r/ ") == "https://github.com/u/r.git"
 
 
 def test_normalize_repo_url_idempotent_on_git_suffix():
-    assert svc._normalize_repo_url("https://github.com/u/r.git") == "https://github.com/u/r.git"
+    assert naming._normalize_repo_url("https://github.com/u/r.git") == "https://github.com/u/r.git"
 
 
 # --- _validate_name_format — DNS-1123 + 예약 규칙 ---
 
 @pytest.mark.parametrize("name", ["myapp", "a", "a-1b", "abc-def-123"])
 def test_valid_names_pass(name):
-    svc._validate_name_format(name)  # 예외 없으면 통과
+    naming._validate_name_format(name)  # 예외 없으면 통과
 
 
 @pytest.mark.parametrize("name", [
@@ -44,42 +44,42 @@ def test_valid_names_pass(name):
 ])
 def test_invalid_names_raise(name):
     with pytest.raises(ValueError):
-        svc._validate_name_format(name)
+        naming._validate_name_format(name)
 
 
 # --- _extract_from_repo — repo URL 마지막 segment → 이름 후보 ---
 
 def test_extract_basic_and_git_suffix():
-    assert svc._extract_from_repo("https://github.com/u/MyRepo.git") == "myrepo"
+    assert naming._extract_from_repo("https://github.com/u/MyRepo.git") == "myrepo"
 
 
 def test_extract_sanitizes_invalid_chars_to_hyphen():
-    assert svc._extract_from_repo("https://github.com/u/My_Repo.Name") == "my-repo-name"
+    assert naming._extract_from_repo("https://github.com/u/My_Repo.Name") == "my-repo-name"
 
 
 def test_extract_reserved_name_returns_none():
-    assert svc._extract_from_repo("https://github.com/u/api") is None
+    assert naming._extract_from_repo("https://github.com/u/api") is None
 
 
 def test_extract_invalid_format_returns_none():
-    assert svc._extract_from_repo("https://github.com/u/123abc") is None
+    assert naming._extract_from_repo("https://github.com/u/123abc") is None
 
 
 def test_extract_truncates_to_40():
-    assert svc._extract_from_repo("https://github.com/u/" + "a" * 50) == "a" * 40
+    assert naming._extract_from_repo("https://github.com/u/" + "a" * 50) == "a" * 40
 
 
 def test_extract_empty_after_sanitize_returns_none():
-    assert svc._extract_from_repo("https://github.com/u/___") is None
+    assert naming._extract_from_repo("https://github.com/u/___") is None
 
 
 # --- _extract_between — 빌드 로그 마커 추출 (nixpacks Dockerfile 보존 경로) ---
 
 def test_extract_between_found():
     text = "noise\n===A===\nFROM x\n===B===\ntail"
-    assert svc._extract_between(text, "===A===", "===B===") == "FROM x"
+    assert pipeline._extract_between(text, "===A===", "===B===") == "FROM x"
 
 
 def test_extract_between_missing_markers():
-    assert svc._extract_between("no markers", "===A===", "===B===") is None
-    assert svc._extract_between("===A=== only start", "===A===", "===B===") is None
+    assert pipeline._extract_between("no markers", "===A===", "===B===") is None
+    assert pipeline._extract_between("===A=== only start", "===A===", "===B===") is None

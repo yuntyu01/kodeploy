@@ -1,7 +1,7 @@
 """사용자 앱 실행용 K8s 매니페스트 (templates/runtimes/{runtime}.yaml.j2 렌더)."""
 
 from app import config
-from app.deploy.manifests._renderer import render, render_all
+from app.deploy.stack.manifests._renderer import render, render_all
 from app.deploy.runtimes import get_resources
 
 

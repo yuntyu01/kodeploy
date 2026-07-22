@@ -4,7 +4,7 @@
 query_range가 기본값으로 조용히 강등되지 않는다.
 """
 
-from app.deploy import metrics
+from app.deploy.console import metrics
 
 
 def test_range_and_step_keys_match():

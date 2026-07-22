@@ -10,7 +10,11 @@ from datetime import datetime, timezone
 from app.auth.deps import get_current_user
 from app.auth.model import User
 from app.auth import github_app, service as auth_service
-from app.deploy import dbquery, env, logs, metrics, service, snapshots, terminal
+from app.deploy import status
+from app.deploy.build import github, pipeline, validation
+from app.deploy.console import dbquery, logs, metrics, snapshots, terminal
+from app.deploy.routing import hostnames
+from app.deploy.stack import env, resources
 from app.deploy.model import Build
 from app import config
 from app.deploy.schemas import (
@@ -76,7 +80,7 @@ async def create_deploy(
     user: User = Depends(get_current_user),
 ) -> DeployResponse:
     try:
-        builds = await service.start_deploy(
+        builds = await pipeline.start_deploy(
             db,
             user=user,
             repo_url=str(req.repo_url),
@@ -187,9 +191,9 @@ async def env_put(
     db.commit()
 
     # Pod이 새 env로 부팅했는지 백그라운드 폴링 → 이 event row의 status를 running/failed로 갱신.
-    # 동기 K8s 클라이언트를 쓰므로 메인 루프 대신 전용 스레드에서 (service.spawn_background).
-    service.spawn_background(
-        service.watch_env_change_rollout,
+    # 동기 K8s 클라이언트를 쓰므로 메인 루프 대신 전용 스레드에서 (pipeline.spawn_background).
+    pipeline.spawn_background(
+        pipeline.watch_env_change_rollout,
         user.id, user.app_name, tenant_id, event.build_id,
     )
     return EnvVarsResponse(env=req.env)
@@ -199,7 +203,7 @@ async def env_put(
 # 응답: {"status": "running" | "pending" | "crashing" | "missing"}
 @router.get("/app/status")
 def app_status(user: User = Depends(get_current_user)) -> dict:
-    return service.get_app_status(user)
+    return status.get_app_status(user)
 
 
 # 런타임 로그 스냅샷 — 현재 + 이전 인스턴스 로그 JSON. 프론트 30초 폴링.
@@ -337,7 +341,7 @@ def storage_list(
     user: User = Depends(get_current_user),
 ) -> dict:
     try:
-        return service.list_storage_objects(user, token)
+        return resources.list_storage_objects(user, token)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -349,7 +353,7 @@ def storage_delete(
     user: User = Depends(get_current_user),
 ) -> dict:
     try:
-        service.delete_storage_object(user, key)
+        resources.delete_storage_object(user, key)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     return {"status": "deleted"}
@@ -362,7 +366,7 @@ def get_domain(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> dict:
-    result = service.refresh_custom_domain_status(db, user)
+    result = hostnames.refresh_custom_domain_status(db, user)
     result["cname_target"] = config.CUSTOM_DOMAIN_CNAME_TARGET
     return result
 
@@ -375,7 +379,7 @@ def put_domain(
     user: User = Depends(get_current_user),
 ) -> dict:
     try:
-        result = service.set_custom_domain(db, user, req.domain)
+        result = hostnames.set_custom_domain(db, user, req.domain)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     result["cname_target"] = config.CUSTOM_DOMAIN_CNAME_TARGET
@@ -388,7 +392,7 @@ def delete_domain(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> dict:
-    service.clear_custom_domain(db, user)
+    hostnames.clear_custom_domain(db, user)
     return {"status": "cleared"}
 
 
@@ -400,7 +404,7 @@ def delete_app(
     user: User = Depends(get_current_user),
 ):
     try:
-        service.delete_app(db, user)
+        status.delete_app(db, user)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     return {"status": "deleted"}
@@ -414,11 +418,11 @@ def list_recent_commits(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> list[dict]:
-    builds = service.list_builds(db, user_id=user.id)
+    builds = status.list_builds(db, user_id=user.id)
     if not builds:
         return []
     latest = builds[0]
-    return service.fetch_recent_commits(latest.repo_url, latest.branch)
+    return github.fetch_recent_commits(latest.repo_url, latest.branch)
 
 
 # 연결된 GitHub App installation이 접근 가능한 repo 목록 — 배포 폼 private repo 선택 드롭다운용.
@@ -503,7 +507,7 @@ async def db_restore(
 # 정적(테넌트 무관)이라 인증만 두고 캐시된 맵을 그대로 반환. /{build_id}보다 위에 등록.
 @router.get("/reserved-keys")
 def reserved_keys(user: User = Depends(get_current_user)) -> dict:
-    return service.reserved_env_keys_map()
+    return validation.reserved_env_keys_map()
 
 
 # build_id 단건 상태 조회 — 본인 빌드만 (다른 user의 build_id는 404로 마스킹)
@@ -513,10 +517,10 @@ def get_status(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> StatusResponse:
-    build = service.get_state(db, build_id, user_id=user.id)
+    build = status.get_state(db, build_id, user_id=user.id)
     if not build:
         raise HTTPException(status_code=404, detail="build not found")
-    timings = service.get_build_timings(db, [build.build_id])
+    timings = pipeline.get_build_timings(db, [build.build_id])
     return _to_status(build, timings.get(build.build_id))
 
 
@@ -526,6 +530,6 @@ def list_builds(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> list[StatusResponse]:
-    builds = service.list_builds(db, user_id=user.id)
-    timings = service.get_build_timings(db, [b.build_id for b in builds])
+    builds = status.list_builds(db, user_id=user.id)
+    timings = pipeline.get_build_timings(db, [b.build_id for b in builds])
     return [_to_status(b, timings.get(b.build_id)) for b in builds]
