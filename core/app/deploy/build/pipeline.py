@@ -36,6 +36,7 @@ from app.deploy.stack.resources import (
     _apply_redis,
     _apply_storage,
     _apply_volume,
+    _ensure_tenant_ns,
     _teardown_one_db,
     _teardown_redis,
     _teardown_storage,
