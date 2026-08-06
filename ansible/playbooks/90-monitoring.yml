@@ -1,0 +1,220 @@
+# managed 노드 관측 박스: VictoriaMetrics + Grafana
+# ----------------------------------------------------------------------------
+# 클러스터 안(worker1 Pod)에 있던 VictoriaMetrics를 managed로 이사 — worker1(앱 최다
+# 노드)과 모니터링이 같이 죽는 상관 장애를 없앤다. 클러스터가 통째로 죽어도 장애 직전
+# 메트릭을 여기서 볼 수 있다. vmagent는 스크레이프 대상·SA 인증이 클러스터 네이티브라
+# 클러스터에 남고 remote_write로 여기에 쏜다 (Service+EndpointSlice가 주소 연결).
+#
+# 설치는 둘 다 정적 바이너리/tarball + 직접 쓴 systemd 유닛 — dnf repo 메타데이터
+# 로딩이 4GB 노드에서 OOM 나는 문제(70-cloudflare 참고)를 원천 회피하고 버전을 고정한다.
+- hosts: managed
+  become: true
+  vars:
+    vm_version: v1.117.1              # 클러스터에서 쓰던 이미지와 동일 버전
+    vm_data_dir: /var/lib/victoriametrics
+    grafana_version: 11.2.0
+    grafana_data_dir: /var/lib/grafana
+  tasks:
+    # ------------------------------------------------------------ VictoriaMetrics
+    - name: victoriametrics 시스템 유저
+      user:
+        name: victoriametrics
+        system: true
+        shell: /sbin/nologin
+        create_home: false
+
+    - name: VictoriaMetrics 바이너리 다운로드
+      get_url:
+        url: https://github.com/VictoriaMetrics/VictoriaMetrics/releases/download/{{ vm_version }}/victoria-metrics-linux-arm64-{{ vm_version }}.tar.gz
+        dest: /tmp/victoria-metrics-{{ vm_version }}.tar.gz
+
+    - name: VictoriaMetrics 바이너리 설치
+      unarchive:
+        src: /tmp/victoria-metrics-{{ vm_version }}.tar.gz
+        dest: /usr/local/bin
+        remote_src: true
+        creates: /usr/local/bin/victoria-metrics-prod
+
+    - name: VictoriaMetrics 데이터 디렉토리
+      file:
+        path: "{{ vm_data_dir }}"
+        state: directory
+        owner: victoriametrics
+        group: victoriametrics
+        mode: "0750"
+
+    # 8428은 0.0.0.0 바인드 — VCN 밖은 seclist(CF 80/443만)가 이미 막고 있고,
+    # VCN 내부→8428은 network.tf의 전용 ingress 룰로 허용된다.
+    # 메모리: 4GB 노드를 cloudflared·Grafana와 나눠 쓰므로 VM 캐시를 512MiB로 제한하고
+    # systemd MemoryHigh로 페이지캐시 포함 소프트 상한을 건다 (MemoryMax는 OOM-kill
+    # 루프 위험이 있어 안 씀).
+    - name: VictoriaMetrics systemd 유닛
+      copy:
+        dest: /etc/systemd/system/victoriametrics.service
+        content: |
+          [Unit]
+          Description=VictoriaMetrics (KoDeploy monitoring)
+          After=network-online.target
+          Wants=network-online.target
+
+          [Service]
+          User=victoriametrics
+          ExecStart=/usr/local/bin/victoria-metrics-prod \
+            -storageDataPath={{ vm_data_dir }} \
+            -retentionPeriod=30d \
+            -memory.allowedBytes=512MiB \
+            -httpListenAddr=:8428
+          Restart=on-failure
+          RestartSec=5
+          MemoryHigh=1G
+
+          [Install]
+          WantedBy=multi-user.target
+      register: vm_unit
+
+    - name: VictoriaMetrics 시작
+      systemd:
+        name: victoriametrics
+        daemon_reload: true
+        enabled: true
+        state: "{{ vm_unit.changed | ternary('restarted', 'started') }}"
+
+    - name: VictoriaMetrics 헬스체크
+      uri:
+        url: http://127.0.0.1:8428/health
+      register: vm_health
+      until: vm_health.status == 200
+      retries: 12
+      delay: 5
+
+    # ------------------------------------------------------------ Grafana
+    - name: grafana 시스템 유저
+      user:
+        name: grafana
+        system: true
+        shell: /sbin/nologin
+        create_home: false
+
+    - name: Grafana tarball 다운로드
+      get_url:
+        url: https://dl.grafana.com/oss/release/grafana-{{ grafana_version }}.linux-arm64.tar.gz
+        dest: /tmp/grafana-{{ grafana_version }}.tar.gz
+
+    - name: Grafana 설치 (/opt)
+      unarchive:
+        src: /tmp/grafana-{{ grafana_version }}.tar.gz
+        dest: /opt
+        remote_src: true
+        creates: /opt/grafana-v{{ grafana_version }}/bin/grafana
+
+    - name: /opt/grafana 심볼릭 링크
+      file:
+        src: /opt/grafana-v{{ grafana_version }}
+        dest: /opt/grafana
+        state: link
+
+    - name: Grafana 디렉토리 (데이터·로그·프로비저닝·대시보드)
+      file:
+        path: "{{ item }}"
+        state: directory
+        owner: grafana
+        group: grafana
+        mode: "0750"
+      loop:
+        - "{{ grafana_data_dir }}"
+        - "{{ grafana_data_dir }}/dashboards"
+        - /var/log/grafana
+        - /etc/grafana/provisioning/datasources
+        - /etc/grafana/provisioning/dashboards
+
+    # 3000은 localhost만 바인드 — 접근은 SSH 포워딩(ssh -L 3000:localhost:3000 managed).
+    # grafana.kodeploy.com 터널 노출은 별도 결정(터널 config가 CF 대시보드 관리라).
+    - name: Grafana 설정
+      copy:
+        dest: /etc/grafana/grafana.ini
+        content: |
+          [server]
+          http_addr = 127.0.0.1
+          http_port = 3000
+
+          [paths]
+          data = {{ grafana_data_dir }}
+          logs = /var/log/grafana
+          provisioning = /etc/grafana/provisioning
+
+          [analytics]
+          reporting_enabled = false
+          check_for_updates = false
+      register: grafana_ini
+
+    - name: Grafana 데이터소스 프로비저닝 (VictoriaMetrics)
+      copy:
+        dest: /etc/grafana/provisioning/datasources/victoriametrics.yaml
+        content: |
+          apiVersion: 1
+          datasources:
+            - name: VictoriaMetrics
+              uid: victoriametrics
+              type: prometheus
+              access: proxy
+              url: http://localhost:8428
+              isDefault: true
+      register: grafana_ds
+
+    - name: Grafana 대시보드 프로바이더 프로비저닝
+      copy:
+        dest: /etc/grafana/provisioning/dashboards/kodeploy.yaml
+        content: |
+          apiVersion: 1
+          providers:
+            - name: kodeploy
+              folder: KoDeploy
+              type: file
+              options:
+                path: {{ grafana_data_dir }}/dashboards
+      register: grafana_provider
+
+    # 대시보드 JSON은 레포가 진실원 — 수정은 레포에서 하고 이 플레이북으로 배포
+    - name: 대시보드 JSON 배포
+      copy:
+        src: "{{ playbook_dir }}/../../deploy/grafana/dashboards/kodeploy-overview.json"
+        dest: "{{ grafana_data_dir }}/dashboards/kodeploy-overview.json"
+        owner: grafana
+        group: grafana
+        mode: "0640"
+
+    - name: Grafana systemd 유닛
+      copy:
+        dest: /etc/systemd/system/grafana.service
+        content: |
+          [Unit]
+          Description=Grafana (KoDeploy monitoring)
+          After=network-online.target victoriametrics.service
+          Wants=network-online.target
+
+          [Service]
+          User=grafana
+          WorkingDirectory=/opt/grafana
+          ExecStart=/opt/grafana/bin/grafana server --homepath /opt/grafana --config /etc/grafana/grafana.ini
+          Restart=on-failure
+          RestartSec=5
+          MemoryHigh=512M
+
+          [Install]
+          WantedBy=multi-user.target
+      register: grafana_unit
+
+    - name: Grafana 시작
+      systemd:
+        name: grafana
+        daemon_reload: true
+        enabled: true
+        state: "{{ (grafana_unit.changed or grafana_ini.changed or grafana_ds.changed or grafana_provider.changed) | ternary('restarted', 'started') }}"
+
+    - name: Grafana 헬스체크
+      uri:
+        url: http://127.0.0.1:3000/api/health
+      register: grafana_health
+      until: grafana_health.status == 200
+      retries: 12
+      delay: 5

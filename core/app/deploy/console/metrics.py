@@ -5,13 +5,14 @@ Envoy Gateway(RPS/latency/error rate)를 tenant namespace + app name으로 필�
 """
 
 import json
+import os
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 
-VM_URL = "http://victoriametrics.monitoring.svc:8428"
+VM_URL = os.environ.get("VM_URL", "http://victoriametrics.monitoring.svc:8428")
 
 RANGE_SECONDS = {
     "15m": 900,

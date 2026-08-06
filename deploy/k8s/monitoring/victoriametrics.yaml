@@ -1,63 +1,9 @@
-apiVersion: apps/v1
-kind: StatefulSet
-metadata:
-  name: victoriametrics
-  namespace: monitoring
-  labels:
-    app: victoriametrics
-spec:
-  serviceName: victoriametrics
-  replicas: 1
-  selector:
-    matchLabels:
-      app: victoriametrics
-  template:
-    metadata:
-      labels:
-        app: victoriametrics
-    spec:
-      nodeSelector:
-        kubernetes.io/hostname: worker1
-      containers:
-        - name: victoriametrics
-          image: victoriametrics/victoria-metrics:v1.117.1
-          args:
-            - -storageDataPath=/data
-            - -retentionPeriod=30d
-            - -memory.allowedPercent=60
-          ports:
-            - containerPort: 8428
-              name: http
-          resources:
-            requests:
-              cpu: 50m
-              memory: 256Mi
-            limits:
-              cpu: 300m
-              memory: 512Mi
-          volumeMounts:
-            - name: data
-              mountPath: /data
-          readinessProbe:
-            httpGet:
-              path: /health
-              port: 8428
-            periodSeconds: 5
-          livenessProbe:
-            httpGet:
-              path: /health
-              port: 8428
-            periodSeconds: 10
-  volumeClaimTemplates:
-    - metadata:
-        name: data
-      spec:
-        accessModes: [ReadWriteOnce]
-        storageClassName: local-path
-        resources:
-          requests:
-            storage: 5Gi
----
+# VictoriaMetrics는 클러스터 밖 managed 노드(10.0.1.240)에서 systemd로 돈다
+# (ansible/playbooks/90-monitoring.yml). 여기는 클러스터 안 소비자(vmagent remote_write,
+# core metrics.py PromQL)가 기존 주소 victoriametrics.monitoring.svc:8428 그대로 접근하도록
+# selector 없는 Service + 수동 EndpointSlice로 managed IP에 연결만 한다.
+# 이사 배경: worker1(앱 최다 노드)과 모니터링이 같이 죽는 상관 장애 제거 — 앱이 죽어도
+# 장애 직전 메트릭을 managed의 VM+Grafana에서 볼 수 있게.
 apiVersion: v1
 kind: Service
 metadata:
@@ -70,5 +16,18 @@ spec:
     - port: 8428
       targetPort: 8428
       name: http
-  selector:
-    app: victoriametrics
+---
+apiVersion: discovery.k8s.io/v1
+kind: EndpointSlice
+metadata:
+  name: victoriametrics-managed
+  namespace: monitoring
+  labels:
+    kubernetes.io/service-name: victoriametrics
+addressType: IPv4
+ports:
+  - name: http
+    port: 8428
+    protocol: TCP
+endpoints:
+  - addresses: ["10.0.1.240"]   # managed 노드 사설 IP (terraform output nodes.managed.private_ip)
