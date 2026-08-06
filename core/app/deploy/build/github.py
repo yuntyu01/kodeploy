@@ -46,28 +46,28 @@ def _installation_id_for(build: Build) -> "int | None":
 
 
 # nixpacks가 프로젝트 루트로 인식하는 마커 파일 — auto 모드의 앱 디렉토리 자동 탐색용.
-# 현재 KoDeploy 지원 런타임(Python·Java·PHP)의 마커만 활성. 다른 언어는 그 런타임 추가 시 주석 해제.
-_NIXPACKS_MARKERS = frozenset({
-    # Python
-    "requirements.txt", "pyproject.toml", "Pipfile", "setup.py",
-    # Java
-    "pom.xml", "build.gradle", "build.gradle.kts",
-    # PHP
-    "composer.json",
-    # --- 미지원 런타임 (지원 추가 시 주석 해제) ---
-    # "package.json", "package-lock.json", "yarn.lock", "pnpm-lock.yaml",  # JavaScript / Node
-    # "go.mod",      # Go
-    # "Gemfile",     # Ruby
-    # "Cargo.toml",  # Rust
-    # "mix.exs",     # Elixir
-})
+# 런타임별로 나눠, 감지 시 유저가 선택한 런타임의 마커를 우선한다 — 풀스택 repo에서
+# frontend의 package.json이 백엔드 감지를 가로채지 않게 (역방향도 동일).
+_RUNTIME_MARKERS = {
+    "python": frozenset({"requirements.txt", "pyproject.toml", "Pipfile", "setup.py"}),
+    "java": frozenset({"pom.xml", "build.gradle", "build.gradle.kts"}),
+    "php": frozenset({"composer.json"}),
+    "javascript": frozenset({"package.json", "package-lock.json", "yarn.lock", "pnpm-lock.yaml"}),
+    # --- 미지원 런타임 (지원 추가 시 활성화) ---
+    # "go": frozenset({"go.mod"}),
+    # "ruby": frozenset({"Gemfile"}),
+    # "rust": frozenset({"Cargo.toml"}),
+    # "elixir": frozenset({"mix.exs"}),
+}
+_NIXPACKS_MARKERS = frozenset().union(*_RUNTIME_MARKERS.values())
 
 
 # build_mode="detect" 해소 — GitHub tree API로 빌드 방식 + 경로를 한 번에 감지 (깊이 3까지).
 #   1) Dockerfile 있으면        → ("dockerfile", 그 경로)
 #   2) 없고 nixpacks 마커 있으면 → ("auto", 그 디렉토리)  ← 모노레포 서브디렉토리 자동
 #   3) 둘 다 없으면             → ("auto", project_path 그대로) — nixpacks가 root에서 시도
-# project_path 하위 우선, root에 가까운 것 우선. private은 installation 토큰. fallback 아님(존재 기반).
+# project_path 하위 우선, 선택 런타임 마커 우선, root에 가까운 것 우선.
+# private은 installation 토큰. fallback 아님(존재 기반).
 def _detect_build(build: Build) -> "tuple[str, str]":
     fallback = ("auto", build.project_path or "")
     m = _GITHUB_REPO_PATTERN.match(build.repo_url.rstrip("/"))
@@ -89,13 +89,22 @@ def _detect_build(build: Build) -> "tuple[str, str]":
     except (urllib.error.URLError, TimeoutError, ValueError):
         return fallback
 
-    prefix = (build.project_path or "").strip("/")
+    chosen = _choose_build_target(data.get("tree", []), build.project_path, build.runtime)
+    return chosen if chosen else fallback
+
+
+# tree(파싱된 GitHub tree API 응답)에서 빌드 방식+경로 선택 — 순수 함수.
+# Dockerfile > 선택 런타임의 마커 > 그 외 마커, 각각 root 가까운 것 우선. 없으면 None.
+def _choose_build_target(
+    tree: "list[dict]", project_path: "str | None", runtime: str,
+) -> "tuple[str, str] | None":
+    prefix = (project_path or "").strip("/")
 
     def in_scope(p: str) -> bool:
         return not prefix or p == prefix or p.startswith(f"{prefix}/")
 
     dockerfiles, markers = [], []
-    for item in data.get("tree", []):
+    for item in tree:
         if item.get("type") != "blob":
             continue
         path = item.get("path", "")
@@ -111,10 +120,13 @@ def _detect_build(build: Build) -> "tuple[str, str]":
         dockerfiles.sort(key=lambda p: p.count("/"))
         return ("dockerfile", dockerfiles[0])
     if markers:                                        # nixpacks 마커 디렉토리
-        markers.sort(key=lambda p: p.count("/"))
+        preferred = _RUNTIME_MARKERS.get(runtime, frozenset())
+        markers.sort(
+            key=lambda p: (p.rsplit("/", 1)[-1] not in preferred, p.count("/"))
+        )
         best = markers[0]
         return ("auto", best.rsplit("/", 1)[0] if "/" in best else "")
-    return fallback
+    return None
 
 
 # GitHub 커밋 캐시 — unauthenticated 한도(IP당 60req/h, core egress IP 공유) 보호.
