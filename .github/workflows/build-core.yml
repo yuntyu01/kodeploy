@@ -65,8 +65,11 @@ jobs:
           tags: |
             ${{ steps.vars.outputs.image }}:${{ steps.vars.outputs.tag }}
             ${{ steps.vars.outputs.image }}:latest
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          # 레이어 캐시는 일부러 안 붙였다. 첫 시도에서 type=gha를 얹었다가 빌드 시작 18초 만에
+          # 죽었는데, permissions 블록을 명시하면 안 적은 스코프(actions)가 none이 되어 Actions
+          # 캐시 서비스에 접근을 못 하는 게 원인으로 보인다. 붙이려면 actions: write를 함께 주고,
+          # 캐시 없는 기준선 빌드 시간을 먼저 재서 실제로 이득이 있는지 확인한 뒤에 (user 빌드의
+          # BUILD_REGISTRY_CACHE를 기본 OFF로 두고 전후 비교하는 것과 같은 순서).
 
       - name: deployment.yaml에 이미지 고정
         id: pin
