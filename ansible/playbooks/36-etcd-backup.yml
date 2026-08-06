@@ -11,8 +11,17 @@
     etcd_version: v3.5.16                 # etcdctl 핀. snapshot save는 3.5/3.6 서버 모두 호환. 클러스터 etcd 이미지 태그에 맞춰 bump 가능.
     backup_dir: /var/backups/etcd
     keep_snapshots: 7
-    # 오프사이트(선택): rclone remote(예: "r2:kodeploy-etcd-backups"). 비우면 로컬 보관만 (오프사이트는 마스터에 rclone+remote 설정 필요).
-    etcd_backup_rclone_remote: ""
+    rclone_version: v1.68.2
+    etcd_backup_keep_days: 30            # 원격 보존기간 (로컬은 keep_snapshots 개수 기준)
+    # 오프사이트 목적지 — core DB 백업과 같은 버킷의 다른 prefix.
+    # 버킷을 안 나누는 이유: R2 스코프 토큰은 버킷 단위지 prefix 단위가 아니라, 같은 버킷에
+    # 토큰을 둘 두어도 서로의 파일을 다 읽는다 → "격리"가 생기지 않는다. 관리 지점만 늘어난다.
+    etcd_backup_rclone_remote: "r2:kodeploy-platform-backup/etcd"
+    # R2 자격증명 — 레포에 두지 않는다. 실행 시 -e @<레포 밖 vars 파일>로 주입.
+    # 비우면 오프사이트 설정을 안 쓰고 로컬 보관만 (기존 동작 그대로 폴백).
+    etcd_backup_r2_access_key_id: ""
+    etcd_backup_r2_secret_access_key: ""
+    etcd_backup_r2_endpoint: ""
     arch_map:
       x86_64: amd64
       aarch64: arm64
@@ -26,13 +35,16 @@
         group: root
         mode: '0700'
 
-    - name: etcdctl 설치 여부 확인
+    # etcdutl 존재를 게이트로 씀 — etcdctl만 있던 기존 노드에서도 3종 추출이 한 번 더 돈다.
+    # (etcdutl = snapshot restore 전용 도구. etcd = 복원 리허설에서 임시 서버를 띄우는 데 필요.
+    #  운영 etcd는 static pod라 호스트에 바이너리가 없어서 별도로 깐다.)
+    - name: etcd 도구 설치 여부 확인
       stat:
-        path: /usr/local/bin/etcdctl
-      register: etcdctl_stat
+        path: /usr/local/bin/etcdutl
+      register: etcdutl_stat
 
-    - name: etcdctl 다운로드 + 설치 (핀 버전, arch 자동 — OCI ARM/x86 양쪽)
-      when: not etcdctl_stat.stat.exists
+    - name: etcd 도구 다운로드 + 설치 (핀 버전, arch 자동 — OCI ARM/x86 양쪽)
+      when: not etcdutl_stat.stat.exists
       block:
         - name: etcd 릴리스 tarball 다운로드
           get_url:
@@ -40,7 +52,7 @@
             dest: "/tmp/etcd-{{ etcd_version }}.tar.gz"
             mode: '0644'
 
-        - name: etcdctl 바이너리만 추출
+        - name: etcdctl · etcdutl · etcd 바이너리 추출
           unarchive:
             src: "/tmp/etcd-{{ etcd_version }}.tar.gz"
             dest: /usr/local/bin
@@ -49,11 +61,37 @@
               - "--strip-components=1"
               - "--wildcards"
               - "*/etcdctl"
+              - "*/etcdutl"
+              - "*/etcd"
 
-        - name: etcdctl 실행권한 보장
+        - name: 실행권한 보장
           file:
-            path: /usr/local/bin/etcdctl
+            path: "/usr/local/bin/{{ item }}"
             mode: '0755'
+          loop: [etcdctl, etcdutl, etcd]
+
+    # rclone — 오프사이트 업로드용. dnf repo 메타데이터 로딩이 4GB 노드에서 OOM 나는 문제
+    # (70-cloudflare 참고)를 피하려고 공식 rpm을 받아 rpm으로 직접 설치한다(메타데이터 미사용).
+    # --nodeps: rclone은 Go 정적 바이너리라 rpm 의존성 해석이 의미 없고, 그걸 건너뛰면
+    # dnf를 전혀 안 거치게 된다.
+    - name: rclone 설치 여부 확인
+      stat:
+        path: /usr/bin/rclone
+      register: rclone_stat
+
+    - name: rclone 설치 (공식 rpm)
+      when: not rclone_stat.stat.exists
+      block:
+        - name: rclone rpm 다운로드
+          get_url:
+            url: "https://downloads.rclone.org/{{ rclone_version }}/rclone-{{ rclone_version }}-linux-{{ arch_map[ansible_architecture] }}.rpm"
+            dest: "/tmp/rclone-{{ rclone_version }}.rpm"
+            mode: '0644'
+
+        - name: rpm 설치
+          command: "rpm -Uvh --nodeps /tmp/rclone-{{ rclone_version }}.rpm"
+          args:
+            creates: /usr/bin/rclone
 
     - name: 스냅샷 스크립트 설치
       copy:
@@ -63,10 +101,15 @@
         mode: '0750'
         content: |
           #!/bin/bash
-          # etcd 스냅샷 1회 + 무결성 확인 + 회전 (+ 선택 오프사이트). systemd timer가 호출.
+          # etcd 스냅샷 1회 + 무결성 확인 + 회전 + 오프사이트. systemd timer가 호출.
           set -euo pipefail
+          # ★ env를 스크립트가 직접 읽는다. systemd는 EnvironmentFile로 주입해주지만 ansible의
+          #   command 모듈이나 손으로 돌릴 땐 안 거치므로, 이게 없으면 오프사이트 업로드가
+          #   조용히 건너뛰어진다 (실제로 그렇게 첫 실행을 놓쳤다).
+          if [ -r /etc/etcd-backup.env ]; then set -a; . /etc/etcd-backup.env; set +a; fi
           BACKUP_DIR={{ backup_dir }}
           KEEP={{ keep_snapshots }}
+          KEEP_DAYS={{ etcd_backup_keep_days }}
           TS=$(date +%Y%m%d-%H%M%S)
           SNAP="$BACKUP_DIR/etcd-snapshot-$TS.db"
 
@@ -83,24 +126,151 @@
           # 회전: 최신 KEEP개만 남기고 삭제
           ls -1t "$BACKUP_DIR"/etcd-snapshot-*.db | tail -n +$((KEEP + 1)) | xargs -r rm -f
 
-          # 오프사이트(선택): rclone remote 설정 시 업로드 (스냅샷은 민감 — 통제된 원격에만)
-          if [ -n "${ETCD_BACKUP_RCLONE_REMOTE:-}" ]; then
-            if command -v rclone >/dev/null 2>&1; then
-              rclone copy "$SNAP" "$ETCD_BACKUP_RCLONE_REMOTE/" || echo "offsite 업로드 실패 (로컬 스냅샷은 유지)"
-            else
-              echo "rclone 미설치 — 오프사이트 건너뜀"
-            fi
+          # 오프사이트 — 스냅샷은 클러스터 전체 Secret을 담으므로 통제된 원격에만.
+          # 실패를 삼키지 않는다: 여기서 죽으면 systemctl status에 빨갛게 남는다. 로컬 스냅샷은
+          # 이미 저장된 뒤라 잃는 게 없고, "조용히 오프사이트가 없는" 상태보다 훨씬 낫다.
+          if [ -z "${ETCD_BACKUP_RCLONE_REMOTE:-}" ]; then
+            echo "⚠️ 오프사이트 미설정 — 로컬 보관만 (마스터 소실 시 스냅샷도 함께 소실)"
+          elif ! command -v rclone >/dev/null 2>&1; then
+            echo "⚠️ rclone 미설치 — 오프사이트 건너뜀"
+          else
+            SNAP_NAME=$(basename "$SNAP")
+            rclone copy "$SNAP" "$ETCD_BACKUP_RCLONE_REMOTE/"
+            # 업로드 성공을 exit code가 아니라 원격 해시 대조로 확인 (core 백업과 동일 방식)
+            rclone check "$BACKUP_DIR" "$ETCD_BACKUP_RCLONE_REMOTE" --one-way --include "$SNAP_NAME"
+            echo "offsite ok: $ETCD_BACKUP_RCLONE_REMOTE/$SNAP_NAME"
+            rclone delete "$ETCD_BACKUP_RCLONE_REMOTE" --min-age "${KEEP_DAYS}d"
           fi
           echo "snapshot ok: $SNAP"
 
-    - name: 오프사이트 설정 env 파일 (systemd service가 읽음)
+    # 복원 리허설 — "스냅샷이 있다"가 아니라 "복원된다"를 증명한다. 타이머 아님, 수동 실행:
+    #   sudo /usr/local/bin/etcd-restore-drill.sh
+    # 운영 etcd(2379)는 건드리지 않는다: 스냅샷을 임시 디렉토리에 복원하고 127.0.0.1:2479에
+    # 별도 etcd를 잠깐 띄워 내용을 읽은 뒤 통째로 지운다. 오프사이트가 설정돼 있으면 원격 사본을
+    # 받아서 검증한다 — 로컬 파일을 보는 건 오프사이트가 살아있는지 증명하지 못하므로.
+    - name: 복원 리허설 스크립트 설치
+      copy:
+        dest: /usr/local/bin/etcd-restore-drill.sh
+        owner: root
+        group: root
+        mode: '0750'
+        content: |
+          #!/bin/bash
+          set -euo pipefail
+
+          # sudo의 secure_path에 /usr/local/bin이 없어서 etcdctl/etcdutl/etcd를 못 찾는다.
+          # (스냅샷 스크립트는 절대경로를 쓰지만 여기선 도구가 셋이라 PATH로 해결.)
+          PATH=/usr/local/bin:$PATH
+          export PATH
+
+          # 수동 실행에서도 타이머와 동일한 환경이 되도록 env 파일을 통째 export
+          if [ -r /etc/etcd-backup.env ]; then set -a; . /etc/etcd-backup.env; set +a; fi
+
+          CLIENT=http://127.0.0.1:2479
+          PEER=http://127.0.0.1:2480
+          WORK=$(mktemp -d /tmp/etcd-drill-XXXXXX)
+          ETCD_PID=""
+
+          cleanup() {
+            if [ -n "$ETCD_PID" ]; then
+              kill "$ETCD_PID" 2>/dev/null || true
+              wait "$ETCD_PID" 2>/dev/null || true
+            fi
+            rm -rf "$WORK"
+          }
+          trap cleanup EXIT
+
+          echo "[1/5] 대상 스냅샷 확보"
+          if [ -n "${ETCD_BACKUP_RCLONE_REMOTE:-}" ] && command -v rclone >/dev/null 2>&1; then
+            FILE=$(rclone lsf --files-only "$ETCD_BACKUP_RCLONE_REMOTE" | sort | tail -1)
+            if [ -z "$FILE" ]; then echo "  ✗ 원격에 스냅샷이 없다"; exit 1; fi
+            echo "  원격(오프사이트): $FILE"
+            rclone copyto "$ETCD_BACKUP_RCLONE_REMOTE/$FILE" "$WORK/snap.db"
+          else
+            FILE=$(ls -1t {{ backup_dir }}/etcd-snapshot-*.db 2>/dev/null | head -1 || true)
+            if [ -z "$FILE" ]; then echo "  ✗ 로컬 스냅샷이 없다"; exit 1; fi
+            echo "  로컬(오프사이트 미설정): $FILE"
+            cp "$FILE" "$WORK/snap.db"
+          fi
+
+          echo "[2/5] 스냅샷 무결성"
+          etcdctl snapshot status "$WORK/snap.db" --write-out=table
+
+          echo "[3/5] 임시 데이터 디렉토리로 복원"
+          RESTORE=etcdctl
+          command -v etcdutl >/dev/null 2>&1 && RESTORE=etcdutl
+          "$RESTORE" snapshot restore "$WORK/snap.db" \
+            --data-dir "$WORK/data" --name drill \
+            --initial-cluster "drill=$PEER" \
+            --initial-advertise-peer-urls "$PEER" >/dev/null 2>&1
+
+          echo "[4/5] 임시 etcd 기동 (127.0.0.1:2479 — 운영 2379와 분리)"
+          etcd --data-dir "$WORK/data" --name drill \
+            --listen-client-urls "$CLIENT" --advertise-client-urls "$CLIENT" \
+            --listen-peer-urls "$PEER" --initial-advertise-peer-urls "$PEER" \
+            --initial-cluster "drill=$PEER" --initial-cluster-token drill \
+            > "$WORK/etcd.log" 2>&1 &
+          ETCD_PID=$!
+          READY=0
+          for i in $(seq 1 30); do
+            if etcdctl --endpoints="$CLIENT" endpoint health >/dev/null 2>&1; then READY=1; break; fi
+            sleep 1
+          done
+          if [ "$READY" != "1" ]; then
+            echo "  ✗ 임시 etcd 기동 실패"; tail -20 "$WORK/etcd.log"; exit 1
+          fi
+
+          echo "[5/5] 내용 검증"
+          cnt() {
+            etcdctl --endpoints="$CLIENT" get "$1" --prefix --keys-only 2>/dev/null \
+              | grep -c "^/registry" || true
+          }
+          NS=$(cnt /registry/namespaces/)
+          SEC=$(cnt /registry/secrets/)
+          DEP=$(cnt /registry/deployments/)
+          POD=$(cnt /registry/pods/)
+          printf '  %-14s %s\n' namespaces "$NS" secrets "$SEC" deployments "$DEP" pods "$POD"
+
+          FAIL=0
+          if [ "$NS" -le 0 ]; then echo "  ✗ namespace 키 없음"; FAIL=1; fi
+          if [ "$SEC" -le 0 ]; then echo "  ✗ secret 키 없음"; FAIL=1; fi
+
+          # Secret 값이 k8s:enc:... 로 시작하면 secretbox 암호문 — 이 스냅샷만으로는 Secret 복원 불가.
+          ENC=$(etcdctl --endpoints="$CLIENT" get /registry/secrets/ --prefix --limit 1 2>/dev/null \
+                | tr -dc '[:print:]\n' | grep -o 'k8s:enc:[a-z]*:v1:[A-Za-z0-9_-]*' | head -1 || true)
+          if [ -n "$ENC" ]; then
+            echo "  암호화: $ENC"
+            echo "    → 이 스냅샷만으로는 Secret 복원 불가."
+            echo "      /etc/kubernetes/enc/enc.yaml 을 별도 보관해야 한다 (R2에 같이 두지 말 것)."
+          else
+            echo "  ⚠️ Secret이 평문으로 보인다 — 암호화 미적용 스냅샷일 수 있음"
+          fi
+
+          if [ "$FAIL" -ne 0 ]; then echo "=== 리허설 실패 ==="; exit 1; fi
+          echo "=== 리허설 통과 — 이 스냅샷은 복원 가능 ==="
+
+    # systemd service가 EnvironmentFile로 읽어 스냅샷 스크립트(그리고 rclone)에 그대로 넘긴다.
+    # 자격증명이 안 들어오면 remote도 비워 로컬 보관으로 폴백한다 — 절반만 설정된 채로 매일
+    # 업로드만 실패하는 상태가 제일 나쁘다(조용히 오프사이트가 없는 줄 모르게 됨).
+    - name: 오프사이트 설정 env 파일
+      no_log: true                       # R2 자격증명이 ansible 출력에 찍히지 않게
       copy:
         dest: /etc/etcd-backup.env
         owner: root
         group: root
         mode: '0600'
         content: |
+          {% if etcd_backup_r2_access_key_id %}
           ETCD_BACKUP_RCLONE_REMOTE={{ etcd_backup_rclone_remote }}
+          RCLONE_CONFIG_R2_TYPE=s3
+          RCLONE_CONFIG_R2_PROVIDER=Cloudflare
+          RCLONE_CONFIG_R2_ACCESS_KEY_ID={{ etcd_backup_r2_access_key_id }}
+          RCLONE_CONFIG_R2_SECRET_ACCESS_KEY={{ etcd_backup_r2_secret_access_key }}
+          RCLONE_CONFIG_R2_ENDPOINT={{ etcd_backup_r2_endpoint }}
+          RCLONE_CONFIG_R2_NO_CHECK_BUCKET=true
+          {% else %}
+          ETCD_BACKUP_RCLONE_REMOTE=
+          {% endif %}
 
     - name: systemd service (oneshot)
       copy:
