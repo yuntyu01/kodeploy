@@ -1,0 +1,162 @@
+# 복원 리허설 — "백업이 있다"가 아니라 "복원된다"를 증명하는 Job.
+# ----------------------------------------------------------------------------
+# 검증 안 한 백업은 백업이 아니다. 흔한 실패는 덤프 파일은 매일 쌓이는데 정작 복원해보면
+# 스키마가 안 맞거나, 잘려 있거나, 압축이 깨져 있는 경우다. cronjob.yaml의 sentinel 검증이
+# 1차 방어지만 그건 "덤프가 끝까지 쓰였나"까지고, "이걸로 실제 DB가 서는가"는 별개다.
+#
+# 이 Job은 운영 DB를 건드리지 않는다. Pod 안에 빈 mysqld를 임시로 띄우고(emptyDir datadir,
+# --skip-networking) 거기에만 덤프를 적재한 뒤 행 수를 세고 죽는다. 운영 mysql에는 접속조차
+# 하지 않는다 — 리허설이 사고가 되는 경로를 원천 차단.
+#
+# 실행 (generateName이라 apply가 아니라 create — 반복 실행 가능):
+#   kubectl create -f deploy/k8s/backup/restore-drill.yaml
+#   kubectl logs -f job/<생성된 이름>
+#
+# 특정 백업을 지정하려면 BACKUP_FILE env를 채운다 (비우면 원격의 최신 파일).
+apiVersion: batch/v1
+kind: Job
+metadata:
+  generateName: kodeploy-db-restore-drill-
+  namespace: default
+  labels:
+    app: kodeploy-db-restore-drill
+spec:
+  backoffLimit: 0                     # 리허설은 재시도 의미 없음 — 실패 자체가 결과다
+  activeDeadlineSeconds: 1800
+  ttlSecondsAfterFinished: 604800     # 7일간 로그 보존 (리허설 기록이 곧 증거)
+  template:
+    metadata:
+      labels:
+        app: kodeploy-db-restore-drill
+    spec:
+      restartPolicy: Never
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        fsGroup: 999
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        # 원격에서 검증 대상 덤프를 내려받는다. 파일명을 지정하지 않으면 최신 1개
+        # (파일명이 kodeploy-YYYYmmdd-HHMMSS.sql.gz라 사전순 정렬 = 시간순 정렬).
+        - name: fetch
+          image: rclone/rclone:1.68
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eu
+              : "${BACKUP_REMOTE:?BACKUP_REMOTE 미설정}"
+              FILE="${BACKUP_FILE:-}"
+              if [ -z "$FILE" ]; then
+                FILE=$(rclone lsf --files-only "${BACKUP_REMOTE}" | sort | tail -1)
+              fi
+              if [ -z "$FILE" ]; then
+                echo "✗ 원격에 백업이 없다: ${BACKUP_REMOTE}"
+                exit 1
+              fi
+              echo "대상 백업: ${FILE}"
+              rclone copyto "${BACKUP_REMOTE}/${FILE}" /dump/dump.sql.gz
+              echo "${FILE}" > /dump/SOURCE
+              ls -lh /dump/dump.sql.gz
+          env:
+            - name: HOME
+              value: /tmp
+            - name: BACKUP_FILE
+              value: ""               # 비우면 최신. 특정 시점 검증 시 파일명 지정.
+          envFrom:
+            - secretRef:
+                name: kodeploy-backup-r2
+          resources:
+            requests: { cpu: 50m, memory: 128Mi, ephemeral-storage: 128Mi }
+            limits:   { cpu: 300m, memory: 256Mi, ephemeral-storage: 3Gi }
+          volumeMounts:
+            - name: dump
+              mountPath: /dump
+      containers:
+        - name: drill
+          image: mysql:8.4            # 운영과 동일 태그 — 버전 차이로 인한 가짜 실패/가짜 성공 회피
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              set -euo pipefail
+              EXPECTED="users sessions builds build_records posts comments"
+              SOCK=/tmp/drill.sock
+              DATA=/var/lib/mysql-drill
+
+              echo "=== 복원 리허설: $(cat /dump/SOURCE) ==="
+
+              echo "[1/4] 빈 mysqld 초기화 (운영 DB와 무관한 emptyDir)"
+              mysqld --initialize-insecure --datadir="${DATA}" > /tmp/init.log 2>&1 \
+                || { echo "✗ 초기화 실패"; tail -20 /tmp/init.log; exit 1; }
+
+              echo "[2/4] mysqld 기동 (--skip-networking — 소켓 전용, 외부 노출 없음)"
+              mysqld --datadir="${DATA}" --socket="${SOCK}" --skip-networking \
+                     --pid-file=/tmp/drill.pid > /tmp/mysqld.log 2>&1 &
+              for i in $(seq 1 60); do
+                if mysqladmin --socket="${SOCK}" -u root ping >/dev/null 2>&1; then break; fi
+                if [ "$i" = "60" ]; then echo "✗ mysqld 기동 타임아웃"; tail -20 /tmp/mysqld.log; exit 1; fi
+                sleep 1
+              done
+
+              echo "[3/4] 덤프 적재"
+              # 덤프에 CREATE DATABASE/USE가 포함돼 있다(--databases). 빈 인스턴스에 그대로 들어간다.
+              gzip -dc /dump/dump.sql.gz | mysql --socket="${SOCK}" -u root
+
+              echo "[4/4] 검증 — 테이블 존재 + 행 수"
+              Q() { mysql --socket="${SOCK}" -u root -N -B -e "$1"; }
+
+              FOUND=$(Q "SELECT table_name FROM information_schema.tables WHERE table_schema='kodeploy';" | sort)
+              FAIL=0
+              for t in ${EXPECTED}; do
+                if ! echo "${FOUND}" | grep -qx "${t}"; then
+                  echo "  ✗ 테이블 없음: ${t}"
+                  FAIL=1
+                fi
+              done
+
+              printf '  %-16s %s\n' "TABLE" "ROWS"
+              for t in ${EXPECTED}; do
+                if echo "${FOUND}" | grep -qx "${t}"; then
+                  printf '  %-16s %s\n' "${t}" "$(Q "SELECT COUNT(*) FROM kodeploy.${t};")"
+                fi
+              done
+
+              # 행 수 sentinel — 스키마만 있고 데이터가 통째로 빠진 덤프를 잡는다.
+              # users가 0인 상황은 운영에 존재하지 않으므로 0이면 백업이 잘못된 것.
+              USERS=$(Q "SELECT COUNT(*) FROM kodeploy.users;" 2>/dev/null || echo 0)
+              if [ "${USERS}" -eq 0 ]; then
+                echo "  ✗ users 0행 — 스키마만 있고 데이터가 없다"
+                FAIL=1
+              fi
+
+              mysqladmin --socket="${SOCK}" -u root shutdown >/dev/null 2>&1 || true
+
+              if [ "${FAIL}" -ne 0 ]; then
+                echo "=== 리허설 실패 — 이 백업으로는 복원 불가 ==="
+                exit 1
+              fi
+              echo "=== 리허설 통과 — 이 백업은 복원 가능 ==="
+          resources:
+            requests: { cpu: 100m, memory: 512Mi, ephemeral-storage: 256Mi }
+            limits:   { cpu: 1000m, memory: 1Gi,  ephemeral-storage: 5Gi }   # datadir + 덤프 전개분
+          volumeMounts:
+            - name: dump
+              mountPath: /dump
+            - name: drill-data
+              mountPath: /var/lib/mysql-drill
+      volumes:
+        - name: dump
+          emptyDir:
+            sizeLimit: 3Gi
+        - name: drill-data
+          emptyDir:
+            sizeLimit: 5Gi          # 임시 datadir — Pod 종료 시 소멸
