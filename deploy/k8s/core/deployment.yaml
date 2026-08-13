@@ -52,7 +52,7 @@ spec:
                 name: kodeploy-origin-verify             # ORIGIN_VERIFY_SECRET — 앱 HTTPRoute 헤더매칭값(origin-lock B′)
                 optional: true                           # 없으면 새 앱 라우트에 헤더매칭 미주입(Layer A만) — /healthz 정상
             - secretRef:
-                name: kodeploy-anthropic                 # ANTHROPIC_API_KEY — 빌드/배포 실패 AI 진단
+                name: kodeploy-ai                        # LLM_API_KEY — 빌드/배포 실패 AI 진단
                 optional: true                           # 없으면 진단만 비활성 — 빌드·배포는 그대로
           env:
             - name: DB_PASSWORD                          # 시크릿은 개별로

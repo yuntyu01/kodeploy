@@ -19,5 +19,10 @@ data:
   SESSION_COOKIE_SAMESITE: "lax"
   SESSION_COOKIE_DOMAIN: ".kodeploy.com"
   # 빌드/배포 실패 AI 진단. 기본 OFF — 실 로그로 몇 건 돌려 품질·비용 확인 후 "true"로.
-  # 켜려면 kodeploy-anthropic Secret(ANTHROPIC_API_KEY)도 함께 있어야 한다.
+  # 켜려면 kodeploy-ai Secret(LLM_API_KEY)도 함께 있어야 한다.
   AI_DIAGNOSE: "false"
+  # 사내 API Gateway (OpenAI 호환 엔드포인트). 시크릿 아님 — 키만 Secret으로 간다.
+  LLM_BASE_URL: "https://factchat-cloud.mindlogic.ai/v1/gateway"
+  # 게이트웨이가 제공자를 흡수하므로 이 문자열만 바꾸면 Claude↔GPT 전환. 코드 분기 없음.
+  # 바꾼 뒤엔 실패 1건으로 구조화 출력(strict json_schema) 통과 여부를 확인할 것.
+  LLM_MODEL: "claude-sonnet-4-6"

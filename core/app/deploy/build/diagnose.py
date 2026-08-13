@@ -1,8 +1,13 @@
-"""빌드/배포 실패 AI 진단 — Claude API로 로그를 읽고 한국어 원인·조치를 낸다.
+"""빌드/배포 실패 AI 진단 — LLM으로 로그를 읽고 한국어 원인·조치를 낸다.
 
 r2.py·domains.py와 같은 위치의 모듈: 외부 API를 직접 호출하는 함수 모음. ABC/Protocol
 없음 — 케이스 하나다. pipeline이 실패를 커밋한 뒤 best-effort로 호출하고, 실패하면
 경고만 남기고 지나간다 (진단 실패가 배포 흐름을 막지 않는다).
+
+호출은 사내 API Gateway를 거친다(config.LLM_BASE_URL). 게이트웨이가 OpenAI 호환
+포맷으로 여러 제공자를 묶어주므로 SDK는 openai 하나만 쓰고, 실제 모델은 config.LLM_MODEL
+문자열로 고른다 — Claude ↔ GPT 전환이 배포 설정 한 줄이다. 제공자별 분기 코드는 두지
+않는다(케이스 하나).
 
 왜 범용 LLM 호출이 아니라 이 모듈인가:
   실패 로그 마지막 줄은 대개 사람이 읽을 수 있고, 그것만 번역해 주는 건 이미 실시간으로
@@ -19,7 +24,7 @@ import logging
 import re
 from typing import Literal
 
-import anthropic
+import openai
 from kubernetes.client.exceptions import ApiException
 from pydantic import BaseModel, Field
 
@@ -30,15 +35,10 @@ from app.shared import k8s
 
 logger = logging.getLogger(__name__)
 
-MODEL = "claude-opus-5"
-# thinking 깊이 + 전체 토큰 지출. 이 모델은 thinking 파라미터를 생략하면 adaptive thinking이
-# 켜지고(Opus 4.8에서 바뀐 지점), thinking 토큰은 출력 단가로 과금된다 — 즉 호출 비용의
-# 대부분이 여기서 나온다. 진단은 개방형 에이전트 작업이 아니라 "로그를 제약 목록에 매핑"하는
-# 경계 뚜렷한 분류+추출이라 medium으로 시작한다. 기본값은 high.
-# ★ max_tokens를 올려 여유를 주는 길은 막혀 있다 — SDK가 비스트리밍 요청에서
-#   3600 * max_tokens / 128000 > 600초면 호출 전에 ValueError를 던진다(상한 약 21,333).
-#   그래서 조절 레버는 max_tokens가 아니라 이 값이다.
-EFFORT = "medium"
+# 응답 상한. 게이트웨이 뒤에 reasoning 모델이 붙으면 추론 토큰도 이 예산을 함께 먹으므로,
+# 진단 JSON 자체가 필요로 하는 양(수백 토큰)보다 넉넉히 둔다. 모자라면 JSON이 중간에
+# 끊기고 parsed가 None이 된다(_call의 finish_reason 검사가 그 경우를 잡는다).
+MAX_TOKENS = 16_000
 
 # 로그 절단 — nixpacks 로그는 수십만 자가 예사다. 실패 신호는 거의 항상 꼬리에 있고,
 # 머리는 "무엇을 빌드하려 했나" 맥락용으로 소량만 있으면 된다.
@@ -173,17 +173,21 @@ Kubernetes를 직접 다루지 않습니다. 따라서 K8s 용어로 답하지 �
 
 def is_configured() -> bool:
     """진단 기능이 켜져 있고 자격증명이 있는지. 호출부의 사전 차단용."""
-    return bool(config.AI_DIAGNOSE_ENABLED and config.ANTHROPIC_API_KEY)
+    return bool(config.AI_DIAGNOSE_ENABLED and config.LLM_API_KEY)
 
 
-_client: anthropic.Anthropic | None = None
+_client: openai.OpenAI | None = None
 
 
-def _get_client() -> anthropic.Anthropic:
+def _get_client() -> openai.OpenAI:
     # import 시점에 키를 요구하지 않도록 lazy (shared/k8s.py와 같은 철학).
     global _client
     if _client is None:
-        _client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
+        # api_key·base_url 둘 다 명시 필수 — 생략하면 SDK가 env의 OPENAI_API_KEY와
+        # api.openai.com으로 붙는다. 우리 키는 LLM_API_KEY고 목적지는 사내 게이트웨이다.
+        _client = openai.OpenAI(
+            api_key=config.LLM_API_KEY, base_url=config.LLM_BASE_URL
+        )
     return _client
 
 
@@ -340,27 +344,39 @@ def _stack_summary(build) -> str:
 
 
 def _call(case: str) -> str:
-    """공통 호출부 — 케이스 텍스트를 받아 Diagnosis JSON 문자열을 반환."""
-    resp = _get_client().messages.parse(
-        model=MODEL,
-        max_tokens=16000,
-        # parse()가 output_format을 output_config["format"]에 병합하므로 둘 다 넘겨도 안전하다
-        # ({**output_config, "format": ...} — format이 나중에 덮는다).
-        output_config={"effort": EFFORT},
-        system=[
-            {
-                "type": "text",
-                "text": _PLATFORM_CONTEXT,
-                # 고정 프리픽스라 매 호출 캐시 히트 — 입력가의 약 0.1배로 읽힌다.
-                "cache_control": {"type": "ephemeral"},
-            }
+    """공통 호출부 — 케이스 텍스트를 받아 Diagnosis JSON 문자열을 반환.
+
+    response_format에 Pydantic 모델을 넘기면 SDK가 strict json_schema로 바꿔 보낸다.
+    Diagnosis의 선언 순서·enum·additionalProperties:false가 그대로 스키마에 실리므로,
+    "필드 순서 = 생성 순서" 설계가 여기서도 유지된다.
+
+    ⚠️ 게이트웨이가 strict structured outputs를 뒤쪽 제공자까지 통과시키는지는 모델마다
+       다를 수 있다. 통과하지 않으면 parsed가 None으로 오거나 스키마 미지원 에러가 나는데,
+       둘 다 아래에서 ValueError로 올라가 _attach_diagnosis가 경고만 남기고 삼킨다
+       (배포 결과는 무손상). LLM_MODEL을 바꿀 때는 실패 1건으로 먼저 확인할 것.
+    """
+    resp = _get_client().chat.completions.parse(
+        model=config.LLM_MODEL,
+        max_tokens=MAX_TOKENS,
+        messages=[
+            # 고정 프리픽스 = 매 호출 동일. Anthropic 네이티브의 cache_control 같은 명시
+            # 마커는 OpenAI 포맷에 없고, 프리픽스 캐시가 걸리는지는 게이트웨이/제공자 몫이다.
+            # 그래서 캐시는 기대하지 않고, 비용은 로그 절단(_truncate)으로 관리한다.
+            {"role": "system", "content": _PLATFORM_CONTEXT},
+            {"role": "user", "content": case},
         ],
-        messages=[{"role": "user", "content": case}],
-        output_format=Diagnosis,
+        response_format=Diagnosis,
     )
-    parsed = resp.parsed_output
+    choice = resp.choices[0]
+    # 예산 초과로 JSON이 중간에 끊긴 경우. parsed는 None이고 finish_reason만이 이유를 안다.
+    if choice.finish_reason == "length":
+        raise ValueError("진단 응답이 max_tokens에서 잘림")
+    # 안전 필터가 거절한 경우 — 로그가 유저 통제 입력이라 드물게 발생할 수 있다.
+    if getattr(choice.message, "refusal", None):
+        raise ValueError(f"진단 거절됨: {choice.message.refusal}")
+    parsed = choice.message.parsed
     if parsed is None:
-        raise ValueError(f"진단 파싱 실패 (stop_reason={resp.stop_reason})")
+        raise ValueError(f"진단 파싱 실패 (finish_reason={choice.finish_reason})")
     # cause_category와 kodeploy_specific은 논리적으로 종속(플랫폼 범주면 반드시 true)이라,
     # 어긋나면 그 진단은 자기모순 = 모델이 확신 못 한 케이스다. 결과는 그대로 쓰되
     # 품질 지표로만 남긴다 — 골든 셋 라벨 없이도 흔들림을 재는 유일한 신호.

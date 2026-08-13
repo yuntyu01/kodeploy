@@ -74,10 +74,24 @@ CUSTOM_DOMAIN_CNAME_TARGET = os.getenv("CUSTOM_DOMAIN_CNAME_TARGET", "origin.kod
 # 비어 있으면 헤더매칭 생략(미적용 — Layer A만). CF가 전 트래픽에 헤더 붙이는 걸 켠 뒤 설정할 것.
 ORIGIN_VERIFY_SECRET = os.getenv("ORIGIN_VERIFY_SECRET", "")
 
-# --- AI 실패 진단 (Claude API) ---
+# --- AI 실패 진단 (사내 API Gateway) ---
 # 빌드/배포 실패 시 로그를 읽어 한국어 원인·조치를 내는 기능. 시크릿이라 env 주입.
 # 비어 있으면 기능 비활성(diagnose.is_configured()=False) — 배포 흐름엔 영향 없음.
-ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
+# 이름이 벤더 중립(LLM_)인 이유: 게이트웨이가 여러 제공자를 한 키/한 URL로 묶어주고,
+# Secret도 kodeploy-ai, 플래그도 AI_DIAGNOSE라 어휘를 맞춘다.
+# ⚠️ openai SDK는 인자를 생략하면 env의 OPENAI_API_KEY와 api.openai.com을 쓴다.
+#    이름과 목적지가 둘 다 다르므로 diagnose._get_client()는 둘 다 명시해야 한다.
+LLM_API_KEY = os.getenv("LLM_API_KEY", "")
+# 게이트웨이의 OpenAI 호환(Chat Completions) 엔드포인트. Anthropic 네이티브 경로
+# (.../gateway/claude)도 있지만 SDK를 하나로 두려고 이쪽만 쓴다.
+LLM_BASE_URL = os.getenv(
+    "LLM_BASE_URL", "https://factchat-cloud.mindlogic.ai/v1/gateway"
+)
+# 실제 호출 모델. 게이트웨이가 제공자를 흡수하므로 이 문자열 하나로 Claude ↔ GPT를 옮긴다.
+# 코드에 분기가 없다는 게 요점 — 바꾸고 rollout restart만 하면 된다.
+# ⚠️ 바꾼 뒤엔 실패 1건으로 구조화 출력(strict json_schema)이 그 모델에서도 통과하는지
+#    확인할 것. 제공자마다 지원 여부가 다르고, 안 되면 진단만 조용히 비게 된다.
+LLM_MODEL = os.getenv("LLM_MODEL", "claude-sonnet-4-6")
 # 기본 OFF. EARLY_TRIGGER/BUILD_REGISTRY_CACHE와 같은 방침 — 실 로그로 몇 건 돌려
 # 진단 품질과 호출당 비용을 확인한 뒤 켠다. 켜도 실패한 빌드에서만 호출된다.
 AI_DIAGNOSE_ENABLED = os.getenv("AI_DIAGNOSE", "false").lower() == "true"
