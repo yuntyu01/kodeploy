@@ -14,7 +14,6 @@ import {
   Eye,
   EyeOff,
   Plus,
-  Sparkles,
   Trash2,
   Upload,
   X,
@@ -333,6 +332,12 @@ function CommitDetailPanel({ commit, onClose }) {
   );
 }
 
+// 진단을 자동으로 띄운 build_id 이력. 빌드당 한 번만 열기 위한 것.
+// 모듈 레벨이라 활동 패널을 닫았다 열어도 다시 안 뜨고, 새로고침하면 초기화된다.
+// localStorage로 영구화할 수도 있지만, 키가 무한히 자라는 데다 delete_app으로 사라진
+// build_id를 치울 자리가 없어서 세션 범위로 둔다. 새로고침 후 한 번 더 뜨는 건 감수.
+const autoOpenedDiagnosis = new Set();
+
 function BuildsBody({ builds }) {
   // 슬롯 칩(프론트/백엔드)은 정적 빌드가 섞여 있을 때만 — 단일 슬롯이면 노이즈
   const hasStaticBuilds = builds.some((b) => b.runtime === "static");
@@ -340,6 +345,21 @@ function BuildsBody({ builds }) {
   // 활동 패널은 우측 z-40, BuildLogsPanel은 좌측 z-40 — 동시 표시 가능.
   const [expanded, setExpanded] = useState(null);
   const [logsView, setLogsView] = useState(null);
+
+  // 최신 빌드가 실패했고 진단이 붙어 있으면 처음 한 번은 자동으로 펼쳐 보여준다.
+  // 실패 직후엔 유저가 원인을 찾고 있으므로 버튼을 누르게 만들 이유가 없고, 한 번 닫은
+  // 뒤로는 방해가 되므로 다시 뜨지 않는다.
+  // row를 같이 펼치는 게 핵심 — 창을 닫았을 때 "AI 원인 보기" 버튼이 바로 보여야
+  // 다시 열 수 있다. 안 그러면 접힌 목록만 남아 되돌아갈 길이 사라진다.
+  // 최신 것만 대상으로 한다: 히스토리를 훑는 중에 옛 실패까지 튀어나오면 방해다.
+  useEffect(() => {
+    const latest = builds[0];
+    if (!latest || latest.status !== "failed" || !latest.ai_analysis) return;
+    if (autoOpenedDiagnosis.has(latest.build_id)) return;
+    autoOpenedDiagnosis.add(latest.build_id);
+    setExpanded(latest.build_id);
+    setLogsView({ build: latest, mode: "diagnosis" });
+  }, [builds]);
 
   if (builds.length === 0) {
     return (
@@ -496,7 +516,6 @@ function BuildsBody({ builds }) {
                     {b.error && (
                       <Row label="에러" value={b.error} color="var(--err-fg)" />
                     )}
-                    {b.ai_analysis && <AiDiagnosis raw={b.ai_analysis} />}
                     <div className="mt-1 flex gap-2">
                       <button
                         onClick={() => setLogsView({ build: b, mode: "logs" })}
@@ -526,6 +545,25 @@ function BuildsBody({ builds }) {
                       >
                         Dockerfile 보기
                       </button>
+                      {/* 진단은 실패한 빌드에만 붙는다(성공/env_change면 NULL) → 그때만 노출.
+                          로그·Dockerfile처럼 disabled로 남겨두면 성공한 빌드마다 비활성 버튼이
+                          하나씩 붙어 소음이 된다. */}
+                      {b.ai_analysis && (
+                        <button
+                          onClick={() =>
+                            setLogsView({ build: b, mode: "diagnosis" })
+                          }
+                          className="px-3 py-1.5 rounded-md text-[11.5px] transition-colors"
+                          style={{
+                            fontWeight: 510,
+                            color: "var(--accent)",
+                            border: "1px solid rgba(129,139,224,0.35)",
+                            background: "rgba(129,139,224,0.06)",
+                          }}
+                        >
+                          AI 원인 보기
+                        </button>
+                      )}
                     </div>
                   </div>
                 )}
@@ -546,82 +584,100 @@ function BuildsBody({ builds }) {
   );
 }
 
-// 실패 빌드의 AI 진단 카드. raw는 백엔드 diagnose.Diagnosis의 JSON 문자열.
-// 진단은 부가정보라 파싱이 깨지면 조용히 사라진다 — 빌드 상세 자체를 망치지 않게.
-function AiDiagnosis({ raw }) {
-  let d;
+// --- AI 진단 (mode="diagnosis" 오버레이) --------------------------------------
+// 백엔드 diagnose.Diagnosis의 JSON 문자열을 받아 섹션별로 그린다. 자유 텍스트 한 덩어리로
+// 받지 않는 이유가 여기서 드러난다 — 원인/근거/조치가 따로 오니 각각 다른 모양으로 보여줄 수 있다.
+
+// 파싱 실패는 조용히 null. 진단은 부가정보라 창 자체를 깨뜨리면 안 되고,
+// 호출부가 평문 fallback(build.ai_analysis 원문)으로 떨어진다.
+function parseDiagnosis(raw) {
   try {
-    d = JSON.parse(raw);
+    const d = JSON.parse(raw);
+    return d?.cause ? d : null;
   } catch {
     return null;
   }
-  if (!d?.cause) return null;
+}
 
+// 복사 버튼용 평문 — 화면과 같은 순서·라벨을 유지해서, 붙여넣은 쪽에서도 읽히게.
+function diagnosisText(d) {
+  if (!d) return "";
+  const steps = (d.fix_steps || []).map((s, i) => `  ${i + 1}. ${s}`).join("\n");
+  return [
+    `- 원인\n  ${d.cause}`,
+    d.evidence ? `- 로그\n  ${d.evidence}` : null,
+    steps ? `- 방법\n${steps}` : null,
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+}
+
+// 섹션 라벨. 로그/Dockerfile 창의 제목 타이포와 같은 계열로 두되 크기만 낮춤.
+function Section({ label, children }) {
   return (
-    <div
-      className="flex flex-col gap-2 px-3 py-2.5 rounded-md"
-      style={{
-        background: "rgba(129,139,224,0.06)",
-        border: "1px solid rgba(129,139,224,0.2)",
-      }}
-    >
-      <div className="flex items-center gap-1.5">
-        <Sparkles size={11} strokeWidth={1.8} style={{ color: "var(--accent)" }} />
-        <span
-          className="text-[10.5px] uppercase tracking-[0.08em]"
-          style={{ color: "var(--accent)", fontWeight: 590 }}
-        >
-          AI 진단
-        </span>
-        {d.kodeploy_specific && (
-          <span
-            className="text-[10px] px-1.5 py-0.5 rounded"
-            style={{
-              background: "rgba(129,139,224,0.14)",
-              color: "var(--accent)",
-              fontWeight: 510,
-            }}
-          >
-            플랫폼 제약
-          </span>
-        )}
+    <div className="flex flex-col gap-1.5">
+      <div
+        className="text-[11px] uppercase tracking-[0.08em]"
+        style={{ color: "var(--accent)", fontWeight: 590 }}
+      >
+        - {label}
       </div>
+      {children}
+    </div>
+  );
+}
 
-      <div className="text-[12px] text-fg-1" style={{ lineHeight: 1.55 }}>
-        {d.cause}
-      </div>
+function DiagnosisBody({ d }) {
+  return (
+    <div className="flex flex-col gap-5 px-5 py-4">
+      <Section label="원인">
+        <div className="text-[13px] text-fg-1" style={{ lineHeight: 1.6 }}>
+          {d.cause}
+        </div>
+      </Section>
 
       {d.evidence && (
-        <div
-          className="text-[11px] font-mono px-2 py-1.5 rounded break-all"
-          style={{
-            background: "var(--kd-bg)",
-            color: "var(--fg-3)",
-            border: "1px solid var(--line-1)",
-          }}
-        >
-          {d.evidence}
-        </div>
+        <Section label="로그">
+          {/* 근거는 로그 원문 인용이라 모노스페이스 — 빌드 로그 창과 같은 질감 */}
+          <pre
+            className="text-[11.5px] font-mono whitespace-pre-wrap break-all px-3 py-2.5 rounded-md"
+            style={{
+              background: "var(--kd-bg)",
+              color: "var(--fg-3)",
+              border: "1px solid var(--line-1)",
+              lineHeight: 1.55,
+            }}
+          >
+            {d.evidence}
+          </pre>
+        </Section>
       )}
 
       {Array.isArray(d.fix_steps) && d.fix_steps.length > 0 && (
-        <ol className="flex flex-col gap-1 pl-0 mt-0.5">
-          {d.fix_steps.map((step, i) => (
-            <li key={i} className="flex gap-2 text-[11.5px] text-fg-2">
-              <span
-                className="shrink-0 tabular-nums"
-                style={{ color: "var(--fg-4)" }}
-              >
-                {i + 1}.
-              </span>
-              <span style={{ lineHeight: 1.5 }}>{step}</span>
-            </li>
-          ))}
-        </ol>
+        <Section label="방법">
+          <ol className="flex flex-col gap-2">
+            {d.fix_steps.map((step, i) => (
+              <li key={i} className="flex gap-2.5 text-[12.5px] text-fg-2">
+                <span
+                  className="shrink-0 tabular-nums"
+                  style={{ color: "var(--fg-4)" }}
+                >
+                  {i + 1}.
+                </span>
+                <span style={{ lineHeight: 1.6 }}>{step}</span>
+              </li>
+            ))}
+          </ol>
+        </Section>
       )}
 
-      <div className="text-[10px]" style={{ color: "var(--fg-4)" }}>
-        AI가 로그를 읽고 생성한 추정입니다. 실제 원인과 다를 수 있어요.
+      <div
+        className="text-[10.5px] pt-1"
+        style={{ color: "var(--fg-4)", borderTop: "1px solid var(--line-1)" }}
+      >
+        <span className="inline-block pt-2">
+          AI가 로그를 읽고 생성한 추정입니다. 실제 원인과 다를 수 있어요.
+        </span>
       </div>
     </div>
   );
@@ -701,11 +757,19 @@ function BuildLogsPanel({ build: initialBuild, mode, onClose }) {
     return () => document.removeEventListener("keydown", onKey, true);
   }, [onClose]);
 
-  const title = mode === "logs" ? "빌드 로그" : "Dockerfile";
+  // 진단은 JSON 문자열이라 파싱해서 섹션별로 그린다 (로그·Dockerfile은 평문 그대로).
+  const diagnosis =
+    mode === "diagnosis" ? parseDiagnosis(build.ai_analysis) : null;
+
+  const title =
+    mode === "logs" ? "빌드 로그" : mode === "dockerfile" ? "Dockerfile" : "AI 진단";
+  // content = 복사 버튼이 집어가는 텍스트. 진단은 화면과 같은 순서·라벨의 평문으로.
   const content =
     mode === "logs"
       ? build.logs || (live ? "빌드 준비 중..." : "(로그 없음)")
-      : build.dockerfile_content || "(Dockerfile 정보 없음)";
+      : mode === "dockerfile"
+        ? build.dockerfile_content || "(Dockerfile 정보 없음)"
+        : diagnosisText(diagnosis) || build.ai_analysis || "(진단 없음)";
 
   // 진행 중(live)엔 갱신마다 맨 밑으로 붙여 tail -f처럼 실시간으로 흐르게 한다.
   // 빌드가 끝나면(live=false) 강제 스크롤을 풀어 — content가 더 안 바뀌니 위치가 고정되고
@@ -765,6 +829,18 @@ function BuildLogsPanel({ build: initialBuild, mode, onClose }) {
             >
               {title}
               {mode === "logs" && <StatusBadge status={build.status} />}
+              {mode === "diagnosis" && diagnosis?.kodeploy_specific && (
+                <span
+                  className="text-[10px] px-1.5 py-0.5 rounded"
+                  style={{
+                    background: "rgba(129,139,224,0.14)",
+                    color: "var(--accent)",
+                    fontWeight: 510,
+                  }}
+                >
+                  플랫폼 제약
+                </span>
+              )}
             </h2>
             <p className="text-[12px] text-fg-3 mt-0.5 truncate">
               <span style={{ color: "var(--accent)" }}>{build.build_id}</span>
@@ -796,12 +872,16 @@ function BuildLogsPanel({ build: initialBuild, mode, onClose }) {
           </button>
         </div>
         <div ref={logBoxRef} className="flex-1 min-h-0 overflow-auto scroll-thin">
-          <pre
-            className="text-[11.5px] font-sans text-fg-2 whitespace-pre-wrap break-all px-5 py-4"
-            style={{ lineHeight: 1.55 }}
-          >
-            {content}
-          </pre>
+          {mode === "diagnosis" && diagnosis ? (
+            <DiagnosisBody d={diagnosis} />
+          ) : (
+            <pre
+              className="text-[11.5px] font-sans text-fg-2 whitespace-pre-wrap break-all px-5 py-4"
+              style={{ lineHeight: 1.55 }}
+            >
+              {content}
+            </pre>
+          )}
         </div>
       </div>
     </div>
