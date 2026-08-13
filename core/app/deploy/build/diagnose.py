@@ -52,7 +52,7 @@ _TAIL_CHARS = 15_000
 # ⚠️ 제약 목록에 항목을 더하면 여기도 같이 더할 것 — 값이 없으면 모델이 가장 가까운 값으로
 #    억지 매핑하고, 최악의 경우 cause 서술까지 그 라벨에 끌려간다.
 CauseCategory = Literal[
-    "non_root",              # 1. 비-root 강제 (USER 없음, root 소유 경로 쓰기)
+    "non_root",              # 1. UID 1000 강제 — root 소유 경로에 쓰기 실패(EACCES)
     "privilege_escalation",  # 2. 실행 중 설치·setcap·1024 미만 바인딩·chown
     "port_mismatch",         # 3. 선택 포트 미리슨 / 127.0.0.1 바인딩
     "build_egress_blocked",  # 4. 사설망·메타데이터 차단 (사내 미러·사설 레지스트리)
@@ -86,7 +86,10 @@ class Diagnosis(BaseModel):
 
     cause: str = Field(description="실패의 근본 원인. 한국어 한 문장.")
     evidence: str = Field(
-        description="그렇게 판단한 근거가 되는 로그 한두 줄. 로그 원문 그대로 인용."
+        description=(
+            "그렇게 판단한 근거. 주어진 입력(로그·Job/Pod 상태·Dockerfile) 중에서 한두 줄을 "
+            "원문 그대로 인용할 것. 해석·추론·설명은 넣지 말 것 — 그건 cause의 몫이다."
+        )
     )
     cause_category: CauseCategory = Field(
         description=(
@@ -105,8 +108,9 @@ class Diagnosis(BaseModel):
     fix_steps: list[str] = Field(
         description=(
             "위 범주에 맞는, 유저가 자기 repo나 배포 폼에서 실제로 할 수 있는 조치. "
-            "한국어. 1~3개. '로그를 확인하세요' 같은 공허한 항목 금지 — "
-            "구체적 파일/설정/값을 말할 것."
+            "한국어. 1~3개. 각 항목은 유저가 수행하는 '변경' 하나여야 한다. "
+            "'다시 배포하세요' '커밋하세요' '로그를 확인하세요' 같은 당연한 후속이나 "
+            "공허한 항목은 넣지 말 것 — 구체적 파일/설정/값을 말할 것."
         )
     )
 
@@ -123,9 +127,15 @@ Kubernetes를 직접 다루지 않습니다. 따라서 K8s 용어로 답하지 �
 
 # 플랫폼 제약 — 로컬에서는 되지만 여기서 깨지는 지점들
 
-1. 비-root 강제. 앱 Pod은 PSS restricted가 걸린 네임스페이스에서 UID/GID 1000으로 뜹니다
-   (runAsNonRoot: true). 이미지가 root로 실행되게 만들어졌거나, root 소유 경로에 쓰려 하면
-   기동에 실패합니다. USER 지시어가 없는 Dockerfile이 대표적입니다.
+1. 비-root 강제. 앱 Pod은 PSS restricted 네임스페이스에서 securityContext로 UID/GID 1000이
+   **강제**됩니다 (runAsNonRoot: true + runAsUser/runAsGroup/fsGroup 전부 1000).
+   ⚠️ 이미지의 USER 지시어는 이 값에 덮여 무의미합니다. "Dockerfile에 USER를 추가하세요"는
+   이 플랫폼에서 틀린 조치이니 절대 제시하지 마세요.
+   실제로 깨지는 지점은 **파일 소유권**입니다. Dockerfile의 COPY/RUN은 빌드 시 root로
+   실행돼 산출물이 root 소유가 되는데, 런타임은 UID 1000이라 그 경로에 쓰지 못합니다
+   (EACCES: permission denied). 로그·업로드·캐시·SQLite 파일을 쓰는 디렉토리가 대표적입니다.
+   조치는 COPY --chown=1000:1000 또는 RUN chown -R 1000:1000 <경로> 입니다.
+   (fsGroup은 마운트된 볼륨에만 적용되고 이미지 레이어의 소유권은 바꾸지 않습니다.)
 2. 권한 상승 차단. allowPrivilegeEscalation: false, capabilities drop ALL, seccomp
    RuntimeDefault입니다. 컨테이너 시작 후 apt-get/apk 설치, setcap, 1024 미만 포트 바인딩,
    chown 시도는 전부 실패합니다. 패키지 설치는 빌드 시점(Dockerfile)에 끝나 있어야 합니다.
