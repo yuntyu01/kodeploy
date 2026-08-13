@@ -43,7 +43,12 @@ class Build(Base):
     dockerfile_content: Mapped[str | None] = mapped_column(LONGTEXT, nullable=True)  # 실제 빌드에 쓰인 Dockerfile 텍스트. UI 노출 + AI 분석용
     status: Mapped[str] = mapped_column(String(20), default="queued")
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
-    analysis: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # kind="env_change" row 전용 — 어떤 키가 바뀌었나 ("KEY (추가), KEY2 (수정)").
+    # 값은 저장하지 않는다(시크릿). 일반 빌드 row에서는 항상 NULL.
+    env_change_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # 빌드/배포 실패 AI 진단 결과 (diagnose.Diagnosis의 JSON 문자열).
+    # 실패하지 않았거나 AI_DIAGNOSE=false면 NULL — 프론트는 있을 때만 카드를 그린다.
+    ai_analysis: Mapped[str | None] = mapped_column(Text, nullable=True)
     logs: Mapped[str | None] = mapped_column(LONGTEXT, nullable=True)
     user_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
     # timezone-aware UTC 저장 — Pydantic이 응답 시 timezone offset 포함 ISO 출력 (B 컨벤션)

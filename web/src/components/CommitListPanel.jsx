@@ -14,6 +14,7 @@ import {
   Eye,
   EyeOff,
   Plus,
+  Sparkles,
   Trash2,
   Upload,
   X,
@@ -451,7 +452,7 @@ function BuildsBody({ builds }) {
                   >
                     <Row
                       label="변경"
-                      value={b.analysis || "(상세 없음)"}
+                      value={b.env_change_summary || "(상세 없음)"}
                     />
                     <Row label="시간" value={formatFull(b.created_at)} />
                   </div>
@@ -495,6 +496,7 @@ function BuildsBody({ builds }) {
                     {b.error && (
                       <Row label="에러" value={b.error} color="var(--err-fg)" />
                     )}
+                    {b.ai_analysis && <AiDiagnosis raw={b.ai_analysis} />}
                     <div className="mt-1 flex gap-2">
                       <button
                         onClick={() => setLogsView({ build: b, mode: "logs" })}
@@ -541,6 +543,87 @@ function BuildsBody({ builds }) {
         />
       )}
     </>
+  );
+}
+
+// 실패 빌드의 AI 진단 카드. raw는 백엔드 diagnose.Diagnosis의 JSON 문자열.
+// 진단은 부가정보라 파싱이 깨지면 조용히 사라진다 — 빌드 상세 자체를 망치지 않게.
+function AiDiagnosis({ raw }) {
+  let d;
+  try {
+    d = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+  if (!d?.cause) return null;
+
+  return (
+    <div
+      className="flex flex-col gap-2 px-3 py-2.5 rounded-md"
+      style={{
+        background: "rgba(129,139,224,0.06)",
+        border: "1px solid rgba(129,139,224,0.2)",
+      }}
+    >
+      <div className="flex items-center gap-1.5">
+        <Sparkles size={11} strokeWidth={1.8} style={{ color: "var(--accent)" }} />
+        <span
+          className="text-[10.5px] uppercase tracking-[0.08em]"
+          style={{ color: "var(--accent)", fontWeight: 590 }}
+        >
+          AI 진단
+        </span>
+        {d.kodeploy_specific && (
+          <span
+            className="text-[10px] px-1.5 py-0.5 rounded"
+            style={{
+              background: "rgba(129,139,224,0.14)",
+              color: "var(--accent)",
+              fontWeight: 510,
+            }}
+          >
+            플랫폼 제약
+          </span>
+        )}
+      </div>
+
+      <div className="text-[12px] text-fg-1" style={{ lineHeight: 1.55 }}>
+        {d.cause}
+      </div>
+
+      {d.evidence && (
+        <div
+          className="text-[11px] font-mono px-2 py-1.5 rounded break-all"
+          style={{
+            background: "var(--kd-bg)",
+            color: "var(--fg-3)",
+            border: "1px solid var(--line-1)",
+          }}
+        >
+          {d.evidence}
+        </div>
+      )}
+
+      {Array.isArray(d.fix_steps) && d.fix_steps.length > 0 && (
+        <ol className="flex flex-col gap-1 pl-0 mt-0.5">
+          {d.fix_steps.map((step, i) => (
+            <li key={i} className="flex gap-2 text-[11.5px] text-fg-2">
+              <span
+                className="shrink-0 tabular-nums"
+                style={{ color: "var(--fg-4)" }}
+              >
+                {i + 1}.
+              </span>
+              <span style={{ lineHeight: 1.5 }}>{step}</span>
+            </li>
+          ))}
+        </ol>
+      )}
+
+      <div className="text-[10px]" style={{ color: "var(--fg-4)" }}>
+        AI가 로그를 읽고 생성한 추정입니다. 실제 원인과 다를 수 있어요.
+      </div>
+    </div>
   );
 }
 

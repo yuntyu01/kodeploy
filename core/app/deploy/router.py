@@ -64,7 +64,8 @@ def _to_status(build: Build, timing: dict | None = None) -> StatusResponse:
         static_env=json.loads(build.build_env) if build.build_env else {},
         dockerfile_content=build.dockerfile_content,
         error=build.error,
-        analysis=build.analysis,
+        env_change_summary=build.env_change_summary,
+        ai_analysis=build.ai_analysis,
         logs=build.logs,
         total_seconds=timing.get("total_seconds"),
         created_at=build.created_at,
@@ -185,7 +186,7 @@ async def env_put(
         volume_size=latest.volume_size if latest else "5Gi",
         kind="env_change",
         status="applied",
-        analysis=", ".join(entries),  # "KEY (추가), KEY2 (수정), KEY3 (삭제)"
+        env_change_summary=", ".join(entries),  # "KEY (추가), KEY2 (수정), KEY3 (삭제)"
     )
     db.add(event)
     db.commit()

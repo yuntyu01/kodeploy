@@ -107,7 +107,8 @@ class StatusResponse(BaseModel):
     static_env: dict[str, str] = {}                      # static 전용 — 빌드 타임 변수 (재배포 폼 prefill용)
     dockerfile_content: str | None = None                # 실제 빌드에 쓰인 Dockerfile. UI에서 코드 블록으로 표시.
     error: str | None = None
-    analysis: str | None = None
+    env_change_summary: str | None = None            # kind="env_change" 전용 — 바뀐 키 목록
+    ai_analysis: str | None = None                   # 실패 진단 JSON (실패 + 기능 ON일 때만)
     logs: str | None = None
     # 빌드 총 소요시간 (BuildRecord에서 — 빌드 완료 후 채워짐, 진행 중/env_change면 None).
     # 단계별(nixpacks/buildkit)은 내부 도구명이라 사용자에게 안 보임 — BuildRecord에만 남겨 운영 분석용.

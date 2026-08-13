@@ -20,6 +20,7 @@ from app.auth.model import User
 from app.deploy import crud
 from app.deploy.console import snapshots
 from app.deploy.stack import env as env_module, manifests, r2
+from app.deploy.build import diagnose
 from app.deploy.build.github import _detect_build, _fetch_github_raw
 from app.deploy.build.naming import _normalize_repo_url, _resolve_app_name
 from app.deploy.build.validation import (
@@ -120,6 +121,23 @@ def _update_event_status(
             db.commit()
     finally:
         db.close()
+
+
+# 실패 진단을 build row에 붙인다 (best-effort). 호출 시점엔 status/error가 이미 커밋돼
+# 있으므로, 진단이 실패하든 API가 죽어 있든 배포 결과는 그대로 남는다 — r2/domains 정리
+# 실패를 삼키는 것과 같은 철학. 동기 호출인 이유: _run_build는 이미 빌드 전용 스레드에서
+# 돌고(spawn_background), _ensure_tenant_ns의 time.sleep처럼 블로킹이 그 스레드에 격리된다.
+# to_thread로 떼면 ORM 객체를 다른 스레드에서 만지게 되어(commit 후 attribute expire →
+# 재조회) Session 스레드 안전성이 깨진다.
+def _attach_diagnosis(db: Session, build: Build, diagnose_fn) -> None:
+    if not diagnose.is_configured():
+        return
+    try:
+        build.ai_analysis = diagnose_fn(build)
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        logger.warning("build %s: AI 진단 실패 — %s", build.build_id, e)
 
 
 _ACTIVE_STATUSES = {"queued", "building", "built", "deploying"}
@@ -499,6 +517,18 @@ async def _run_build(
         # started_at은 aware datetime 로컬 변수로 들고 있음 — commit 후 ORM 재로드되면
         # naive로 바뀌어 total_seconds 계산(aware-naive 빼기)이 깨지므로.
         started_at = datetime.now(timezone.utc)
+        # 빌드 행위가 끝난 시각. AI 진단은 결과가 확정된 뒤 도는 사후 분석이라 빌드
+        # 소요시간에 섞이면 안 되므로, 진단을 부르기 직전에 여기서 먼저 찍는다.
+        # finally의 마감은 이미 찍혀 있으면 그대로 쓴다(최초 호출이 이긴다).
+        # ORM 컬럼이 아니라 로컬 변수인 이유는 started_at과 같다 — 게다가 진단이 실패해
+        # db.rollback()이 나도 이 값은 살아남아야 한다.
+        finished_at: datetime | None = None
+
+        def _stamp_finished() -> None:
+            nonlocal finished_at
+            if finished_at is None:
+                finished_at = datetime.now(timezone.utc)
+
         seq = (
             db.query(func.count(BuildRecord.id))
             .filter(BuildRecord.user_id == build.user_id)
@@ -646,6 +676,9 @@ async def _run_build(
                     build.status = "failed"
                     build.error = "빌드 실패"
                     db.commit()
+                    # 로그가 최종본으로 확정된 뒤(위 _finalize_build_artifacts) 진단.
+                    _stamp_finished()  # 진단 시간이 빌드 소요시간에 섞이지 않게 먼저 마감
+                    _attach_diagnosis(db, build, diagnose.build_failure)
                     return
 
             if _check_cancelled():
@@ -748,6 +781,14 @@ async def _run_build(
                     )
                 db.commit()
 
+            # 이미지는 떴는데 Pod이 안 뜬 경우 — 이 플랫폼에서 가장 흔한 실패 유형이라
+            # (포트 불일치·비-root 위반·부팅 크래시) 빌드 실패와 같은 비중으로 다룬다.
+            # 재료가 빌드 로그가 아니라 런타임 로그라 진단 함수가 다르다.
+            # reap 뒤에 두는 이유: cache export 회수를 API 호출만큼 지연시키지 않으려고.
+            if build.status == "failed":
+                _stamp_finished()  # 진단 시간이 빌드 소요시간에 섞이지 않게 먼저 마감
+                _attach_diagnosis(db, build, diagnose.rollout_failure)
+
         except Exception as e:
             db.rollback()
             db.refresh(build)
@@ -768,7 +809,7 @@ async def _run_build(
             # 어떤 경로(성공/실패/취소/예외)로 끝나든 기록 마감.
             # 기록 실패가 빌드 흐름이나 세션 정리를 막지 않게 자체 예외는 삼킨다.
             try:
-                finished_at = datetime.now(timezone.utc)
+                _stamp_finished()  # 진단 경로에서 이미 찍혔으면 그 값을 쓴다
                 record.finished_at = finished_at
                 record.total_seconds = (finished_at - started_at).total_seconds()
                 record.status = build.status

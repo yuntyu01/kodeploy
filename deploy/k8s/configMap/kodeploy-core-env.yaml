@@ -18,3 +18,6 @@ data:
   SESSION_COOKIE_SECURE: "true"
   SESSION_COOKIE_SAMESITE: "lax"
   SESSION_COOKIE_DOMAIN: ".kodeploy.com"
+  # 빌드/배포 실패 AI 진단. 기본 OFF — 실 로그로 몇 건 돌려 품질·비용 확인 후 "true"로.
+  # 켜려면 kodeploy-anthropic Secret(ANTHROPIC_API_KEY)도 함께 있어야 한다.
+  AI_DIAGNOSE: "false"

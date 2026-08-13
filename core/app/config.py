@@ -74,6 +74,14 @@ CUSTOM_DOMAIN_CNAME_TARGET = os.getenv("CUSTOM_DOMAIN_CNAME_TARGET", "origin.kod
 # 비어 있으면 헤더매칭 생략(미적용 — Layer A만). CF가 전 트래픽에 헤더 붙이는 걸 켠 뒤 설정할 것.
 ORIGIN_VERIFY_SECRET = os.getenv("ORIGIN_VERIFY_SECRET", "")
 
+# --- AI 실패 진단 (Claude API) ---
+# 빌드/배포 실패 시 로그를 읽어 한국어 원인·조치를 내는 기능. 시크릿이라 env 주입.
+# 비어 있으면 기능 비활성(diagnose.is_configured()=False) — 배포 흐름엔 영향 없음.
+ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
+# 기본 OFF. EARLY_TRIGGER/BUILD_REGISTRY_CACHE와 같은 방침 — 실 로그로 몇 건 돌려
+# 진단 품질과 호출당 비용을 확인한 뒤 켠다. 켜도 실패한 빌드에서만 호출된다.
+AI_DIAGNOSE_ENABLED = os.getenv("AI_DIAGNOSE", "false").lower() == "true"
+
 # --- CORS ---
 # 쉼표로 구분된 허용 origin 목록. 환경별 다름 (dev=localhost, 운영=Cloudflare Pages 도메인).
 # Cookie 인증 쓰니까 allow_credentials=True와 함께 와일드카드(*) 금지 — 명시적 origin만.
