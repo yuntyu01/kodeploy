@@ -285,6 +285,33 @@
         group: grafana
         mode: "0640"
 
+    # copy는 추가·갱신만 한다 — 레포에서 지운 대시보드는 그대로 남는다. 그러면 위 주석의
+    # "레포가 진실원"이 거짓이 된다. 실제로 kodeploy-overview를 시스템/유저로 쪼갠 뒤
+    # 옛 대시보드가 Grafana에 살아남아 목록에 셋이 보였다. file provider는 파일이 사라지면
+    # 다음 스캔에 대시보드도 지우므로, 파일만 맞춰주면 된다.
+    - name: 레포에 없는 대시보드 제거 (레포가 진실원)
+      vars:
+        repo_dashboards: >-
+          {{ lookup('fileglob', playbook_dir + '/../../deploy/grafana/dashboards/*.json',
+                    wantlist=True) | map('basename') | list }}
+      find:
+        paths: "{{ grafana_data_dir }}/dashboards"
+        patterns: "*.json"
+      register: deployed_dashboards
+
+    - name: 고아 대시보드 삭제
+      vars:
+        repo_dashboards: >-
+          {{ lookup('fileglob', playbook_dir + '/../../deploy/grafana/dashboards/*.json',
+                    wantlist=True) | map('basename') | list }}
+      file:
+        path: "{{ item.path }}"
+        state: absent
+      loop: "{{ deployed_dashboards.files }}"
+      loop_control:
+        label: "{{ item.path | basename }}"
+      when: item.path | basename not in repo_dashboards
+
     - name: Grafana systemd 유닛
       copy:
         dest: /etc/systemd/system/grafana.service
@@ -306,12 +333,15 @@
           WantedBy=multi-user.target
       register: grafana_unit
 
+    # 데이터소스·프로바이더 프로비저닝 파일은 Grafana가 **기동 시에만** 읽는다 — 바뀌면 재시작해야
+    # 반영된다(대시보드 JSON은 file provider가 주기적으로 다시 읽으므로 재시작 대상이 아니다).
+    # grafana_db_ds는 암호 미주입 시 skip되는데, skip된 태스크의 registered var도 changed=false라 안전.
     - name: Grafana 시작
       systemd:
         name: grafana
         daemon_reload: true
         enabled: true
-        state: "{{ (grafana_unit.changed or grafana_ini.changed or grafana_ds.changed or grafana_provider.changed) | ternary('restarted', 'started') }}"
+        state: "{{ (grafana_unit.changed or grafana_ini.changed or grafana_ds.changed or grafana_db_ds.changed or grafana_provider.changed) | ternary('restarted', 'started') }}"
 
     - name: Grafana 헬스체크
       uri:
