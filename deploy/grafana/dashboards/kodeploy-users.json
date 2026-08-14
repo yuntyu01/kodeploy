@@ -33,45 +33,74 @@
     {
       "id": 1,
       "type": "timeseries",
-      "title": "테넌트별 CPU (cores)",
+      "title": "Pod 메모리 사용률 (한도 대비)",
+      "description": "핵심 패널. 한도는 런타임마다 다르고(runtimes.py: python 600Mi · java 1024Mi · php 768Mi · javascript 640Mi · static 64Mi · mysql 500Mi · redis 192Mi) 어느 테넌트가 어느 런타임인지 외울 수 없으므로, 절대 바이트가 아니라 자기 한도 대비 %로 본다. 85%를 넘으면 OOMKill 후보다 — 아래 OOMKilled 패널과 짝지어 볼 것.",
       "gridPos": { "x": 0, "y": 1, "w": 12, "h": 8 },
       "datasource": { "type": "prometheus", "uid": "victoriametrics" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent", "min": 0, "max": 100,
+          "custom": { "fillOpacity": 10, "thresholdsStyle": { "mode": "dashed" } },
+          "thresholds": { "mode": "absolute", "steps": [
+            { "color": "green", "value": null },
+            { "color": "orange", "value": 70 },
+            { "color": "red", "value": 85 } ] }
+        },
+        "overrides": []
+      },
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by (namespace) (rate(container_cpu_usage_seconds_total{namespace=~\"$tenant\",container!=\"\"}[5m]))",
-          "legendFormat": "{{namespace}}"
+          "expr": "100 * sum by (namespace, pod) (container_memory_working_set_bytes{namespace=~\"$tenant\",container!=\"\"}) / on(namespace, pod) sum by (namespace, pod) (kube_pod_container_resource_limits{namespace=~\"$tenant\",resource=\"memory\"})",
+          "legendFormat": "{{namespace}} / {{pod}}"
         }
       ]
     },
     {
       "id": 2,
       "type": "timeseries",
-      "title": "테넌트별 메모리",
+      "title": "Pod CPU 사용률 (한도 대비)",
+      "description": "CPU는 초과해도 죽지 않고 throttle된다 — 100%에 붙어 있으면 앱이 느린 이유가 여기다. 한도는 런타임별 lim_cpu(python·php·javascript 300m · java 500m · static 50m).",
       "gridPos": { "x": 12, "y": 1, "w": 12, "h": 8 },
       "datasource": { "type": "prometheus", "uid": "victoriametrics" },
-      "fieldConfig": { "defaults": { "unit": "bytes" }, "overrides": [] },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent", "min": 0, "max": 100,
+          "custom": { "fillOpacity": 10, "thresholdsStyle": { "mode": "dashed" } },
+          "thresholds": { "mode": "absolute", "steps": [
+            { "color": "green", "value": null },
+            { "color": "orange", "value": 70 },
+            { "color": "red", "value": 90 } ] }
+        },
+        "overrides": []
+      },
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by (namespace) (container_memory_working_set_bytes{namespace=~\"$tenant\",container!=\"\"})",
-          "legendFormat": "{{namespace}}"
+          "expr": "100 * sum by (namespace, pod) (rate(container_cpu_usage_seconds_total{namespace=~\"$tenant\",container!=\"\"}[5m])) / on(namespace, pod) sum by (namespace, pod) (kube_pod_container_resource_limits{namespace=~\"$tenant\",resource=\"cpu\"})",
+          "legendFormat": "{{namespace}} / {{pod}}"
         }
       ]
     },
     {
       "id": 3,
       "type": "timeseries",
-      "title": "컴포넌트별 메모리 (앱 · DB · Redis)",
-      "description": "pod 라벨로 쪼갠 것 — 한 테넌트 안에서 앱과 mysql/redis 중 무엇이 메모리를 먹는지 본다. 런타임 limit은 runtimes.py의 RUNTIME_RESOURCES가 진실원.",
+      "title": "테넌트별 메모리 점유 (노드 대비)",
+      "description": "한 테넌트가 클러스터 메모리에서 차지하는 몫. 위 패널이 '이 Pod이 자기 한도에 얼마나 붙었나'라면, 이건 '누가 클러스터를 많이 쓰나' — 용량 증설·테넌트 정리 판단용이라 분모가 노드 총량이다.",
       "gridPos": { "x": 0, "y": 9, "w": 12, "h": 8 },
       "datasource": { "type": "prometheus", "uid": "victoriametrics" },
-      "fieldConfig": { "defaults": { "unit": "bytes" }, "overrides": [] },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent", "min": 0,
+          "custom": { "fillOpacity": 25, "stacking": { "mode": "normal" } }
+        },
+        "overrides": []
+      },
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by (namespace, pod) (container_memory_working_set_bytes{namespace=~\"$tenant\",container!=\"\"})",
-          "legendFormat": "{{namespace}} / {{pod}}"
+          "expr": "100 * sum by (namespace) (container_memory_working_set_bytes{namespace=~\"$tenant\",container!=\"\"}) / scalar(sum(machine_memory_bytes))",
+          "legendFormat": "{{namespace}}"
         }
       ]
     },
@@ -195,6 +224,55 @@
           "format": "table",
           "rawQuery": true,
           "rawSql": "SELECT app_name AS `앱`, runtime AS `런타임`, COUNT(*) AS `빌드`, SUM(status = 'running') AS `성공`, SUM(status = 'failed') AS `실패`, ROUND(AVG(total_seconds), 1) AS `평균(초)`, MAX(started_at) AS `최근` FROM build_records WHERE $__timeFilter(started_at) GROUP BY app_name, runtime ORDER BY `빌드` DESC LIMIT 50"
+        }
+      ]
+    },
+    {
+      "id": 190,
+      "type": "row",
+      "title": "절대값 (원본)",
+      "description": "위 리소스 패널은 한도 대비 %다. 실제 바이트·코어와 한도 자체가 필요할 때만 펼친다.",
+      "gridPos": { "x": 0, "y": 44, "w": 24, "h": 1 },
+      "collapsed": true,
+      "panels": [
+        {
+          "id": 30,
+          "type": "timeseries",
+          "title": "Pod 메모리: 사용 vs 한도 (bytes)",
+          "gridPos": { "x": 0, "y": 45, "w": 12, "h": 8 },
+          "datasource": { "type": "prometheus", "uid": "victoriametrics" },
+          "fieldConfig": { "defaults": { "unit": "bytes" }, "overrides": [] },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum by (namespace, pod) (container_memory_working_set_bytes{namespace=~\"$tenant\",container!=\"\"})",
+              "legendFormat": "{{namespace}}/{{pod}} 사용"
+            },
+            {
+              "refId": "B",
+              "expr": "sum by (namespace, pod) (kube_pod_container_resource_limits{namespace=~\"$tenant\",resource=\"memory\"})",
+              "legendFormat": "{{namespace}}/{{pod}} 한도"
+            }
+          ]
+        },
+        {
+          "id": 31,
+          "type": "timeseries",
+          "title": "Pod CPU: 사용 vs 한도 (cores)",
+          "gridPos": { "x": 12, "y": 45, "w": 12, "h": 8 },
+          "datasource": { "type": "prometheus", "uid": "victoriametrics" },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum by (namespace, pod) (rate(container_cpu_usage_seconds_total{namespace=~\"$tenant\",container!=\"\"}[5m]))",
+              "legendFormat": "{{namespace}}/{{pod}} 사용"
+            },
+            {
+              "refId": "B",
+              "expr": "sum by (namespace, pod) (kube_pod_container_resource_limits{namespace=~\"$tenant\",resource=\"cpu\"})",
+              "legendFormat": "{{namespace}}/{{pod}} 한도"
+            }
+          ]
         }
       ]
     }

@@ -40,13 +40,25 @@
     {
       "id": 1,
       "type": "timeseries",
-      "title": "노드 CPU (cores)",
+      "title": "노드 CPU 사용률",
+      "description": "노드 코어 수(machine_cpu_cores) 대비. 절대 cores 값은 맨 아래 '절대값(원본)' 행에 있다.",
       "gridPos": { "x": 0, "y": 1, "w": 12, "h": 8 },
       "datasource": { "type": "prometheus", "uid": "victoriametrics" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent", "min": 0, "max": 100,
+          "custom": { "fillOpacity": 10, "thresholdsStyle": { "mode": "dashed" } },
+          "thresholds": { "mode": "absolute", "steps": [
+            { "color": "green", "value": null },
+            { "color": "orange", "value": 70 },
+            { "color": "red", "value": 85 } ] }
+        },
+        "overrides": []
+      },
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by (instance) (rate(container_cpu_usage_seconds_total{id=\"/\"}[5m]))",
+          "expr": "100 * sum by (instance) (rate(container_cpu_usage_seconds_total{id=\"/\"}[5m])) / on(instance) machine_cpu_cores",
           "legendFormat": "{{instance}}"
         }
       ]
@@ -54,14 +66,25 @@
     {
       "id": 2,
       "type": "timeseries",
-      "title": "노드 메모리 (working set)",
+      "title": "노드 메모리 사용률",
+      "description": "노드 전체 메모리(machine_memory_bytes) 대비 working set. OCI Always Free 24GB 한도를 머리로 계산하지 않기 위한 패널이다.",
       "gridPos": { "x": 12, "y": 1, "w": 12, "h": 8 },
       "datasource": { "type": "prometheus", "uid": "victoriametrics" },
-      "fieldConfig": { "defaults": { "unit": "bytes" }, "overrides": [] },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent", "min": 0, "max": 100,
+          "custom": { "fillOpacity": 10, "thresholdsStyle": { "mode": "dashed" } },
+          "thresholds": { "mode": "absolute", "steps": [
+            { "color": "green", "value": null },
+            { "color": "orange", "value": 75 },
+            { "color": "red", "value": 90 } ] }
+        },
+        "overrides": []
+      },
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by (instance) (container_memory_working_set_bytes{id=\"/\"})",
+          "expr": "100 * sum by (instance) (container_memory_working_set_bytes{id=\"/\"}) / on(instance) machine_memory_bytes",
           "legendFormat": "{{instance}}"
         }
       ]
@@ -69,21 +92,26 @@
     {
       "id": 3,
       "type": "timeseries",
-      "title": "노드 루트 디스크 사용량",
-      "description": "cadvisor의 노드 rootfs(id=\"/\"). 노드 디스크는 컨테이너 이미지 누적으로 조용히 차오르는 자리라 여유를 눈에 두고 본다. PVC 사용량은 유저 대시보드에 따로 있다.",
+      "title": "노드 루트 디스크 사용률",
+      "description": "cadvisor의 노드 rootfs(id=\"/\") 사용/용량. 노드 디스크는 컨테이너 이미지 누적으로 조용히 차오르는 자리라, 남은 GB보다 몇 %인지가 판단에 쓰인다.",
       "gridPos": { "x": 0, "y": 9, "w": 12, "h": 8 },
       "datasource": { "type": "prometheus", "uid": "victoriametrics" },
-      "fieldConfig": { "defaults": { "unit": "bytes" }, "overrides": [] },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent", "min": 0, "max": 100,
+          "custom": { "fillOpacity": 10, "thresholdsStyle": { "mode": "dashed" } },
+          "thresholds": { "mode": "absolute", "steps": [
+            { "color": "green", "value": null },
+            { "color": "orange", "value": 70 },
+            { "color": "red", "value": 85 } ] }
+        },
+        "overrides": []
+      },
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by (instance) (container_fs_usage_bytes{id=\"/\"})",
-          "legendFormat": "{{instance}} 사용"
-        },
-        {
-          "refId": "B",
-          "expr": "sum by (instance) (container_fs_limit_bytes{id=\"/\"})",
-          "legendFormat": "{{instance}} 용량"
+          "expr": "100 * sum by (instance) (container_fs_usage_bytes{id=\"/\"}) / on(instance) sum by (instance) (container_fs_limit_bytes{id=\"/\"})",
+          "legendFormat": "{{instance}}"
         }
       ]
     },
@@ -91,7 +119,7 @@
       "id": 4,
       "type": "timeseries",
       "title": "플랫폼 컴포넌트 메모리 (ns별)",
-      "description": "테넌트를 뺀 나머지 — default(core·mysql) / monitoring / envoy-gateway-system / calico-* / kube-system.",
+      "description": "⚠️ 여기만 절대값이다. 컨트롤플레인 Pod(apiserver·etcd·scheduler)은 의도적으로 memory limit이 없어서 한도 대비 %를 내면 분모가 일부 컨테이너만 잡혀 369% 같은 값이 나온다. 이 패널의 판단 기준은 '한도 대비'가 아니라 '노드에서 무엇이 먹고 있나'이고, 노드 여유는 위 노드 메모리 사용률이 답한다.",
       "gridPos": { "x": 12, "y": 9, "w": 12, "h": 8 },
       "datasource": { "type": "prometheus", "uid": "victoriametrics" },
       "fieldConfig": { "defaults": { "unit": "bytes" }, "overrides": [] },
@@ -479,6 +507,75 @@
           "format": "table",
           "rawQuery": true,
           "rawSql": "SELECT started_at AS `시각`, build_id, app_name AS `앱`, runtime AS `런타임`, llm_model AS `모델`, llm_outcome AS `결말`, llm_cause_category AS `범주`, llm_prompt_tokens AS `입력토큰`, llm_completion_tokens AS `출력토큰`, llm_latency_ms AS `지연(ms)`, llm_inconsistent AS `자기모순` FROM build_records WHERE llm_outcome IS NOT NULL AND $__timeFilter(started_at) ORDER BY started_at DESC LIMIT 100"
+        }
+      ]
+    },
+    {
+      "id": 190,
+      "type": "row",
+      "title": "절대값 (원본)",
+      "description": "위 패널들은 한도 대비 %다. 실제 코어·바이트가 필요할 때만 펼친다 — 용량 증설 견적처럼 절대량이 있어야 하는 판단이 그렇다.",
+      "gridPos": { "x": 0, "y": 81, "w": 24, "h": 1 },
+      "collapsed": true,
+      "panels": [
+        {
+          "id": 30,
+          "type": "timeseries",
+          "title": "노드 CPU (cores)",
+          "gridPos": { "x": 0, "y": 82, "w": 8, "h": 8 },
+          "datasource": { "type": "prometheus", "uid": "victoriametrics" },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum by (instance) (rate(container_cpu_usage_seconds_total{id=\"/\"}[5m]))",
+              "legendFormat": "{{instance}} 사용"
+            },
+            {
+              "refId": "B",
+              "expr": "machine_cpu_cores",
+              "legendFormat": "{{instance}} 코어"
+            }
+          ]
+        },
+        {
+          "id": 31,
+          "type": "timeseries",
+          "title": "노드 메모리 (bytes)",
+          "gridPos": { "x": 8, "y": 82, "w": 8, "h": 8 },
+          "datasource": { "type": "prometheus", "uid": "victoriametrics" },
+          "fieldConfig": { "defaults": { "unit": "bytes" }, "overrides": [] },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum by (instance) (container_memory_working_set_bytes{id=\"/\"})",
+              "legendFormat": "{{instance}} 사용"
+            },
+            {
+              "refId": "B",
+              "expr": "machine_memory_bytes",
+              "legendFormat": "{{instance}} 전체"
+            }
+          ]
+        },
+        {
+          "id": 32,
+          "type": "timeseries",
+          "title": "노드 루트 디스크 (bytes)",
+          "gridPos": { "x": 16, "y": 82, "w": 8, "h": 8 },
+          "datasource": { "type": "prometheus", "uid": "victoriametrics" },
+          "fieldConfig": { "defaults": { "unit": "bytes" }, "overrides": [] },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "sum by (instance) (container_fs_usage_bytes{id=\"/\"})",
+              "legendFormat": "{{instance}} 사용"
+            },
+            {
+              "refId": "B",
+              "expr": "sum by (instance) (container_fs_limit_bytes{id=\"/\"})",
+              "legendFormat": "{{instance}} 용량"
+            }
+          ]
         }
       ]
     }
