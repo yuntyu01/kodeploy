@@ -14,6 +14,13 @@
     vm_data_dir: /var/lib/victoriametrics
     grafana_version: 11.2.0
     grafana_data_dir: /var/lib/grafana
+    # 플랫폼 DB 데이터소스 — 암호가 비면 데이터소스/터널 태스크를 건너뛴다(VM 대시보드만 뜸).
+    # host는 아래 port-forward 유닛이 managed 루프백에 띄우는 로컬 포트.
+    grafana_mysql_host: 127.0.0.1
+    grafana_mysql_port: 13306
+    grafana_mysql_user: grafana
+    grafana_mysql_database: kodeploy
+    grafana_mysql_password: ""            # -e grafana_mysql_password='...' 로 주입
   tasks:
     # ------------------------------------------------------------ VictoriaMetrics
     - name: victoriametrics 시스템 유저
@@ -161,6 +168,99 @@
               isDefault: true
       register: grafana_ds
 
+    # 플랫폼 DB(build_records) 데이터소스 — 빌드·AI 진단 계측이 여기 산다.
+    # VictoriaMetrics(시계열)와 역할이 다르다: 진단은 실패한 빌드에서만 도는 저빈도
+    # 이벤트라 rate() 윈도우에 샘플이 안 차고, 무엇보다 카운터는 "어떤 빌드가 왜"를
+    # 버린다(범주 분포·개별 맥락이 품질 튜닝의 재료인데 라벨로는 못 넣는다).
+    #
+    # 경로: managed는 K8s 노드가 아니고(40-worker가 workers만 join) mysql Service는
+    #       headless라 ClusterIP도 없다. Pod IP는 Calico 오버레이라 비-노드 호스트에선
+    #       라우팅 자체가 안 된다. 그래서 아래 kd-mysql-tunnel 유닛이 kube-apiserver를
+    #       거쳐 managed 루프백(127.0.0.1:13306)에 포트를 띄운다.
+    #
+    # ⚠️ 사전 준비 — Grafana 읽기 전용 계정. 1회성 운영 데이터라 코드에 안 박고 DB에서 직접:
+    #     kubectl exec -n default sts/mysql -- mysql -uroot -p"$MYSQL_ROOT_PASSWORD" -e "
+    #       CREATE USER IF NOT EXISTS 'grafana'@'%' IDENTIFIED BY '<암호>';
+    #       GRANT SELECT ON kodeploy.build_records TO 'grafana'@'%';
+    #       FLUSH PRIVILEGES;"
+    #   build_records 한 테이블만 준다 — users·sessions·builds(로그·진단 전문)는 안 준다.
+    #   호스트를 '%'로 두는 이유: port-forward는 Pod 네트워크 네임스페이스 안 루프백으로
+    #   들어가 MySQL이 연결을 localhost로 본다. IP로 조이려 해도 조일 대상이 없다. 어차피
+    #   3306은 클러스터 밖에서 도달 불가고(테넌트는 Calico가 Pod CIDR 192.168/16을 Deny),
+    #   실질 경계는 이 GRANT 한 줄이다.
+    #
+    # 암호는 레포에 두지 않는다: -e grafana_mysql_password='...' 로 주입.
+    # 안 주면 이 태스크를 건너뛰고 VM 대시보드만 뜬다(기존 동작 그대로 폴백).
+
+    # 플랫폼 DB 터널 — kube-apiserver를 거쳐 managed 루프백에만 포트를 띄운다.
+    #
+    # 왜 NodePort가 아닌가: NodePort는 노드 3대 전부에 0.0.0.0:3xxxx를 열고, 프라이빗
+    # seclist가 VCN 내부를 전면 허용하므로 VCN 안 어디서든 raw MySQL 프로토콜에 닿는다.
+    # 방어선이 DB 비밀번호 하나로 줄고(기본 MySQL엔 rate limit이 없다) 상시 개방이 된다.
+    # port-forward는 --address 127.0.0.1이라 어떤 네트워크 인터페이스에도 안 붙는다 —
+    # 노드에 새로 열리는 포트가 0개고, 인증은 이미 managed에 있는 admin.conf가 한다.
+    #
+    # 왜 SSH 터널이 아닌가: managed엔 노드 개인키가 없다(authorized_keys만). 키를 배포하면
+    # managed 침해 시 반경이 노드 전체로 넓어진다 — 노출을 줄이려다 늘리는 셈.
+    #
+    # ⚠️ mysql Pod이 재시작하면 forward가 끊긴다. kubectl이 종료되면 Restart=always가 몇 초
+    #    안에 다시 띄우고 Service를 새 Pod으로 재해소한다(그래서 pod이 아니라 svc를 지정).
+    #    다만 kubectl 버전에 따라 종료 대신 죽은 forward를 물고 있는 사례가 알려져 있다 —
+    #    Grafana 패널이 통째로 stale하면 `systemctl restart kd-mysql-tunnel`부터 볼 것.
+    - name: 플랫폼 DB 터널 systemd 유닛 (kubectl port-forward)
+      when: grafana_mysql_password | length > 0
+      copy:
+        dest: /etc/systemd/system/kd-mysql-tunnel.service
+        content: |
+          [Unit]
+          Description=kubectl port-forward: platform MySQL for Grafana (loopback only)
+          After=network-online.target
+          Wants=network-online.target
+
+          [Service]
+          User=opc
+          Environment=KUBECONFIG=/home/opc/.kube/config
+          ExecStart=/usr/bin/kubectl port-forward --address 127.0.0.1 \
+            -n default svc/mysql {{ grafana_mysql_port }}:3306
+          Restart=always
+          RestartSec=5
+
+          [Install]
+          WantedBy=multi-user.target
+      register: mysql_tunnel_unit
+
+    - name: 플랫폼 DB 터널 활성화
+      when: grafana_mysql_password | length > 0
+      systemd:
+        name: kd-mysql-tunnel
+        daemon_reload: true
+        enabled: true
+        state: "{{ 'restarted' if mysql_tunnel_unit.changed else 'started' }}"
+
+    - name: Grafana 데이터소스 프로비저닝 (플랫폼 DB)
+      when: grafana_mysql_password | length > 0
+      copy:
+        dest: /etc/grafana/provisioning/datasources/kodeploy-db.yaml
+        owner: grafana
+        group: grafana
+        mode: "0640"                      # 자격증명 포함 — grafana만 읽게
+        content: |
+          apiVersion: 1
+          datasources:
+            - name: KoDeploy DB
+              uid: kodeploy-db
+              type: mysql
+              url: {{ grafana_mysql_host }}:{{ grafana_mysql_port }}
+              user: {{ grafana_mysql_user }}
+              jsonData:
+                database: {{ grafana_mysql_database }}
+                maxOpenConns: 4
+                maxIdleConns: 2
+              secureJsonData:
+                password: {{ grafana_mysql_password }}
+      register: grafana_db_ds
+      no_log: true                        # 암호가 diff로 찍히지 않게
+
     - name: Grafana 대시보드 프로바이더 프로비저닝
       copy:
         dest: /etc/grafana/provisioning/dashboards/kodeploy.yaml
@@ -174,11 +274,13 @@
                 path: {{ grafana_data_dir }}/dashboards
       register: grafana_provider
 
-    # 대시보드 JSON은 레포가 진실원 — 수정은 레포에서 하고 이 플레이북으로 배포
+    # 대시보드 JSON은 레포가 진실원 — 수정은 레포에서 하고 이 플레이북으로 배포.
+    # 디렉토리 통째 동기화라 대시보드를 추가해도 이 태스크는 안 고친다.
+    # (Grafana UI에서 고친 건 다음 실행에 덮어써진다 — 그게 "레포가 진실원"의 의미다.)
     - name: 대시보드 JSON 배포
       copy:
-        src: "{{ playbook_dir }}/../../deploy/grafana/dashboards/kodeploy-overview.json"
-        dest: "{{ grafana_data_dir }}/dashboards/kodeploy-overview.json"
+        src: "{{ playbook_dir }}/../../deploy/grafana/dashboards/"
+        dest: "{{ grafana_data_dir }}/dashboards/"
         owner: grafana
         group: grafana
         mode: "0640"

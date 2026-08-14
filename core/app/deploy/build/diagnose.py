@@ -18,10 +18,17 @@ r2.py·domains.py와 같은 위치의 모듈: 외부 API를 직접 호출하는 
 ⚠️ 로그는 100% 유저 통제 입력(유저 repo의 RUN이 무엇이든 찍는다)이라 프롬프트 인젝션
    표면이다. 방어는 구조로 한다 — 툴을 주지 않고, 출력은 표시 전용이며, 결과를 파싱해
    어떤 동작으로도 쓰지 않는다. 결과가 돌아가는 곳도 그 유저 본인 화면 하나뿐.
+
+계측: 호출 1회는 CallResult로 나온다 (진단문 + 결말·토큰·레이턴시·범주). 이 모듈은
+LLM 쪽 실패로 **예외를 올리지 않는다** — 실패도 결말(outcome)이라 세어야 하기 때문이다.
+예외로 던지면 "몇 번 부르다 몇 번 잘렸나"가 로그 문자열로만 남아 집계가 안 된다.
+pipeline._attach_diagnosis가 그 값을 BuildRecord에 적는다.
 """
 
 import logging
 import re
+import time
+from dataclasses import dataclass
 from typing import Literal
 
 import openai
@@ -184,6 +191,20 @@ Kubernetes를 직접 다루지 않습니다. 따라서 K8s 용어로 답하지 �
 def is_configured() -> bool:
     """진단 기능이 켜져 있고 자격증명이 있는지. 호출부의 사전 차단용."""
     return bool(config.AI_DIAGNOSE_ENABLED and config.LLM_API_KEY)
+
+
+# 호출 1회의 결과 + 계측. payload가 None이면 진단문이 없는 것이고, 왜 없는지는 outcome이 말한다.
+# frozen — 호출부가 값을 고쳐 기록하지 못하게(계측은 관측이지 편집 대상이 아니다).
+@dataclass(frozen=True)
+class CallResult:
+    outcome: str                            # ok | length | refusal | parse_error | api_error
+    latency_ms: int                         # 게이트웨이 왕복 실측. 실패 호출도 잰다.
+    model: str                              # 호출 시점의 config.LLM_MODEL (단가 구간 판별용)
+    payload: str | None = None              # Diagnosis JSON — outcome=="ok"일 때만
+    prompt_tokens: int | None = None        # 게이트웨이가 usage를 안 주면 None
+    completion_tokens: int | None = None
+    cause_category: str | None = None
+    inconsistent: bool | None = None
 
 
 _client: openai.OpenAI | None = None
@@ -353,8 +374,20 @@ def _stack_summary(build) -> str:
     return "\n".join(lines)
 
 
-def _call(case: str) -> str:
-    """공통 호출부 — 케이스 텍스트를 받아 Diagnosis JSON 문자열을 반환.
+# 게이트웨이가 usage를 안 실어 보낼 수 있다(제공자·프록시마다 다름). 없으면 조용히 None —
+# 토큰이 비는 건 아쉬울 뿐이고, 그것 때문에 진단 자체를 실패로 만들 이유가 없다.
+def _usage(resp) -> dict:
+    u = getattr(resp, "usage", None)
+    if u is None:
+        return {}
+    return {
+        "prompt_tokens": getattr(u, "prompt_tokens", None),
+        "completion_tokens": getattr(u, "completion_tokens", None),
+    }
+
+
+def _call(case: str) -> CallResult:
+    """공통 호출부 — 케이스 텍스트를 받아 CallResult를 반환.
 
     response_format에 Pydantic 모델을 넘기면 SDK가 strict json_schema로 바꿔 보낸다.
     Diagnosis의 선언 순서·enum·additionalProperties:false가 그대로 스키마에 실리므로,
@@ -362,45 +395,81 @@ def _call(case: str) -> str:
 
     ⚠️ 게이트웨이가 strict structured outputs를 뒤쪽 제공자까지 통과시키는지는 모델마다
        다를 수 있다. 통과하지 않으면 parsed가 None으로 오거나 스키마 미지원 에러가 나는데,
-       둘 다 아래에서 ValueError로 올라가 _attach_diagnosis가 경고만 남기고 삼킨다
-       (배포 결과는 무손상). LLM_MODEL을 바꿀 때는 실패 1건으로 먼저 확인할 것.
+       둘 다 여기서 outcome(parse_error / api_error)으로 흡수된다 — 배포 결과는 무손상이고,
+       "몇 번 중 몇 번이 그랬나"가 build_records에 남는다. LLM_MODEL을 바꿀 때는
+       실패 1건으로 먼저 확인할 것(check_diagnose.py).
+
+    예외를 안 던지는 이유: 실패도 세어야 할 결말이다. raise로 빠져나가면 호출 시도 자체가
+    기록에서 사라져 성공률·잘림률의 분모가 없어진다.
     """
-    resp = _get_client().chat.completions.parse(
-        model=config.LLM_MODEL,
-        max_tokens=MAX_TOKENS,
-        messages=[
-            # 고정 프리픽스 = 매 호출 동일. Anthropic 네이티브의 cache_control 같은 명시
-            # 마커는 OpenAI 포맷에 없고, 프리픽스 캐시가 걸리는지는 게이트웨이/제공자 몫이다.
-            # 그래서 캐시는 기대하지 않고, 비용은 로그 절단(_truncate)으로 관리한다.
-            {"role": "system", "content": _PLATFORM_CONTEXT},
-            {"role": "user", "content": case},
-        ],
-        response_format=Diagnosis,
-    )
+    started = time.perf_counter()
+
+    def done(outcome: str, **fields) -> CallResult:
+        return CallResult(
+            outcome=outcome,
+            latency_ms=int((time.perf_counter() - started) * 1000),
+            model=config.LLM_MODEL,
+            **fields,
+        )
+
+    try:
+        resp = _get_client().chat.completions.parse(
+            model=config.LLM_MODEL,
+            max_tokens=MAX_TOKENS,
+            messages=[
+                # 고정 프리픽스 = 매 호출 동일. Anthropic 네이티브의 cache_control 같은 명시
+                # 마커는 OpenAI 포맷에 없고, 프리픽스 캐시가 걸리는지는 게이트웨이/제공자 몫이다.
+                # 그래서 캐시는 기대하지 않고, 비용은 로그 절단(_truncate)으로 관리한다.
+                {"role": "system", "content": _PLATFORM_CONTEXT},
+                {"role": "user", "content": case},
+            ],
+            response_format=Diagnosis,
+        )
+    except Exception as e:
+        # 네트워크·인증·레이트리밋·스키마 미지원 전부 여기로. 타입/메시지는 로그에만 —
+        # 컬럼엔 outcome만 남긴다(카디널리티가 터지면 집계가 안 된다).
+        logger.warning("AI 진단 호출 실패 — %s: %s", type(e).__name__, e)
+        return done("api_error")
+
+    usage = _usage(resp)
     choice = resp.choices[0]
     # 예산 초과로 JSON이 중간에 끊긴 경우. parsed는 None이고 finish_reason만이 이유를 안다.
+    # 유저 화면엔 카드가 안 뜰 뿐이라 이 축이 없으면 아무도 모른 채 지나간다.
     if choice.finish_reason == "length":
-        raise ValueError("진단 응답이 max_tokens에서 잘림")
+        logger.warning("AI 진단 응답이 max_tokens(%d)에서 잘림", MAX_TOKENS)
+        return done("length", **usage)
     # 안전 필터가 거절한 경우 — 로그가 유저 통제 입력이라 드물게 발생할 수 있다.
-    if getattr(choice.message, "refusal", None):
-        raise ValueError(f"진단 거절됨: {choice.message.refusal}")
+    refusal = getattr(choice.message, "refusal", None)
+    if refusal:
+        logger.warning("AI 진단 거절됨: %s", refusal)
+        return done("refusal", **usage)
     parsed = choice.message.parsed
     if parsed is None:
-        raise ValueError(f"진단 파싱 실패 (finish_reason={choice.finish_reason})")
+        logger.warning("AI 진단 파싱 실패 (finish_reason=%s)", choice.finish_reason)
+        return done("parse_error", **usage)
     # cause_category와 kodeploy_specific은 논리적으로 종속(플랫폼 범주면 반드시 true)이라,
     # 어긋나면 그 진단은 자기모순 = 모델이 확신 못 한 케이스다. 결과는 그대로 쓰되
     # 품질 지표로만 남긴다 — 골든 셋 라벨 없이도 흔들림을 재는 유일한 신호.
-    if (parsed.cause_category in _PLATFORM_CATEGORIES) != parsed.kodeploy_specific:
+    inconsistent = (
+        parsed.cause_category in _PLATFORM_CATEGORIES
+    ) != parsed.kodeploy_specific
+    if inconsistent:
         logger.warning(
             "진단 불일치: category=%s kodeploy_specific=%s",
             parsed.cause_category, parsed.kodeploy_specific,
         )
-    return parsed.model_dump_json()
+    return done(
+        "ok",
+        payload=parsed.model_dump_json(),
+        cause_category=parsed.cause_category,
+        inconsistent=inconsistent,
+        **usage,
+    )
 
 
 # --- 고수준 API (pipeline이 호출) ---------------------------------------------
 
-def build_failure(build) -> str:
+def build_failure(build) -> CallResult:
     """빌드 Job 실패 진단. 재료: Job/Pod 종료 정보 + 빌드 로그 + Dockerfile + 선언 스택.
 
     구조화 신호(종료 사유)를 로그보다 앞에 둔다 — 로그는 절단 대상이고, OOMKilled나
@@ -424,7 +493,7 @@ def build_failure(build) -> str:
     return _call(case)
 
 
-def rollout_failure(build) -> str:
+def rollout_failure(build) -> CallResult:
     """빌드는 성공했으나 Pod이 안 뜬 경우. 재료: Pod 상태 + 런타임 로그(현재+이전) + 선언 스택.
 
     이 플랫폼에서 가장 흔한 유형 — 포트 불일치, 비-root 위반, 부팅 중 크래시가 전부

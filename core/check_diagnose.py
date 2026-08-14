@@ -16,7 +16,6 @@ _PLATFORM_CONTEXT를 손보면 전부 헛수고다.
 
 import json
 import sys
-import time
 
 from app import config
 from app.deploy.build import diagnose
@@ -115,24 +114,31 @@ def main() -> int:
     for c in CASES:
         print("=" * 72)
         print(f"[{c['name']}]  기대 범주: {c['expect_category']}")
-        started = time.perf_counter()
-        try:
-            raw = diagnose._call(c["case"])
-        except Exception as e:
-            print(f"  ✗ 호출 실패: {type(e).__name__}: {e}")
+        # _call은 LLM 쪽 실패로 예외를 안 던진다 — 결말이 outcome으로 온다.
+        # 레이턴시도 _call이 직접 재므로(운영에서 build_records에 남는 값과 동일 계측점)
+        # 여기서 따로 재지 않는다.
+        result = diagnose._call(c["case"])
+        if result.outcome != "ok":
+            print(f"  ✗ 호출 실패: outcome={result.outcome} ({result.latency_ms}ms)")
             failed += 1
             continue
-        elapsed = time.perf_counter() - started
 
+        raw = result.payload
         d = json.loads(raw)
         hit = [s for s in c["sentinels"] if s in raw]
         # forbid: 나오면 안 되는 문구. 제약 목록이 틀렸을 때 모델이 그대로 따라간 흔적.
         bad = [s for s in c.get("forbid", []) if s in raw]
         ok_cat = d["cause_category"] == c["expect_category"]
 
-        print(f"  소요        : {elapsed:.1f}s")
+        tokens = (
+            f"{result.prompt_tokens}→{result.completion_tokens}"
+            if result.prompt_tokens is not None
+            else "(게이트웨이가 usage 미제공)"
+        )
+        print(f"  소요        : {result.latency_ms / 1000:.1f}s")
+        print(f"  토큰        : {tokens}")
         print(f"  범주        : {d['cause_category']}  {'✓' if ok_cat else '✗ (기대와 다름)'}")
-        print(f"  플랫폼 제약  : {d['kodeploy_specific']}")
+        print(f"  플랫폼 제약  : {d['kodeploy_specific']}  {'✗ 자기모순' if result.inconsistent else ''}")
         print(f"  sentinel    : {hit or '✗ 하나도 없음'}")
         if c.get("forbid"):
             print(f"  금지 문구    : {bad and '✗ ' + str(bad) or '✓ 없음'}")

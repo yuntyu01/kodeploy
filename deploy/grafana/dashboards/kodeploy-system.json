@@ -1,0 +1,486 @@
+{
+  "uid": "kodeploy-system",
+  "title": "KoDeploy 시스템",
+  "description": "플랫폼 자신의 건강과 비용. 노드 여유 · 플랫폼 컴포넌트 · Gateway 총량 · 빌드 파이프라인 · AI 진단 호출. 테넌트별 분해는 'KoDeploy 유저' 대시보드에 있다.",
+  "tags": ["kodeploy", "system"],
+  "timezone": "browser",
+  "time": { "from": "now-7d", "to": "now" },
+  "refresh": "1m",
+  "schemaVersion": 39,
+  "templating": {
+    "list": [
+      {
+        "type": "constant",
+        "name": "usd_in",
+        "label": "입력 100만토큰당 USD",
+        "query": "3",
+        "current": { "text": "3", "value": "3" },
+        "hide": 2,
+        "description": "게이트웨이 실단가로 교체할 것. 공개 정가 기준 초기값이라 사내 게이트웨이 청구액과 다를 수 있다."
+      },
+      {
+        "type": "constant",
+        "name": "usd_out",
+        "label": "출력 100만토큰당 USD",
+        "query": "15",
+        "current": { "text": "15", "value": "15" },
+        "hide": 2,
+        "description": "게이트웨이 실단가로 교체할 것."
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 100,
+      "type": "row",
+      "title": "클러스터",
+      "gridPos": { "x": 0, "y": 0, "w": 24, "h": 1 },
+      "collapsed": false
+    },
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "노드 CPU (cores)",
+      "gridPos": { "x": 0, "y": 1, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "victoriametrics" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (instance) (rate(container_cpu_usage_seconds_total{id=\"/\"}[5m]))",
+          "legendFormat": "{{instance}}"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "노드 메모리 (working set)",
+      "gridPos": { "x": 12, "y": 1, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "victoriametrics" },
+      "fieldConfig": { "defaults": { "unit": "bytes" }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (instance) (container_memory_working_set_bytes{id=\"/\"})",
+          "legendFormat": "{{instance}}"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "노드 루트 디스크 사용량",
+      "description": "cadvisor의 노드 rootfs(id=\"/\"). 노드 디스크는 컨테이너 이미지 누적으로 조용히 차오르는 자리라 여유를 눈에 두고 본다. PVC 사용량은 유저 대시보드에 따로 있다.",
+      "gridPos": { "x": 0, "y": 9, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "victoriametrics" },
+      "fieldConfig": { "defaults": { "unit": "bytes" }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (instance) (container_fs_usage_bytes{id=\"/\"})",
+          "legendFormat": "{{instance}} 사용"
+        },
+        {
+          "refId": "B",
+          "expr": "sum by (instance) (container_fs_limit_bytes{id=\"/\"})",
+          "legendFormat": "{{instance}} 용량"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "플랫폼 컴포넌트 메모리 (ns별)",
+      "description": "테넌트를 뺀 나머지 — default(core·mysql) / monitoring / envoy-gateway-system / calico-* / kube-system.",
+      "gridPos": { "x": 12, "y": 9, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "victoriametrics" },
+      "fieldConfig": { "defaults": { "unit": "bytes" }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (namespace) (container_memory_working_set_bytes{container!=\"\",namespace!~\"tenant-.*\"})",
+          "legendFormat": "{{namespace}}"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Gateway 총 RPS",
+      "gridPos": { "x": 0, "y": 17, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "victoriametrics" },
+      "fieldConfig": { "defaults": { "unit": "reqps" }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(envoy_cluster_upstream_rq_total[5m]))",
+          "legendFormat": "전체"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Gateway 5xx / 4xx",
+      "gridPos": { "x": 12, "y": 17, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "victoriametrics" },
+      "fieldConfig": { "defaults": { "unit": "reqps" }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(envoy_cluster_upstream_rq_xx{envoy_response_code_class=\"5\"}[5m]))",
+          "legendFormat": "5xx"
+        },
+        {
+          "refId": "B",
+          "expr": "sum(rate(envoy_cluster_upstream_rq_xx{envoy_response_code_class=\"4\"}[5m]))",
+          "legendFormat": "4xx"
+        }
+      ]
+    },
+    {
+      "id": 150,
+      "type": "row",
+      "title": "빌드 파이프라인",
+      "gridPos": { "x": 0, "y": 25, "w": 24, "h": 1 },
+      "collapsed": false
+    },
+    {
+      "id": 20,
+      "type": "stat",
+      "title": "빌드",
+      "description": "build_records 기준 — append-only라 앱을 삭제한 뒤에도 남는다. builds 테이블(유저 대면 히스토리)과 달리 여기가 운영 분석의 진실원.",
+      "gridPos": { "x": 0, "y": 26, "w": 6, "h": 5 },
+      "datasource": { "type": "mysql", "uid": "kodeploy-db" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT COUNT(*) AS `전체`, SUM(status = 'running') AS `성공`, SUM(status = 'failed') AS `실패`, SUM(status = 'cancelled') AS `취소` FROM build_records WHERE $__timeFilter(started_at)"
+        }
+      ]
+    },
+    {
+      "id": 21,
+      "type": "stat",
+      "title": "성공률",
+      "description": "최종 status='running' = 이미지 빌드뿐 아니라 rollout까지 완료된 것.",
+      "gridPos": { "x": 6, "y": 26, "w": 6, "h": 5 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "orange", "value": 70 },
+              { "color": "green", "value": 90 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "datasource": { "type": "mysql", "uid": "kodeploy-db" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT ROUND(100 * SUM(status = 'running') / NULLIF(COUNT(*), 0), 1) AS value FROM build_records WHERE $__timeFilter(started_at)"
+        }
+      ]
+    },
+    {
+      "id": 22,
+      "type": "stat",
+      "title": "사용자 체감 시간",
+      "description": "deploy_ready_at − started_at (rollout 완료 = 유저가 앱을 본 시점). 저장 컬럼 total_seconds가 아니라 이쪽을 쓴다 — total_seconds는 early-trigger 경로에서 뒤따르는 cache export 회수(reap)까지 포함해 유저가 실제로 안 기다린 시간이 섞인다. 정밀도는 1초(DATETIME에 소수부 없음).",
+      "gridPos": { "x": 12, "y": 26, "w": 6, "h": 5 },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "datasource": { "type": "mysql", "uid": "kodeploy-db" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT (SELECT MAX(s) FROM (SELECT TIMESTAMPDIFF(SECOND, started_at, deploy_ready_at) AS s, PERCENT_RANK() OVER (ORDER BY TIMESTAMPDIFF(SECOND, started_at, deploy_ready_at)) AS pr FROM build_records WHERE deploy_ready_at IS NOT NULL AND $__timeFilter(started_at)) t WHERE pr <= 0.5) AS p50, (SELECT MAX(s) FROM (SELECT TIMESTAMPDIFF(SECOND, started_at, deploy_ready_at) AS s, PERCENT_RANK() OVER (ORDER BY TIMESTAMPDIFF(SECOND, started_at, deploy_ready_at)) AS pr FROM build_records WHERE deploy_ready_at IS NOT NULL AND $__timeFilter(started_at)) t WHERE pr <= 0.95) AS p95"
+        }
+      ]
+    },
+    {
+      "id": 23,
+      "type": "stat",
+      "title": "레지스트리 캐시",
+      "description": "cold 비율의 분모는 cache_cold IS NOT NULL — 즉 BUILD_REGISTRY_CACHE가 켜진 빌드만. 플래그가 꺼져 있으면 두 값 다 비는 게 정상이다. export 실패는 early-trigger로 배포는 성공했는데 뒤따르던 cache export Job이 죽은 건수(배포는 유효, 다음 빌드만 느려짐).",
+      "gridPos": { "x": 18, "y": 26, "w": 6, "h": 5 },
+      "datasource": { "type": "mysql", "uid": "kodeploy-db" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT ROUND(100 * SUM(cache_cold = 1) / NULLIF(SUM(cache_cold IS NOT NULL), 0), 1) AS `cold 비율(%)`, COALESCE(SUM(cache_export_failed = 1), 0) AS `export 실패` FROM build_records WHERE $__timeFilter(started_at)"
+        }
+      ]
+    },
+    {
+      "id": 24,
+      "type": "timeseries",
+      "title": "일별 빌드 (결과별)",
+      "gridPos": { "x": 0, "y": 31, "w": 12, "h": 8 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": { "drawStyle": "bars", "fillOpacity": 70, "stacking": { "mode": "normal" } }
+        },
+        "overrides": []
+      },
+      "datasource": { "type": "mysql", "uid": "kodeploy-db" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT UNIX_TIMESTAMP(DATE(started_at)) AS time, status AS metric, COUNT(*) AS value FROM build_records WHERE $__timeFilter(started_at) GROUP BY DATE(started_at), status ORDER BY 1"
+        }
+      ]
+    },
+    {
+      "id": 25,
+      "type": "timeseries",
+      "title": "일별 구간 분해 (평균)",
+      "description": "체감 시간이 어디서 나가는지 — '빌드'는 started_at→deploy_started_at(Job 생성·clone·이미지 빌드·push), '배포'는 deploy_started_at→deploy_ready_at(Deployment apply→rollout 완료). 둘의 합이 곧 체감이다. 배포 구간이 길면 유저 앱 부팅/probe 문제고, 빌드 구간이 길면 캐시·early-trigger가 손댈 자리다.",
+      "gridPos": { "x": 12, "y": 31, "w": 12, "h": 8 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": { "fillOpacity": 25, "stacking": { "mode": "normal" } }
+        },
+        "overrides": []
+      },
+      "datasource": { "type": "mysql", "uid": "kodeploy-db" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT UNIX_TIMESTAMP(DATE(started_at)) AS time, '빌드' AS metric, ROUND(AVG(TIMESTAMPDIFF(SECOND, started_at, deploy_started_at)), 1) AS value FROM build_records WHERE deploy_started_at IS NOT NULL AND $__timeFilter(started_at) GROUP BY DATE(started_at) UNION ALL SELECT UNIX_TIMESTAMP(DATE(started_at)), '배포(rollout)', ROUND(AVG(TIMESTAMPDIFF(SECOND, deploy_started_at, deploy_ready_at)), 1) FROM build_records WHERE deploy_ready_at IS NOT NULL AND deploy_started_at IS NOT NULL AND $__timeFilter(started_at) GROUP BY DATE(started_at) ORDER BY 1"
+        }
+      ]
+    },
+    {
+      "id": 26,
+      "type": "table",
+      "title": "early-trigger A/B",
+      "description": "EARLY_TRIGGER를 켜기 전/후를 가르는 축. 'early-trigger'는 push 마커를 보고 cache export를 안 기다린 채 배포로 넘어간 빌드, '기존 경로'는 Job 완료까지 기다린 빌드(플래그 OFF이거나 마커를 못 잡아 폴백). 'export 노출'은 job_ended_at − push_done_at — 배포를 먼저 시작한 덕에 사용자 대기에서 빠진 구간이다. 플래그가 꺼져 있어도 마커 감지 시각은 기록되므로, 켜기 전 대조군이 여기 쌓인다.",
+      "gridPos": { "x": 0, "y": 39, "w": 12, "h": 8 },
+      "datasource": { "type": "mysql", "uid": "kodeploy-db" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT CASE triggered_early WHEN 1 THEN 'early-trigger' WHEN 0 THEN '기존 경로(Job 완료 대기)' ELSE '기록 없음' END AS `경로`, COUNT(*) AS `건수`, ROUND(AVG(TIMESTAMPDIFF(SECOND, started_at, deploy_ready_at)), 1) AS `평균 체감(초)`, ROUND(AVG(TIMESTAMPDIFF(SECOND, push_done_at, job_ended_at)), 1) AS `평균 export 노출(초)` FROM build_records WHERE status = 'running' AND deploy_ready_at IS NOT NULL AND $__timeFilter(started_at) GROUP BY triggered_early ORDER BY `건수` DESC"
+        }
+      ]
+    },
+    {
+      "id": 27,
+      "type": "table",
+      "title": "레지스트리 캐시 A/B",
+      "description": "BUILD_REGISTRY_CACHE를 켜기 전/후를 가르는 축. cold/warm은 seq가 아니라 로그의 'importing cache manifest' 유무로 판정한다 — 캐시를 켠 직후엔 모든 앱의 '다음 한 번'이 cold라 seq로는 못 가른다. nixpacks 단계는 auto 모드에만 있어 dockerfile 모드 행은 NULL이 정상.",
+      "gridPos": { "x": 12, "y": 39, "w": 12, "h": 8 },
+      "datasource": { "type": "mysql", "uid": "kodeploy-db" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT CASE cache_cold WHEN 1 THEN 'cold (캐시 미스)' WHEN 0 THEN 'warm (캐시 히트)' ELSE '캐시 OFF' END AS `캐시`, build_mode AS `모드`, COUNT(*) AS `건수`, ROUND(AVG(buildkit_seconds), 1) AS `BuildKit 평균(초)`, ROUND(AVG(nixpacks_seconds), 1) AS `nixpacks 평균(초)` FROM build_records WHERE status = 'running' AND $__timeFilter(started_at) GROUP BY cache_cold, build_mode ORDER BY `건수` DESC"
+        }
+      ]
+    },
+    {
+      "id": 28,
+      "type": "table",
+      "title": "최근 빌드",
+      "description": "구간은 전부 원본 시각에서 뺀 파생값이다(BuildRecord가 시각만 저장하는 이유). '저장 total'은 finished_at − started_at 컬럼 그대로 — early-trigger 경로에서는 reap까지 포함하므로 '체감'보다 크게 나오는 게 정상이고, 두 값의 차이가 곧 백그라운드로 넘긴 시간이다.",
+      "gridPos": { "x": 0, "y": 47, "w": 24, "h": 10 },
+      "datasource": { "type": "mysql", "uid": "kodeploy-db" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT started_at AS `시각`, build_id, app_name AS `앱`, runtime AS `런타임`, build_mode AS `모드`, seq AS `#`, status AS `결과`, TIMESTAMPDIFF(SECOND, started_at, deploy_ready_at) AS `체감(초)`, TIMESTAMPDIFF(SECOND, started_at, deploy_started_at) AS `빌드(초)`, TIMESTAMPDIFF(SECOND, deploy_started_at, deploy_ready_at) AS `배포(초)`, TIMESTAMPDIFF(SECOND, push_done_at, job_ended_at) AS `export 노출(초)`, ROUND(total_seconds, 1) AS `저장 total(초)`, triggered_early AS `early`, cache_cold AS `cold`, cache_export_failed AS `export실패`, error AS `에러` FROM build_records WHERE $__timeFilter(started_at) ORDER BY started_at DESC LIMIT 100"
+        }
+      ]
+    },
+    {
+      "id": 200,
+      "type": "row",
+      "title": "AI 진단 (플랫폼 비용)",
+      "gridPos": { "x": 0, "y": 57, "w": 24, "h": 1 },
+      "collapsed": false
+    },
+    {
+      "id": 10,
+      "type": "stat",
+      "title": "진단 호출",
+      "description": "실패한 빌드에서만 도는 저빈도 이벤트라 시계열보다 누계가 읽힌다. llm_outcome IS NULL = 애초에 안 부른 빌드.",
+      "gridPos": { "x": 0, "y": 58, "w": 4, "h": 5 },
+      "datasource": { "type": "mysql", "uid": "kodeploy-db" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT COUNT(*) AS value FROM build_records WHERE llm_outcome IS NOT NULL AND $__timeFilter(started_at)"
+        }
+      ]
+    },
+    {
+      "id": 11,
+      "type": "stat",
+      "title": "성공률",
+      "description": "outcome='ok' 비율. 나머지는 length(잘림) / refusal / parse_error / api_error.",
+      "gridPos": { "x": 4, "y": 58, "w": 4, "h": 5 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "orange", "value": 80 },
+              { "color": "green", "value": 95 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "datasource": { "type": "mysql", "uid": "kodeploy-db" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT ROUND(100 * SUM(llm_outcome = 'ok') / NULLIF(COUNT(*), 0), 1) AS value FROM build_records WHERE llm_outcome IS NOT NULL AND $__timeFilter(started_at)"
+        }
+      ]
+    },
+    {
+      "id": 12,
+      "type": "stat",
+      "title": "추정 비용 (USD)",
+      "description": "토큰 × 단가로 여기서 뺀다 — 컬럼으로 저장하지 않는 이유는 단가가 모델·시점에 따라 바뀌기 때문. 단가는 대시보드 변수 usd_in / usd_out.",
+      "gridPos": { "x": 8, "y": 58, "w": 4, "h": 5 },
+      "fieldConfig": { "defaults": { "unit": "currencyUSD", "decimals": 3 }, "overrides": [] },
+      "datasource": { "type": "mysql", "uid": "kodeploy-db" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT ROUND(COALESCE(SUM(llm_prompt_tokens), 0) / 1000000 * $usd_in + COALESCE(SUM(llm_completion_tokens), 0) / 1000000 * $usd_out, 4) AS value FROM build_records WHERE llm_outcome IS NOT NULL AND $__timeFilter(started_at)"
+        }
+      ]
+    },
+    {
+      "id": 13,
+      "type": "stat",
+      "title": "레이턴시 p95 / 평균",
+      "description": "게이트웨이 왕복 실측. 실패 호출도 포함 — 타임아웃의 소요시간 자체가 신호다.",
+      "gridPos": { "x": 12, "y": 58, "w": 6, "h": 5 },
+      "fieldConfig": { "defaults": { "unit": "ms" }, "overrides": [] },
+      "datasource": { "type": "mysql", "uid": "kodeploy-db" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT (SELECT MAX(llm_latency_ms) FROM (SELECT llm_latency_ms, PERCENT_RANK() OVER (ORDER BY llm_latency_ms) AS pr FROM build_records WHERE llm_latency_ms IS NOT NULL AND $__timeFilter(started_at)) t WHERE pr <= 0.95) AS p95, ROUND(AVG(llm_latency_ms)) AS `평균` FROM build_records WHERE llm_latency_ms IS NOT NULL AND $__timeFilter(started_at)"
+        }
+      ]
+    },
+    {
+      "id": 14,
+      "type": "stat",
+      "title": "자기모순율",
+      "description": "cause_category가 플랫폼 제약인데 kodeploy_specific=false(또는 그 반대). 골든셋 라벨 없이 진단 흔들림을 재는 유일한 신호라, 낮을수록 좋다.",
+      "gridPos": { "x": 18, "y": 58, "w": 6, "h": 5 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "orange", "value": 5 },
+              { "color": "red", "value": 15 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "datasource": { "type": "mysql", "uid": "kodeploy-db" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT ROUND(100 * SUM(llm_inconsistent = 1) / NULLIF(COUNT(*), 0), 1) AS value FROM build_records WHERE llm_outcome = 'ok' AND $__timeFilter(started_at)"
+        }
+      ]
+    },
+    {
+      "id": 15,
+      "type": "barchart",
+      "title": "결말 분해 (outcome)",
+      "description": "length가 보이면 max_tokens 부족 — 진단이 조용히 비어 유저 화면에 카드가 안 뜬 경우다. 이 축이 없으면 아무도 모르고 지나간다.",
+      "gridPos": { "x": 0, "y": 63, "w": 8, "h": 8 },
+      "datasource": { "type": "mysql", "uid": "kodeploy-db" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT llm_outcome AS `결말`, COUNT(*) AS `건수` FROM build_records WHERE llm_outcome IS NOT NULL AND $__timeFilter(started_at) GROUP BY llm_outcome ORDER BY `건수` DESC"
+        }
+      ]
+    },
+    {
+      "id": 16,
+      "type": "timeseries",
+      "title": "일별 토큰 사용량",
+      "gridPos": { "x": 8, "y": 63, "w": 16, "h": 8 },
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+      "datasource": { "type": "mysql", "uid": "kodeploy-db" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT UNIX_TIMESTAMP(DATE(started_at)) AS time, '입력' AS metric, SUM(llm_prompt_tokens) AS value FROM build_records WHERE llm_prompt_tokens IS NOT NULL AND $__timeFilter(started_at) GROUP BY DATE(started_at) UNION ALL SELECT UNIX_TIMESTAMP(DATE(started_at)), '출력', SUM(llm_completion_tokens) FROM build_records WHERE llm_completion_tokens IS NOT NULL AND $__timeFilter(started_at) GROUP BY DATE(started_at) ORDER BY 1"
+        }
+      ]
+    },
+    {
+      "id": 17,
+      "type": "table",
+      "title": "최근 진단 호출",
+      "description": "모델을 갈아탄 뒤 품질·비용이 어떻게 변했는지는 model 열로 구간을 갈라 본다.",
+      "gridPos": { "x": 0, "y": 71, "w": 24, "h": 10 },
+      "datasource": { "type": "mysql", "uid": "kodeploy-db" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT started_at AS `시각`, build_id, app_name AS `앱`, runtime AS `런타임`, llm_model AS `모델`, llm_outcome AS `결말`, llm_cause_category AS `범주`, llm_prompt_tokens AS `입력토큰`, llm_completion_tokens AS `출력토큰`, llm_latency_ms AS `지연(ms)`, llm_inconsistent AS `자기모순` FROM build_records WHERE llm_outcome IS NOT NULL AND $__timeFilter(started_at) ORDER BY started_at DESC LIMIT 100"
+        }
+      ]
+    }
+  ]
+}

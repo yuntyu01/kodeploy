@@ -123,21 +123,42 @@ def _update_event_status(
         db.close()
 
 
-# 실패 진단을 build row에 붙인다 (best-effort). 호출 시점엔 status/error가 이미 커밋돼
-# 있으므로, 진단이 실패하든 API가 죽어 있든 배포 결과는 그대로 남는다 — r2/domains 정리
-# 실패를 삼키는 것과 같은 철학. 동기 호출인 이유: _run_build는 이미 빌드 전용 스레드에서
-# 돌고(spawn_background), _ensure_tenant_ns의 time.sleep처럼 블로킹이 그 스레드에 격리된다.
-# to_thread로 떼면 ORM 객체를 다른 스레드에서 만지게 되어(commit 후 attribute expire →
-# 재조회) Session 스레드 안전성이 깨진다.
-def _attach_diagnosis(db: Session, build: Build, diagnose_fn) -> None:
+# 실패 진단을 build row(유저 대면 진단문)와 record(계측)에 각각 붙인다 (best-effort).
+# 호출 시점엔 status/error가 이미 커밋돼 있으므로, 진단이 실패하든 API가 죽어 있든 배포
+# 결과는 그대로 남는다 — r2/domains 정리 실패를 삼키는 것과 같은 철학. 동기 호출인 이유:
+# _run_build는 이미 빌드 전용 스레드에서 돌고(spawn_background), _ensure_tenant_ns의
+# time.sleep처럼 블로킹이 그 스레드에 격리된다. to_thread로 떼면 ORM 객체를 다른 스레드에서
+# 만지게 되어(commit 후 attribute expire → 재조회) Session 스레드 안전성이 깨진다.
+#
+# 두 곳에 나눠 쓰는 이유: build.ai_analysis는 유저가 읽는 전문이라 delete_app에 함께 지워지고,
+# record의 llm_* 는 앱이 지워진 뒤에도 남아야 하는 운영 계측이다 (build_records는 append-only).
+# diagnose는 LLM 실패로 예외를 안 던지므로(결말도 세야 하니까) 정상 경로에서 outcome이 온다.
+def _attach_diagnosis(
+    db: Session, build: Build, record: BuildRecord, diagnose_fn
+) -> None:
     if not diagnose.is_configured():
         return
     try:
-        build.ai_analysis = diagnose_fn(build)
+        result = diagnose_fn(build)
+    except Exception as e:
+        # diagnose가 흡수 못 한 것(K8s 조회 등 재료 수집 단계 예외)만 여기로 온다.
+        db.rollback()
+        logger.warning("build %s: AI 진단 실패 — %s", build.build_id, e)
+        return
+    try:
+        if result.payload:                       # 실패 결말이면 진단문 없음 — 카드도 안 그린다
+            build.ai_analysis = result.payload
+        record.llm_model = result.model
+        record.llm_outcome = result.outcome
+        record.llm_latency_ms = result.latency_ms
+        record.llm_prompt_tokens = result.prompt_tokens
+        record.llm_completion_tokens = result.completion_tokens
+        record.llm_cause_category = result.cause_category
+        record.llm_inconsistent = result.inconsistent
         db.commit()
     except Exception as e:
         db.rollback()
-        logger.warning("build %s: AI 진단 실패 — %s", build.build_id, e)
+        logger.warning("build %s: AI 진단 기록 실패 — %s", build.build_id, e)
 
 
 _ACTIVE_STATUSES = {"queued", "building", "built", "deploying"}
@@ -678,7 +699,7 @@ async def _run_build(
                     db.commit()
                     # 로그가 최종본으로 확정된 뒤(위 _finalize_build_artifacts) 진단.
                     _stamp_finished()  # 진단 시간이 빌드 소요시간에 섞이지 않게 먼저 마감
-                    _attach_diagnosis(db, build, diagnose.build_failure)
+                    _attach_diagnosis(db, build, record, diagnose.build_failure)
                     return
 
             if _check_cancelled():
@@ -787,7 +808,7 @@ async def _run_build(
             # reap 뒤에 두는 이유: cache export 회수를 API 호출만큼 지연시키지 않으려고.
             if build.status == "failed":
                 _stamp_finished()  # 진단 시간이 빌드 소요시간에 섞이지 않게 먼저 마감
-                _attach_diagnosis(db, build, diagnose.rollout_failure)
+                _attach_diagnosis(db, build, record, diagnose.rollout_failure)
 
         except Exception as e:
             db.rollback()

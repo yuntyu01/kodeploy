@@ -3,7 +3,7 @@
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, DateTime, Float, Integer, String, Text, Uuid
+from sqlalchemy import Boolean, DateTime, Float, Index, Integer, String, Text, Uuid
 from sqlalchemy.dialects.mysql import LONGTEXT
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -121,3 +121,24 @@ class BuildRecord(Base):
     deploy_ready_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     # triggered_early: early-trigger로 배포를 먼저 시작했나(True) / 폴백·플래그OFF(False). A/B 비교 축.
     triggered_early: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    # ── AI 진단 호출 계측 (deploy/build/diagnose.py의 CallResult가 채움) ──
+    # 진단을 안 부른 빌드(성공 / AI_DIAGNOSE=false)는 전부 NULL — llm_outcome IS NULL이
+    # "애초에 안 불렀다", 값이 있으면 "불렀고 결말이 이것"이다.
+    # 비용은 컬럼이 아니다 — 토큰 × 단가로 뷰에서 뺀다(원본만 저장하는 위 원칙 그대로).
+    # 그래서 llm_model을 같이 남긴다: 모델을 갈아타면 단가가 바뀌므로 구간을 갈라야 한다.
+    llm_model: Mapped[str | None] = mapped_column(String(60), nullable=True)
+    # "ok" | "length" | "refusal" | "parse_error" | "api_error"
+    # length는 max_tokens에서 JSON이 잘려 진단이 조용히 빈 경우 — 로그 말고 이 축으로 센다.
+    llm_outcome: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    llm_prompt_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    llm_completion_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    llm_latency_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Diagnosis.cause_category. builds.ai_analysis에도 들어 있지만 그쪽은 delete_app에
+    # 지워지므로, 집계 축만 이 영구 테이블로 승격한다. outcome != "ok"면 NULL.
+    llm_cause_category: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    # cause_category ↔ kodeploy_specific 자기모순 — 골든셋 없이 재는 유일한 품질 신호.
+    llm_inconsistent: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+
+    # Grafana 패널이 전부 $__timeFilter(started_at)로 들어오고, admin 빌드 기록 목록도
+    # ORDER BY started_at DESC LIMIT이다 — 두 읽기 경로가 같은 컬럼을 탄다.
+    __table_args__ = (Index("ix_build_records_started_at", "started_at"),)

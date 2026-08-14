@@ -1,0 +1,202 @@
+{
+  "uid": "kodeploy-users",
+  "title": "KoDeploy 유저",
+  "description": "테넌트 워크로드가 어떻게 굴러가는가 — ns별 리소스 분해, 앱별 트래픽, 재시작/OOM, 빌드 실패 원인. 노드 총량·플랫폼 컴포넌트·LLM 비용은 'KoDeploy 시스템' 대시보드에 있다.",
+  "tags": ["kodeploy", "tenant"],
+  "timezone": "browser",
+  "time": { "from": "now-6h", "to": "now" },
+  "refresh": "1m",
+  "schemaVersion": 39,
+  "templating": {
+    "list": [
+      {
+        "type": "query",
+        "name": "tenant",
+        "label": "테넌트",
+        "datasource": { "type": "prometheus", "uid": "victoriametrics" },
+        "query": "label_values(container_memory_working_set_bytes{namespace=~\"tenant-.*\"}, namespace)",
+        "includeAll": true,
+        "multi": true,
+        "current": { "text": "All", "value": "$__all" },
+        "refresh": 2
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 100,
+      "type": "row",
+      "title": "테넌트 리소스",
+      "gridPos": { "x": 0, "y": 0, "w": 24, "h": 1 },
+      "collapsed": false
+    },
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "테넌트별 CPU (cores)",
+      "gridPos": { "x": 0, "y": 1, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "victoriametrics" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (namespace) (rate(container_cpu_usage_seconds_total{namespace=~\"$tenant\",container!=\"\"}[5m]))",
+          "legendFormat": "{{namespace}}"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "테넌트별 메모리",
+      "gridPos": { "x": 12, "y": 1, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "victoriametrics" },
+      "fieldConfig": { "defaults": { "unit": "bytes" }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (namespace) (container_memory_working_set_bytes{namespace=~\"$tenant\",container!=\"\"})",
+          "legendFormat": "{{namespace}}"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "컴포넌트별 메모리 (앱 · DB · Redis)",
+      "description": "pod 라벨로 쪼갠 것 — 한 테넌트 안에서 앱과 mysql/redis 중 무엇이 메모리를 먹는지 본다. 런타임 limit은 runtimes.py의 RUNTIME_RESOURCES가 진실원.",
+      "gridPos": { "x": 0, "y": 9, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "victoriametrics" },
+      "fieldConfig": { "defaults": { "unit": "bytes" }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (namespace, pod) (container_memory_working_set_bytes{namespace=~\"$tenant\",container!=\"\"})",
+          "legendFormat": "{{namespace}} / {{pod}}"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "PVC 사용량",
+      "description": "테넌트 DB PVC와 영속저장소(local) PVC. 토글을 꺼도 PVC는 보존되므로 안 쓰는 볼륨도 여기 남는다.",
+      "gridPos": { "x": 12, "y": 9, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "victoriametrics" },
+      "fieldConfig": { "defaults": { "unit": "bytes" }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "kubelet_volume_stats_used_bytes{namespace=~\"$tenant\"}",
+          "legendFormat": "{{namespace}} / {{persistentvolumeclaim}}"
+        }
+      ]
+    },
+    {
+      "id": 200,
+      "type": "row",
+      "title": "앱 트래픽 · 안정성",
+      "gridPos": { "x": 0, "y": 17, "w": 24, "h": 1 },
+      "collapsed": false
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "앱별 RPS",
+      "description": "envoy_cluster_name은 httproute/{ns}/{app}/rule/0 형식 — console/metrics.py가 유저 대시보드에 쓰는 것과 같은 계열이다.",
+      "gridPos": { "x": 0, "y": 18, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "victoriametrics" },
+      "fieldConfig": { "defaults": { "unit": "reqps" }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (envoy_cluster_name) (rate(envoy_cluster_upstream_rq_total{envoy_cluster_name=~\"httproute/tenant-.*\"}[5m]))",
+          "legendFormat": "{{envoy_cluster_name}}"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "앱별 4xx / 5xx",
+      "gridPos": { "x": 12, "y": 18, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "victoriametrics" },
+      "fieldConfig": { "defaults": { "unit": "reqps" }, "overrides": [] },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (envoy_cluster_name, envoy_response_code_class) (rate(envoy_cluster_upstream_rq_xx{envoy_cluster_name=~\"httproute/tenant-.*\",envoy_response_code_class=~\"4|5\"}[5m]))",
+          "legendFormat": "{{envoy_cluster_name}} {{envoy_response_code_class}}xx"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "컨테이너 재시작 누계",
+      "description": "증가가 곧 크래시 루프. status.py의 crashing 판정과 같은 현상을 시간축으로 본 것.",
+      "gridPos": { "x": 0, "y": 26, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "victoriametrics" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (namespace, pod) (kube_pod_container_status_restarts_total{namespace=~\"$tenant\"})",
+          "legendFormat": "{{namespace}} / {{pod}}"
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "OOMKilled",
+      "description": "메모리 limit 초과로 죽은 컨테이너. Java 앱이 JVM 힙을 명시 안 해 컨테이너 limit을 넘기는 게 대표 사례 — 진단의 oom 범주와 짝지어 본다.",
+      "gridPos": { "x": 12, "y": 26, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "victoriametrics" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (namespace, pod) (kube_pod_container_status_last_terminated_reason{namespace=~\"$tenant\",reason=\"OOMKilled\"})",
+          "legendFormat": "{{namespace}} / {{pod}}"
+        }
+      ]
+    },
+    {
+      "id": 300,
+      "type": "row",
+      "title": "빌드",
+      "gridPos": { "x": 0, "y": 34, "w": 24, "h": 1 },
+      "collapsed": false
+    },
+    {
+      "id": 9,
+      "type": "barchart",
+      "title": "빌드 실패 원인 분포",
+      "description": "AI 진단의 cause_category(폐쇄집합). 호출 비용·레이턴시는 '시스템' 대시보드지만 이 분포는 '유저들이 어떤 제약에 걸리는가'라 제품 신호다. non_root·port_mismatch가 상위면 가이드 문서를, user_build_error가 상위면 진단 프롬프트 말고 유저 코드를 봐야 한다는 뜻.",
+      "gridPos": { "x": 0, "y": 35, "w": 12, "h": 9 },
+      "datasource": { "type": "mysql", "uid": "kodeploy-db" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT llm_cause_category AS `범주`, COUNT(*) AS `건수` FROM build_records WHERE llm_cause_category IS NOT NULL AND $__timeFilter(started_at) GROUP BY llm_cause_category ORDER BY `건수` DESC"
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "type": "table",
+      "title": "앱별 빌드 집계",
+      "description": "build_records는 append-only라 앱을 삭제한 뒤에도 남는다. 성공은 최종 status='running'(롤아웃까지 완료).",
+      "gridPos": { "x": 12, "y": 35, "w": 12, "h": 9 },
+      "datasource": { "type": "mysql", "uid": "kodeploy-db" },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT app_name AS `앱`, runtime AS `런타임`, COUNT(*) AS `빌드`, SUM(status = 'running') AS `성공`, SUM(status = 'failed') AS `실패`, ROUND(AVG(total_seconds), 1) AS `평균(초)`, MAX(started_at) AS `최근` FROM build_records WHERE $__timeFilter(started_at) GROUP BY app_name, runtime ORDER BY `빌드` DESC LIMIT 50"
+        }
+      ]
+    }
+  ]
+}
