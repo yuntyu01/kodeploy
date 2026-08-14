@@ -242,7 +242,7 @@
           "refId": "A",
           "format": "time_series",
           "rawQuery": true,
-          "rawSql": "SELECT UNIX_TIMESTAMP(DATE(started_at)) AS time, status AS metric, COUNT(*) AS value FROM build_records WHERE $__timeFilter(started_at) GROUP BY DATE(started_at), status ORDER BY 1"
+          "rawSql": "SELECT UNIX_TIMESTAMP(DATE(started_at)) AS time, status AS metric, COUNT(*) AS value FROM build_records WHERE $__timeFilter(started_at) GROUP BY UNIX_TIMESTAMP(DATE(started_at)), status ORDER BY 1"
         }
       ]
     },
@@ -265,7 +265,7 @@
           "refId": "A",
           "format": "time_series",
           "rawQuery": true,
-          "rawSql": "SELECT UNIX_TIMESTAMP(DATE(started_at)) AS time, '빌드' AS metric, ROUND(AVG(TIMESTAMPDIFF(SECOND, started_at, deploy_started_at)), 1) AS value FROM build_records WHERE deploy_started_at IS NOT NULL AND $__timeFilter(started_at) GROUP BY DATE(started_at) UNION ALL SELECT UNIX_TIMESTAMP(DATE(started_at)), '배포(rollout)', ROUND(AVG(TIMESTAMPDIFF(SECOND, deploy_started_at, deploy_ready_at)), 1) FROM build_records WHERE deploy_ready_at IS NOT NULL AND deploy_started_at IS NOT NULL AND $__timeFilter(started_at) GROUP BY DATE(started_at) ORDER BY 1"
+          "rawSql": "SELECT UNIX_TIMESTAMP(DATE(started_at)) AS time, '빌드' AS metric, ROUND(AVG(TIMESTAMPDIFF(SECOND, started_at, deploy_started_at)), 1) AS value FROM build_records WHERE deploy_started_at IS NOT NULL AND $__timeFilter(started_at) GROUP BY UNIX_TIMESTAMP(DATE(started_at)) UNION ALL SELECT UNIX_TIMESTAMP(DATE(started_at)), '배포(rollout)', ROUND(AVG(TIMESTAMPDIFF(SECOND, deploy_started_at, deploy_ready_at)), 1) FROM build_records WHERE deploy_ready_at IS NOT NULL AND deploy_started_at IS NOT NULL AND $__timeFilter(started_at) GROUP BY UNIX_TIMESTAMP(DATE(started_at)) ORDER BY 1"
         }
       ]
     },
@@ -462,7 +462,7 @@
           "refId": "A",
           "format": "time_series",
           "rawQuery": true,
-          "rawSql": "SELECT UNIX_TIMESTAMP(DATE(started_at)) AS time, '입력' AS metric, SUM(llm_prompt_tokens) AS value FROM build_records WHERE llm_prompt_tokens IS NOT NULL AND $__timeFilter(started_at) GROUP BY DATE(started_at) UNION ALL SELECT UNIX_TIMESTAMP(DATE(started_at)), '출력', SUM(llm_completion_tokens) FROM build_records WHERE llm_completion_tokens IS NOT NULL AND $__timeFilter(started_at) GROUP BY DATE(started_at) ORDER BY 1"
+          "rawSql": "SELECT UNIX_TIMESTAMP(DATE(started_at)) AS time, '입력' AS metric, SUM(llm_prompt_tokens) AS value FROM build_records WHERE llm_prompt_tokens IS NOT NULL AND $__timeFilter(started_at) GROUP BY UNIX_TIMESTAMP(DATE(started_at)) UNION ALL SELECT UNIX_TIMESTAMP(DATE(started_at)), '출력', SUM(llm_completion_tokens) FROM build_records WHERE llm_completion_tokens IS NOT NULL AND $__timeFilter(started_at) GROUP BY UNIX_TIMESTAMP(DATE(started_at)) ORDER BY 1"
         }
       ]
     },

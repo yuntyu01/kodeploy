@@ -78,15 +78,15 @@
     {
       "id": 4,
       "type": "timeseries",
-      "title": "PVC 사용량",
-      "description": "테넌트 DB PVC와 영속저장소(local) PVC. 토글을 꺼도 PVC는 보존되므로 안 쓰는 볼륨도 여기 남는다.",
+      "title": "PVC 요청 용량",
+      "description": "테넌트 DB PVC와 영속저장소(local) PVC의 선언 용량. ⚠️ '사용량'이 아니다 — 이 클러스터는 local-path·manual local PV를 쓰는데 둘 다 CSI 드라이버가 아니라서 kubelet이 볼륨 통계를 내지 않는다(/metrics·/metrics/resource·stats/summary 전부 PVC 항목 0). 실제 디스크 소모는 시스템 대시보드의 '노드 루트 디스크'로 본다. 토글을 꺼도 PVC는 보존되므로 안 쓰는 볼륨도 여기 남는다.",
       "gridPos": { "x": 12, "y": 9, "w": 12, "h": 8 },
       "datasource": { "type": "prometheus", "uid": "victoriametrics" },
       "fieldConfig": { "defaults": { "unit": "bytes" }, "overrides": [] },
       "targets": [
         {
           "refId": "A",
-          "expr": "kubelet_volume_stats_used_bytes{namespace=~\"$tenant\"}",
+          "expr": "kube_persistentvolumeclaim_resource_requests_storage_bytes{namespace=~\"$tenant\"}",
           "legendFormat": "{{namespace}} / {{persistentvolumeclaim}}"
         }
       ]
