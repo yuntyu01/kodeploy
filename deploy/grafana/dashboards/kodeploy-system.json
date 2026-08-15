@@ -2,30 +2,62 @@
   "uid": "kodeploy-system",
   "title": "KoDeploy 시스템",
   "description": "플랫폼 자신의 건강과 비용. 노드 여유 · 플랫폼 컴포넌트 · Gateway 총량 · 빌드 파이프라인 · AI 진단 호출. 테넌트별 분해는 'KoDeploy 유저' 대시보드에 있다.",
-  "tags": ["kodeploy", "system"],
+  "tags": [
+    "kodeploy",
+    "system"
+  ],
   "timezone": "browser",
-  "time": { "from": "now-7d", "to": "now" },
+  "time": {
+    "from": "now-7d",
+    "to": "now"
+  },
   "refresh": "1m",
   "schemaVersion": 39,
   "templating": {
     "list": [
       {
+        "name": "price_in",
         "type": "constant",
-        "name": "usd_in",
-        "label": "입력 100만토큰당 USD",
-        "query": "3",
-        "current": { "text": "3", "value": "3" },
         "hide": 2,
-        "description": "게이트웨이 실단가로 교체할 것. 공개 정가 기준 초기값이라 사내 게이트웨이 청구액과 다를 수 있다."
+        "label": "입력 100만토큰당 USD (모델별)",
+        "query": "CASE WHEN llm_model LIKE 'claude-opus%' THEN 15 WHEN llm_model LIKE 'claude-sonnet%' THEN 3 WHEN llm_model LIKE 'claude-fable%' THEN 1 ELSE 3 END",
+        "current": {
+          "text": "CASE WHEN llm_model LIKE 'claude-opus%' THEN 15 WHEN llm_model LIKE 'claude-sonnet%' THEN 3 WHEN llm_model LIKE 'claude-fable%' THEN 1 ELSE 3 END",
+          "value": "CASE WHEN llm_model LIKE 'claude-opus%' THEN 15 WHEN llm_model LIKE 'claude-sonnet%' THEN 3 WHEN llm_model LIKE 'claude-fable%' THEN 1 ELSE 3 END"
+        }
       },
       {
+        "name": "price_out",
         "type": "constant",
-        "name": "usd_out",
-        "label": "출력 100만토큰당 USD",
-        "query": "15",
-        "current": { "text": "15", "value": "15" },
         "hide": 2,
-        "description": "게이트웨이 실단가로 교체할 것."
+        "label": "출력 100만토큰당 USD (모델별)",
+        "query": "CASE WHEN llm_model LIKE 'claude-opus%' THEN 75 WHEN llm_model LIKE 'claude-sonnet%' THEN 15 WHEN llm_model LIKE 'claude-fable%' THEN 5 ELSE 15 END",
+        "current": {
+          "text": "CASE WHEN llm_model LIKE 'claude-opus%' THEN 75 WHEN llm_model LIKE 'claude-sonnet%' THEN 15 WHEN llm_model LIKE 'claude-fable%' THEN 5 ELSE 15 END",
+          "value": "CASE WHEN llm_model LIKE 'claude-opus%' THEN 75 WHEN llm_model LIKE 'claude-sonnet%' THEN 15 WHEN llm_model LIKE 'claude-fable%' THEN 5 ELSE 15 END"
+        }
+      },
+      {
+        "name": "price_known",
+        "type": "constant",
+        "hide": 2,
+        "label": "단가가 등록된 모델 조건",
+        "query": "(llm_model LIKE 'claude-opus%' OR llm_model LIKE 'claude-sonnet%' OR llm_model LIKE 'claude-fable%')",
+        "current": {
+          "text": "(llm_model LIKE 'claude-opus%' OR llm_model LIKE 'claude-sonnet%' OR llm_model LIKE 'claude-fable%')",
+          "value": "(llm_model LIKE 'claude-opus%' OR llm_model LIKE 'claude-sonnet%' OR llm_model LIKE 'claude-fable%')"
+        }
+      },
+      {
+        "name": "daily_token_budget",
+        "type": "constant",
+        "hide": 2,
+        "label": "일일 토큰 예산 (core의 LLM_DAILY_TOKEN_BUDGET과 같은 값)",
+        "query": "200000",
+        "current": {
+          "text": "200000",
+          "value": "200000"
+        }
       }
     ]
   },
@@ -34,7 +66,12 @@
       "id": 100,
       "type": "row",
       "title": "클러스터",
-      "gridPos": { "x": 0, "y": 0, "w": 24, "h": 1 },
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 1
+      },
       "collapsed": false
     },
     {
@@ -42,16 +79,44 @@
       "type": "timeseries",
       "title": "노드 CPU 사용률",
       "description": "노드 코어 수(machine_cpu_cores) 대비. 절대 cores 값은 맨 아래 '절대값(원본)' 행에 있다.",
-      "gridPos": { "x": 0, "y": 1, "w": 12, "h": 8 },
-      "datasource": { "type": "prometheus", "uid": "victoriametrics" },
+      "gridPos": {
+        "x": 0,
+        "y": 1,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "victoriametrics"
+      },
       "fieldConfig": {
         "defaults": {
-          "unit": "percent", "min": 0, "max": 100,
-          "custom": { "fillOpacity": 10, "thresholdsStyle": { "mode": "dashed" } },
-          "thresholds": { "mode": "absolute", "steps": [
-            { "color": "green", "value": null },
-            { "color": "orange", "value": 70 },
-            { "color": "red", "value": 85 } ] }
+          "unit": "percent",
+          "min": 0,
+          "max": 100,
+          "custom": {
+            "fillOpacity": 10,
+            "thresholdsStyle": {
+              "mode": "dashed"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 70
+              },
+              {
+                "color": "red",
+                "value": 85
+              }
+            ]
+          }
         },
         "overrides": []
       },
@@ -68,16 +133,44 @@
       "type": "timeseries",
       "title": "노드 메모리 사용률",
       "description": "노드 전체 메모리(machine_memory_bytes) 대비 working set. OCI Always Free 24GB 한도를 머리로 계산하지 않기 위한 패널이다.",
-      "gridPos": { "x": 12, "y": 1, "w": 12, "h": 8 },
-      "datasource": { "type": "prometheus", "uid": "victoriametrics" },
+      "gridPos": {
+        "x": 12,
+        "y": 1,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "victoriametrics"
+      },
       "fieldConfig": {
         "defaults": {
-          "unit": "percent", "min": 0, "max": 100,
-          "custom": { "fillOpacity": 10, "thresholdsStyle": { "mode": "dashed" } },
-          "thresholds": { "mode": "absolute", "steps": [
-            { "color": "green", "value": null },
-            { "color": "orange", "value": 75 },
-            { "color": "red", "value": 90 } ] }
+          "unit": "percent",
+          "min": 0,
+          "max": 100,
+          "custom": {
+            "fillOpacity": 10,
+            "thresholdsStyle": {
+              "mode": "dashed"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 75
+              },
+              {
+                "color": "red",
+                "value": 90
+              }
+            ]
+          }
         },
         "overrides": []
       },
@@ -94,16 +187,44 @@
       "type": "timeseries",
       "title": "노드 루트 디스크 사용률",
       "description": "cadvisor의 노드 rootfs(id=\"/\") 사용/용량. 노드 디스크는 컨테이너 이미지 누적으로 조용히 차오르는 자리라, 남은 GB보다 몇 %인지가 판단에 쓰인다.",
-      "gridPos": { "x": 0, "y": 9, "w": 12, "h": 8 },
-      "datasource": { "type": "prometheus", "uid": "victoriametrics" },
+      "gridPos": {
+        "x": 0,
+        "y": 9,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "victoriametrics"
+      },
       "fieldConfig": {
         "defaults": {
-          "unit": "percent", "min": 0, "max": 100,
-          "custom": { "fillOpacity": 10, "thresholdsStyle": { "mode": "dashed" } },
-          "thresholds": { "mode": "absolute", "steps": [
-            { "color": "green", "value": null },
-            { "color": "orange", "value": 70 },
-            { "color": "red", "value": 85 } ] }
+          "unit": "percent",
+          "min": 0,
+          "max": 100,
+          "custom": {
+            "fillOpacity": 10,
+            "thresholdsStyle": {
+              "mode": "dashed"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 70
+              },
+              {
+                "color": "red",
+                "value": 85
+              }
+            ]
+          }
         },
         "overrides": []
       },
@@ -120,9 +241,22 @@
       "type": "timeseries",
       "title": "플랫폼 컴포넌트 메모리 (ns별)",
       "description": "⚠️ 여기만 절대값이다. 컨트롤플레인 Pod(apiserver·etcd·scheduler)은 의도적으로 memory limit이 없어서 한도 대비 %를 내면 분모가 일부 컨테이너만 잡혀 369% 같은 값이 나온다. 이 패널의 판단 기준은 '한도 대비'가 아니라 '노드에서 무엇이 먹고 있나'이고, 노드 여유는 위 노드 메모리 사용률이 답한다.",
-      "gridPos": { "x": 12, "y": 9, "w": 12, "h": 8 },
-      "datasource": { "type": "prometheus", "uid": "victoriametrics" },
-      "fieldConfig": { "defaults": { "unit": "bytes" }, "overrides": [] },
+      "gridPos": {
+        "x": 12,
+        "y": 9,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "victoriametrics"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes"
+        },
+        "overrides": []
+      },
       "targets": [
         {
           "refId": "A",
@@ -135,9 +269,22 @@
       "id": 5,
       "type": "timeseries",
       "title": "Gateway 총 RPS",
-      "gridPos": { "x": 0, "y": 17, "w": 12, "h": 8 },
-      "datasource": { "type": "prometheus", "uid": "victoriametrics" },
-      "fieldConfig": { "defaults": { "unit": "reqps" }, "overrides": [] },
+      "gridPos": {
+        "x": 0,
+        "y": 17,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "victoriametrics"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps"
+        },
+        "overrides": []
+      },
       "targets": [
         {
           "refId": "A",
@@ -150,9 +297,22 @@
       "id": 6,
       "type": "timeseries",
       "title": "Gateway 5xx / 4xx",
-      "gridPos": { "x": 12, "y": 17, "w": 12, "h": 8 },
-      "datasource": { "type": "prometheus", "uid": "victoriametrics" },
-      "fieldConfig": { "defaults": { "unit": "reqps" }, "overrides": [] },
+      "gridPos": {
+        "x": 12,
+        "y": 17,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "victoriametrics"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps"
+        },
+        "overrides": []
+      },
       "targets": [
         {
           "refId": "A",
@@ -170,7 +330,12 @@
       "id": 150,
       "type": "row",
       "title": "빌드 파이프라인",
-      "gridPos": { "x": 0, "y": 25, "w": 24, "h": 1 },
+      "gridPos": {
+        "x": 0,
+        "y": 25,
+        "w": 24,
+        "h": 1
+      },
       "collapsed": false
     },
     {
@@ -178,8 +343,16 @@
       "type": "stat",
       "title": "빌드",
       "description": "build_records 기준 — append-only라 앱을 삭제한 뒤에도 남는다. builds 테이블(유저 대면 히스토리)과 달리 여기가 운영 분석의 진실원.",
-      "gridPos": { "x": 0, "y": 26, "w": 6, "h": 5 },
-      "datasource": { "type": "mysql", "uid": "kodeploy-db" },
+      "gridPos": {
+        "x": 0,
+        "y": 26,
+        "w": 6,
+        "h": 5
+      },
+      "datasource": {
+        "type": "mysql",
+        "uid": "kodeploy-db"
+      },
       "targets": [
         {
           "refId": "A",
@@ -194,22 +367,39 @@
       "type": "stat",
       "title": "성공률",
       "description": "최종 status='running' = 이미지 빌드뿐 아니라 rollout까지 완료된 것.",
-      "gridPos": { "x": 6, "y": 26, "w": 6, "h": 5 },
+      "gridPos": {
+        "x": 6,
+        "y": 26,
+        "w": 6,
+        "h": 5
+      },
       "fieldConfig": {
         "defaults": {
           "unit": "percent",
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              { "color": "red", "value": null },
-              { "color": "orange", "value": 70 },
-              { "color": "green", "value": 90 }
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 70
+              },
+              {
+                "color": "green",
+                "value": 90
+              }
             ]
           }
         },
         "overrides": []
       },
-      "datasource": { "type": "mysql", "uid": "kodeploy-db" },
+      "datasource": {
+        "type": "mysql",
+        "uid": "kodeploy-db"
+      },
       "targets": [
         {
           "refId": "A",
@@ -224,9 +414,22 @@
       "type": "stat",
       "title": "사용자 체감 시간",
       "description": "deploy_ready_at − started_at (rollout 완료 = 유저가 앱을 본 시점). 저장 컬럼 total_seconds가 아니라 이쪽을 쓴다 — total_seconds는 early-trigger 경로에서 뒤따르는 cache export 회수(reap)까지 포함해 유저가 실제로 안 기다린 시간이 섞인다. 정밀도는 1초(DATETIME에 소수부 없음).",
-      "gridPos": { "x": 12, "y": 26, "w": 6, "h": 5 },
-      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
-      "datasource": { "type": "mysql", "uid": "kodeploy-db" },
+      "gridPos": {
+        "x": 12,
+        "y": 26,
+        "w": 6,
+        "h": 5
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "datasource": {
+        "type": "mysql",
+        "uid": "kodeploy-db"
+      },
       "targets": [
         {
           "refId": "A",
@@ -241,8 +444,16 @@
       "type": "stat",
       "title": "레지스트리 캐시",
       "description": "cold 비율의 분모는 cache_cold IS NOT NULL — 즉 BUILD_REGISTRY_CACHE가 켜진 빌드만. 플래그가 꺼져 있으면 두 값 다 비는 게 정상이다. export 실패는 early-trigger로 배포는 성공했는데 뒤따르던 cache export Job이 죽은 건수(배포는 유효, 다음 빌드만 느려짐).",
-      "gridPos": { "x": 18, "y": 26, "w": 6, "h": 5 },
-      "datasource": { "type": "mysql", "uid": "kodeploy-db" },
+      "gridPos": {
+        "x": 18,
+        "y": 26,
+        "w": 6,
+        "h": 5
+      },
+      "datasource": {
+        "type": "mysql",
+        "uid": "kodeploy-db"
+      },
       "targets": [
         {
           "refId": "A",
@@ -256,15 +467,29 @@
       "id": 24,
       "type": "timeseries",
       "title": "일별 빌드 (결과별)",
-      "gridPos": { "x": 0, "y": 31, "w": 12, "h": 8 },
+      "gridPos": {
+        "x": 0,
+        "y": 31,
+        "w": 12,
+        "h": 8
+      },
       "fieldConfig": {
         "defaults": {
           "unit": "short",
-          "custom": { "drawStyle": "bars", "fillOpacity": 70, "stacking": { "mode": "normal" } }
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 70,
+            "stacking": {
+              "mode": "normal"
+            }
+          }
         },
         "overrides": []
       },
-      "datasource": { "type": "mysql", "uid": "kodeploy-db" },
+      "datasource": {
+        "type": "mysql",
+        "uid": "kodeploy-db"
+      },
       "targets": [
         {
           "refId": "A",
@@ -279,15 +504,28 @@
       "type": "timeseries",
       "title": "일별 구간 분해 (평균)",
       "description": "체감 시간이 어디서 나가는지 — '빌드'는 started_at→deploy_started_at(Job 생성·clone·이미지 빌드·push), '배포'는 deploy_started_at→deploy_ready_at(Deployment apply→rollout 완료). 둘의 합이 곧 체감이다. 배포 구간이 길면 유저 앱 부팅/probe 문제고, 빌드 구간이 길면 캐시·early-trigger가 손댈 자리다.",
-      "gridPos": { "x": 12, "y": 31, "w": 12, "h": 8 },
+      "gridPos": {
+        "x": 12,
+        "y": 31,
+        "w": 12,
+        "h": 8
+      },
       "fieldConfig": {
         "defaults": {
           "unit": "s",
-          "custom": { "fillOpacity": 25, "stacking": { "mode": "normal" } }
+          "custom": {
+            "fillOpacity": 25,
+            "stacking": {
+              "mode": "normal"
+            }
+          }
         },
         "overrides": []
       },
-      "datasource": { "type": "mysql", "uid": "kodeploy-db" },
+      "datasource": {
+        "type": "mysql",
+        "uid": "kodeploy-db"
+      },
       "targets": [
         {
           "refId": "A",
@@ -302,8 +540,16 @@
       "type": "table",
       "title": "early-trigger A/B",
       "description": "EARLY_TRIGGER를 켜기 전/후를 가르는 축. 'early-trigger'는 push 마커를 보고 cache export를 안 기다린 채 배포로 넘어간 빌드, '기존 경로'는 Job 완료까지 기다린 빌드(플래그 OFF이거나 마커를 못 잡아 폴백). 'export 노출'은 job_ended_at − push_done_at — 배포를 먼저 시작한 덕에 사용자 대기에서 빠진 구간이다. 플래그가 꺼져 있어도 마커 감지 시각은 기록되므로, 켜기 전 대조군이 여기 쌓인다.",
-      "gridPos": { "x": 0, "y": 39, "w": 12, "h": 8 },
-      "datasource": { "type": "mysql", "uid": "kodeploy-db" },
+      "gridPos": {
+        "x": 0,
+        "y": 39,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "mysql",
+        "uid": "kodeploy-db"
+      },
       "targets": [
         {
           "refId": "A",
@@ -318,8 +564,16 @@
       "type": "table",
       "title": "레지스트리 캐시 A/B",
       "description": "BUILD_REGISTRY_CACHE를 켜기 전/후를 가르는 축. cold/warm은 seq가 아니라 로그의 'importing cache manifest' 유무로 판정한다 — 캐시를 켠 직후엔 모든 앱의 '다음 한 번'이 cold라 seq로는 못 가른다. nixpacks 단계는 auto 모드에만 있어 dockerfile 모드 행은 NULL이 정상.",
-      "gridPos": { "x": 12, "y": 39, "w": 12, "h": 8 },
-      "datasource": { "type": "mysql", "uid": "kodeploy-db" },
+      "gridPos": {
+        "x": 12,
+        "y": 39,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "mysql",
+        "uid": "kodeploy-db"
+      },
       "targets": [
         {
           "refId": "A",
@@ -334,8 +588,16 @@
       "type": "table",
       "title": "최근 빌드",
       "description": "구간은 전부 원본 시각에서 뺀 파생값이다(BuildRecord가 시각만 저장하는 이유). '저장 total'은 finished_at − started_at 컬럼 그대로 — early-trigger 경로에서는 reap까지 포함하므로 '체감'보다 크게 나오는 게 정상이고, 두 값의 차이가 곧 백그라운드로 넘긴 시간이다.",
-      "gridPos": { "x": 0, "y": 47, "w": 24, "h": 10 },
-      "datasource": { "type": "mysql", "uid": "kodeploy-db" },
+      "gridPos": {
+        "x": 0,
+        "y": 47,
+        "w": 24,
+        "h": 10
+      },
+      "datasource": {
+        "type": "mysql",
+        "uid": "kodeploy-db"
+      },
       "targets": [
         {
           "refId": "A",
@@ -349,7 +611,12 @@
       "id": 200,
       "type": "row",
       "title": "AI 진단 (플랫폼 비용)",
-      "gridPos": { "x": 0, "y": 57, "w": 24, "h": 1 },
+      "gridPos": {
+        "x": 0,
+        "y": 57,
+        "w": 24,
+        "h": 1
+      },
       "collapsed": false
     },
     {
@@ -357,8 +624,16 @@
       "type": "stat",
       "title": "진단 호출",
       "description": "실패한 빌드에서만 도는 저빈도 이벤트라 시계열보다 누계가 읽힌다. llm_outcome IS NULL = 애초에 안 부른 빌드.",
-      "gridPos": { "x": 0, "y": 58, "w": 4, "h": 5 },
-      "datasource": { "type": "mysql", "uid": "kodeploy-db" },
+      "gridPos": {
+        "x": 0,
+        "y": 58,
+        "w": 4,
+        "h": 5
+      },
+      "datasource": {
+        "type": "mysql",
+        "uid": "kodeploy-db"
+      },
       "targets": [
         {
           "refId": "A",
@@ -373,22 +648,39 @@
       "type": "stat",
       "title": "성공률",
       "description": "outcome='ok' 비율. 나머지는 length(잘림) / refusal / parse_error / api_error.",
-      "gridPos": { "x": 4, "y": 58, "w": 4, "h": 5 },
+      "gridPos": {
+        "x": 4,
+        "y": 58,
+        "w": 4,
+        "h": 5
+      },
       "fieldConfig": {
         "defaults": {
           "unit": "percent",
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              { "color": "red", "value": null },
-              { "color": "orange", "value": 80 },
-              { "color": "green", "value": 95 }
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 80
+              },
+              {
+                "color": "green",
+                "value": 95
+              }
             ]
           }
         },
         "overrides": []
       },
-      "datasource": { "type": "mysql", "uid": "kodeploy-db" },
+      "datasource": {
+        "type": "mysql",
+        "uid": "kodeploy-db"
+      },
       "targets": [
         {
           "refId": "A",
@@ -402,16 +694,30 @@
       "id": 12,
       "type": "stat",
       "title": "추정 비용 (USD)",
-      "description": "토큰 × 단가로 여기서 뺀다 — 컬럼으로 저장하지 않는 이유는 단가가 모델·시점에 따라 바뀌기 때문. 단가는 대시보드 변수 usd_in / usd_out.",
-      "gridPos": { "x": 8, "y": 58, "w": 4, "h": 5 },
-      "fieldConfig": { "defaults": { "unit": "currencyUSD", "decimals": 3 }, "overrides": [] },
-      "datasource": { "type": "mysql", "uid": "kodeploy-db" },
+      "description": "행마다 그 호출에 쓰인 모델의 단가를 곱해 더한다. 합계 토큰에 단가 하나를 곱하면 모델을 갈아탄 구간의 과거 비용까지 새 단가로 계산돼 조용히 틀어진다. 단가는 대시보드 변수 price_in / price_out.",
+      "gridPos": {
+        "x": 8,
+        "y": 58,
+        "w": 4,
+        "h": 5
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD",
+          "decimals": 3
+        },
+        "overrides": []
+      },
+      "datasource": {
+        "type": "mysql",
+        "uid": "kodeploy-db"
+      },
       "targets": [
         {
           "refId": "A",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT ROUND(COALESCE(SUM(llm_prompt_tokens), 0) / 1000000 * $usd_in + COALESCE(SUM(llm_completion_tokens), 0) / 1000000 * $usd_out, 4) AS value FROM build_records WHERE llm_outcome IS NOT NULL AND $__timeFilter(started_at)"
+          "rawSql": "SELECT ROUND(SUM(COALESCE(llm_prompt_tokens,0)/1000000.0*${price_in:raw} + COALESCE(llm_completion_tokens,0)/1000000.0*${price_out:raw}), 4) AS value FROM build_records WHERE llm_outcome IS NOT NULL AND $__timeFilter(started_at)"
         }
       ]
     },
@@ -420,9 +726,22 @@
       "type": "stat",
       "title": "레이턴시 p95 / 평균",
       "description": "게이트웨이 왕복 실측. 실패 호출도 포함 — 타임아웃의 소요시간 자체가 신호다.",
-      "gridPos": { "x": 12, "y": 58, "w": 6, "h": 5 },
-      "fieldConfig": { "defaults": { "unit": "ms" }, "overrides": [] },
-      "datasource": { "type": "mysql", "uid": "kodeploy-db" },
+      "gridPos": {
+        "x": 12,
+        "y": 58,
+        "w": 6,
+        "h": 5
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms"
+        },
+        "overrides": []
+      },
+      "datasource": {
+        "type": "mysql",
+        "uid": "kodeploy-db"
+      },
       "targets": [
         {
           "refId": "A",
@@ -437,22 +756,39 @@
       "type": "stat",
       "title": "자기모순율",
       "description": "cause_category가 플랫폼 제약인데 kodeploy_specific=false(또는 그 반대). 골든셋 라벨 없이 진단 흔들림을 재는 유일한 신호라, 낮을수록 좋다.",
-      "gridPos": { "x": 18, "y": 58, "w": 6, "h": 5 },
+      "gridPos": {
+        "x": 18,
+        "y": 58,
+        "w": 6,
+        "h": 5
+      },
       "fieldConfig": {
         "defaults": {
           "unit": "percent",
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              { "color": "green", "value": null },
-              { "color": "orange", "value": 5 },
-              { "color": "red", "value": 15 }
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 5
+              },
+              {
+                "color": "red",
+                "value": 15
+              }
             ]
           }
         },
         "overrides": []
       },
-      "datasource": { "type": "mysql", "uid": "kodeploy-db" },
+      "datasource": {
+        "type": "mysql",
+        "uid": "kodeploy-db"
+      },
       "targets": [
         {
           "refId": "A",
@@ -466,9 +802,17 @@
       "id": 15,
       "type": "barchart",
       "title": "결말 분해 (outcome)",
-      "description": "length가 보이면 max_tokens 부족 — 진단이 조용히 비어 유저 화면에 카드가 안 뜬 경우다. 이 축이 없으면 아무도 모르고 지나간다.",
-      "gridPos": { "x": 0, "y": 63, "w": 8, "h": 8 },
-      "datasource": { "type": "mysql", "uid": "kodeploy-db" },
+      "description": "length가 보이면 max_tokens 부족 — 진단이 조용히 비어 유저 화면에 카드가 안 뜬 경우다. budget_exceeded는 일일 토큰 예산에 걸려 호출 자체를 안 한 경우(= 비용 정책 발동 횟수). api_error가 몰려 있으면 게이트웨이 크레딧 소진을 먼저 의심할 것.",
+      "gridPos": {
+        "x": 0,
+        "y": 63,
+        "w": 8,
+        "h": 8
+      },
+      "datasource": {
+        "type": "mysql",
+        "uid": "kodeploy-db"
+      },
       "targets": [
         {
           "refId": "A",
@@ -482,9 +826,22 @@
       "id": 16,
       "type": "timeseries",
       "title": "일별 토큰 사용량",
-      "gridPos": { "x": 8, "y": 63, "w": 16, "h": 8 },
-      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
-      "datasource": { "type": "mysql", "uid": "kodeploy-db" },
+      "gridPos": {
+        "x": 8,
+        "y": 63,
+        "w": 16,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "datasource": {
+        "type": "mysql",
+        "uid": "kodeploy-db"
+      },
       "targets": [
         {
           "refId": "A",
@@ -499,8 +856,16 @@
       "type": "table",
       "title": "최근 진단 호출",
       "description": "모델을 갈아탄 뒤 품질·비용이 어떻게 변했는지는 model 열로 구간을 갈라 본다.",
-      "gridPos": { "x": 0, "y": 71, "w": 24, "h": 10 },
-      "datasource": { "type": "mysql", "uid": "kodeploy-db" },
+      "gridPos": {
+        "x": 0,
+        "y": 71,
+        "w": 24,
+        "h": 10
+      },
+      "datasource": {
+        "type": "mysql",
+        "uid": "kodeploy-db"
+      },
       "targets": [
         {
           "refId": "A",
@@ -511,19 +876,232 @@
       ]
     },
     {
+      "id": 210,
+      "type": "row",
+      "collapsed": false,
+      "panels": [],
+      "title": "AI 원가 배분 (showback)",
+      "gridPos": {
+        "x": 0,
+        "y": 81,
+        "w": 24,
+        "h": 1
+      }
+    },
+    {
+      "id": 40,
+      "type": "stat",
+      "title": "예산 차단",
+      "description": "일일 토큰 예산에 걸려 호출하지 않은 건수 = 비용 정책이 실제로 발동한 횟수. 0이 계속되면 예산이 느슨하다는 뜻이고, 매일 찍히면 예산이 실사용을 못 따라간다는 뜻이다.",
+      "gridPos": {
+        "x": 0,
+        "y": 82,
+        "w": 6,
+        "h": 5
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "datasource": {
+        "type": "mysql",
+        "uid": "kodeploy-db"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT COUNT(*) AS value FROM build_records WHERE llm_outcome = 'budget_exceeded' AND $__timeFilter(started_at)"
+        }
+      ]
+    },
+    {
+      "id": 41,
+      "type": "stat",
+      "title": "오늘 토큰 / 예산",
+      "description": "core가 예산을 판정하는 것과 같은 기준(UTC 자정 이후 누적). 대시보드 시간범위와 무관하게 '오늘'을 본다 — 가드레일이 지금 얼마나 여유가 있는지가 목적이라서.",
+      "gridPos": {
+        "x": 6,
+        "y": 82,
+        "w": 6,
+        "h": 5
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "datasource": {
+        "type": "mysql",
+        "uid": "kodeploy-db"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT COALESCE(SUM(COALESCE(llm_prompt_tokens,0) + COALESCE(llm_completion_tokens,0)), 0) AS `오늘`, ${daily_token_budget:raw} AS `예산` FROM build_records WHERE started_at >= UTC_DATE()"
+        }
+      ]
+    },
+    {
+      "id": 42,
+      "type": "stat",
+      "title": "호출당 평균 비용",
+      "description": "총비용이 아니라 건당 비용이 개입(로그 절단·모델 교체)의 효과를 보는 축이다. 총비용은 빌드 실패 건수에 같이 흔들려서 개입 효과와 섞인다.",
+      "gridPos": {
+        "x": 12,
+        "y": 82,
+        "w": 6,
+        "h": 5
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD",
+          "decimals": 5
+        },
+        "overrides": []
+      },
+      "datasource": {
+        "type": "mysql",
+        "uid": "kodeploy-db"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT ROUND(SUM(COALESCE(llm_prompt_tokens,0)/1000000.0*${price_in:raw} + COALESCE(llm_completion_tokens,0)/1000000.0*${price_out:raw}) / NULLIF(COUNT(*),0), 5) AS value FROM build_records WHERE llm_outcome IS NOT NULL AND $__timeFilter(started_at)"
+        }
+      ]
+    },
+    {
+      "id": 43,
+      "type": "stat",
+      "title": "단가 미등록 모델",
+      "description": "price_in/price_out에 WHEN 절이 없는 모델의 수. 0이 아니면 그 호출들은 ELSE 단가(sonnet 기준)로 계산되고 있다 = 비용 숫자가 틀렸다. 모델을 갈아탄 뒤 여기가 먼저 켜진다.",
+      "gridPos": {
+        "x": 18,
+        "y": 82,
+        "w": 6,
+        "h": 5
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "datasource": {
+        "type": "mysql",
+        "uid": "kodeploy-db"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT COUNT(DISTINCT llm_model) AS value FROM build_records WHERE llm_model IS NOT NULL AND $__timeFilter(started_at) AND NOT ${price_known:raw}"
+        }
+      ]
+    },
+    {
+      "id": 44,
+      "type": "table",
+      "title": "유저별 원가 (showback)",
+      "description": "누가 플랫폼 LLM 비용을 만드는가. 진단은 '실패한 빌드'에서만 호출되므로 이 표의 상위는 곧 '빌드가 자주 깨지는 유저'다 — 비용 회수 대상이자 온보딩·문서 보강 대상이다. 유저를 팀으로 바꿔 읽으면 사내 LLM 원가 배분과 같은 구조.",
+      "gridPos": {
+        "x": 0,
+        "y": 87,
+        "w": 12,
+        "h": 9
+      },
+      "datasource": {
+        "type": "mysql",
+        "uid": "kodeploy-db"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT COALESCE(u.login, '(삭제된 유저)') AS `유저`, COUNT(*) AS `호출`, SUM(COALESCE(r.llm_prompt_tokens,0) + COALESCE(r.llm_completion_tokens,0)) AS `토큰`, ROUND(SUM(COALESCE(r.llm_prompt_tokens,0)/1000000.0*${price_in:raw} + COALESCE(r.llm_completion_tokens,0)/1000000.0*${price_out:raw}), 4) AS `비용(USD)`, ROUND(100*SUM(r.llm_outcome='ok')/NULLIF(COUNT(*),0),1) AS `성공률(%)` FROM build_records r LEFT JOIN users u ON u.id = r.user_id WHERE r.llm_outcome IS NOT NULL AND $__timeFilter(r.started_at) GROUP BY u.login ORDER BY `토큰` DESC LIMIT 20"
+        }
+      ]
+    },
+    {
+      "id": 45,
+      "type": "table",
+      "title": "모델별 비용 · 품질 (A/B)",
+      "description": "모델 교체 판단표. 싼 모델로 내릴 때 봐야 하는 건 건당 비용 하나가 아니라 성공률(구조화 출력을 통과하는가)과 자기모순율(품질이 흔들리는가)을 같이 본 값이다. 게이트웨이가 strict json_schema를 뒤쪽 제공자까지 안 넘기면 성공률이 먼저 무너진다.",
+      "gridPos": {
+        "x": 12,
+        "y": 87,
+        "w": 12,
+        "h": 9
+      },
+      "datasource": {
+        "type": "mysql",
+        "uid": "kodeploy-db"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT llm_model AS `모델`, COUNT(*) AS `호출`, ROUND(100*SUM(llm_outcome='ok')/NULLIF(COUNT(*),0),1) AS `성공률(%)`, ROUND(100*SUM(llm_inconsistent=1)/NULLIF(SUM(llm_outcome='ok'),0),1) AS `자기모순(%)`, ROUND(AVG(llm_prompt_tokens)) AS `평균 입력`, ROUND(AVG(llm_completion_tokens)) AS `평균 출력`, ROUND(AVG(llm_latency_ms)) AS `평균 지연(ms)`, ROUND(SUM(COALESCE(llm_prompt_tokens,0)/1000000.0*${price_in:raw} + COALESCE(llm_completion_tokens,0)/1000000.0*${price_out:raw})/NULLIF(COUNT(*),0), 5) AS `건당 비용(USD)` FROM build_records WHERE llm_outcome IS NOT NULL AND $__timeFilter(started_at) GROUP BY llm_model ORDER BY `호출` DESC"
+        }
+      ]
+    },
+    {
+      "id": 46,
+      "type": "barchart",
+      "title": "실패 범주별 토큰 · 건수",
+      "description": "어떤 실패 유형이 토큰을 먹는가. 빌드 실패(user_build_error 등)는 로그가 길어 입력 토큰이 크고, 기동 실패(port_mismatch 등)는 런타임 로그라 짧다. 절단 예산을 조일 때 어느 쪽이 영향을 받는지 여기서 먼저 본다. 상위 범주가 곧 플랫폼 문서·가이드를 보강할 지점이기도 하다.",
+      "gridPos": {
+        "x": 0,
+        "y": 96,
+        "w": 24,
+        "h": 8
+      },
+      "datasource": {
+        "type": "mysql",
+        "uid": "kodeploy-db"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT COALESCE(llm_cause_category, '(미분류)') AS `범주`, COUNT(*) AS `건수`, SUM(COALESCE(llm_prompt_tokens,0)+COALESCE(llm_completion_tokens,0)) AS `토큰` FROM build_records WHERE llm_outcome IS NOT NULL AND $__timeFilter(started_at) GROUP BY llm_cause_category ORDER BY `토큰` DESC"
+        }
+      ]
+    },
+    {
       "id": 190,
       "type": "row",
       "title": "절대값 (원본)",
       "description": "위 패널들은 한도 대비 %다. 실제 코어·바이트가 필요할 때만 펼친다 — 용량 증설 견적처럼 절대량이 있어야 하는 판단이 그렇다.",
-      "gridPos": { "x": 0, "y": 81, "w": 24, "h": 1 },
+      "gridPos": {
+        "x": 0,
+        "y": 104,
+        "w": 24,
+        "h": 1
+      },
       "collapsed": true,
       "panels": [
         {
           "id": 30,
           "type": "timeseries",
           "title": "노드 CPU (cores)",
-          "gridPos": { "x": 0, "y": 82, "w": 8, "h": 8 },
-          "datasource": { "type": "prometheus", "uid": "victoriametrics" },
+          "gridPos": {
+            "x": 0,
+            "y": 82,
+            "w": 8,
+            "h": 8
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoriametrics"
+          },
           "targets": [
             {
               "refId": "A",
@@ -541,9 +1119,22 @@
           "id": 31,
           "type": "timeseries",
           "title": "노드 메모리 (bytes)",
-          "gridPos": { "x": 8, "y": 82, "w": 8, "h": 8 },
-          "datasource": { "type": "prometheus", "uid": "victoriametrics" },
-          "fieldConfig": { "defaults": { "unit": "bytes" }, "overrides": [] },
+          "gridPos": {
+            "x": 8,
+            "y": 82,
+            "w": 8,
+            "h": 8
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoriametrics"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "bytes"
+            },
+            "overrides": []
+          },
           "targets": [
             {
               "refId": "A",
@@ -561,9 +1152,22 @@
           "id": 32,
           "type": "timeseries",
           "title": "노드 루트 디스크 (bytes)",
-          "gridPos": { "x": 16, "y": 82, "w": 8, "h": 8 },
-          "datasource": { "type": "prometheus", "uid": "victoriametrics" },
-          "fieldConfig": { "defaults": { "unit": "bytes" }, "overrides": [] },
+          "gridPos": {
+            "x": 16,
+            "y": 82,
+            "w": 8,
+            "h": 8
+          },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoriametrics"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "bytes"
+            },
+            "overrides": []
+          },
           "targets": [
             {
               "refId": "A",
