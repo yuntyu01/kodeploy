@@ -18,6 +18,12 @@ data:
   SESSION_COOKIE_SECURE: "true"
   SESSION_COOKIE_SAMESITE: "lax"
   SESSION_COOKIE_DOMAIN: ".kodeploy.com"
+  # early-trigger — 이미지 push 마커("pushing manifest ... done")를 보면 Job 완료를 안 기다리고
+  # 곧장 배포로 넘어간다. 이미지는 이미 레지스트리에 있으니 배포는 유효하고, 남은 cache export는
+  # 뒤에서 돌다가 배포 판정 후 회수된다. 마커를 못 잡으면 Job 완료를 기다리는 기존 경로로 자동 폴백
+  # (느려질 뿐 안 깨짐). export가 실패해도 build.status는 안 건드리고 cache_export_failed 지표로만 남는다.
+  # 전후 비교는 Grafana '시스템' 대시보드의 early-trigger A/B 표(triggered_early 축)에서 본다.
+  EARLY_TRIGGER: "true"
   # 빌드/배포 실패 AI 진단. kodeploy-ai Secret(LLM_API_KEY)이 함께 있어야 한다.
   # 켜기 전 check_diagnose.py를 core Pod 안에서 돌려 계측기를 먼저 검증했다
   # (게이트웨이 strict json_schema 통과 · 정답 케이스 2/2 · 토큰/레이턴시 수집 확인).
