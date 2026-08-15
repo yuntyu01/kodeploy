@@ -127,8 +127,11 @@ class BuildRecord(Base):
     # 비용은 컬럼이 아니다 — 토큰 × 단가로 뷰에서 뺀다(원본만 저장하는 위 원칙 그대로).
     # 그래서 llm_model을 같이 남긴다: 모델을 갈아타면 단가가 바뀌므로 구간을 갈라야 한다.
     llm_model: Mapped[str | None] = mapped_column(String(60), nullable=True)
-    # "ok" | "length" | "refusal" | "parse_error" | "api_error"
+    # "ok" | "length" | "refusal" | "parse_error" | "api_error" | "budget_exceeded"
     # length는 max_tokens에서 JSON이 잘려 진단이 조용히 빈 경우 — 로그 말고 이 축으로 센다.
+    # budget_exceeded는 LLM_DAILY_TOKEN_BUDGET에 걸려 아예 호출하지 않은 경우 —
+    # 호출이 없었으니 토큰·레이턴시는 NULL이지만, NULL outcome("애초에 안 부름")과는
+    # 구분돼야 한다. 이 값의 건수가 곧 "비용 정책이 몇 번 발동했나"다.
     llm_outcome: Mapped[str | None] = mapped_column(String(20), nullable=True)
     llm_prompt_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
     llm_completion_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)

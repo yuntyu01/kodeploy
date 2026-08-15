@@ -95,6 +95,17 @@ LLM_MODEL = os.getenv("LLM_MODEL", "claude-sonnet-4-6")
 # 기본 OFF. EARLY_TRIGGER/BUILD_REGISTRY_CACHE와 같은 방침 — 실 로그로 몇 건 돌려
 # 진단 품질과 호출당 비용을 확인한 뒤 켠다. 켜도 실패한 빌드에서만 호출된다.
 AI_DIAGNOSE_ENABLED = os.getenv("AI_DIAGNOSE", "false").lower() == "true"
+# 일일 토큰 예산 (입력+출력 합). 0이면 무제한 = 상한 없음(기본값이 무제한인 이유는
+# 이 값을 정하려면 먼저 실사용량을 봐야 하기 때문 — 계측이 정책보다 먼저다).
+#
+# 왜 "비용(USD)"이 아니라 "토큰"인가: 단가는 모델·제공자·계약에 따라 바뀌는 외부 값이고,
+# 토큰은 우리가 직접 관측한 값이다. 코드가 외부 값에 의존하면 단가가 바뀔 때마다 상한의
+# 의미가 조용히 달라진다. USD 환산은 단가를 아는 쪽(대시보드)에서 한다 —
+# "원본만 저장하고 파생은 뷰에서" 라는 build_records의 방침과 같다.
+#
+# 초과하면 그 빌드의 진단을 건너뛰고 llm_outcome="budget_exceeded"로 남긴다.
+# NULL(애초에 안 부름)과 구분되므로 "정책이 몇 번 발동했나"가 그대로 집계된다.
+LLM_DAILY_TOKEN_BUDGET = int(os.getenv("LLM_DAILY_TOKEN_BUDGET", "0"))
 
 # --- CORS ---
 # 쉼표로 구분된 허용 origin 목록. 환경별 다름 (dev=localhost, 운영=Cloudflare Pages 도메인).

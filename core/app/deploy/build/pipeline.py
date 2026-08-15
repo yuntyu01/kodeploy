@@ -133,10 +133,58 @@ def _update_event_status(
 # 두 곳에 나눠 쓰는 이유: build.ai_analysis는 유저가 읽는 전문이라 delete_app에 함께 지워지고,
 # record의 llm_* 는 앱이 지워진 뒤에도 남아야 하는 운영 계측이다 (build_records는 append-only).
 # diagnose는 LLM 실패로 예외를 안 던지므로(결말도 세야 하니까) 정상 경로에서 outcome이 온다.
+# 오늘(UTC) 쓴 진단 토큰 합계. build_records가 호출 계측의 진실원이라 별도 카운터를
+# 두지 않는다 — 카운터를 따로 두면 재시작에 날아가거나 기록과 어긋난다.
+# started_at 인덱스를 그대로 타므로 빌드당 1회 호출은 부담이 되지 않는다.
+def _today_llm_tokens(db: Session) -> int:
+    # DB의 datetime은 naive UTC로 저장된다 — 비교도 naive UTC로.
+    since = (
+        datetime.now(timezone.utc)
+        .replace(hour=0, minute=0, second=0, microsecond=0)
+        .replace(tzinfo=None)
+    )
+    total = (
+        db.query(
+            func.coalesce(func.sum(BuildRecord.llm_prompt_tokens), 0)
+            + func.coalesce(func.sum(BuildRecord.llm_completion_tokens), 0)
+        )
+        .filter(BuildRecord.started_at >= since)
+        .scalar()
+    )
+    return int(total or 0)
+
+
+# 일일 토큰 예산을 넘었으면 호출을 건너뛰고 그 사실을 기록한다 (True면 스킵).
+# ★ 예산은 "이번 호출을 하기 전"의 누적으로 판정한다. 호출 후 토큰을 알 수 있으므로
+#   마지막 한 건은 예산을 넘길 수 있다 — 정확한 상한이 아니라 폭주 차단이 목적이라
+#   그 오차(호출 1건)는 의도적으로 받아들인다. 정확히 막으려면 호출 전에 입력 토큰을
+#   세야 하는데, 그건 토크나이저를 제공자별로 들여오는 비용이 이득보다 크다.
+def _llm_budget_exceeded(db: Session, record: BuildRecord) -> bool:
+    budget = config.LLM_DAILY_TOKEN_BUDGET
+    if budget <= 0:
+        return False
+    used = _today_llm_tokens(db)
+    if used < budget:
+        return False
+    # 왜 안 불렀는지가 남아야 한다. outcome이 NULL이면 "성공한 빌드라 안 부름"과
+    # 구분이 안 되고, 대시보드에서 진단이 조용히 사라진 것처럼 보인다.
+    # llm_model도 같이 남긴다 — 어느 단가 구간에서 상한에 닿았는지가 정책 조정의 근거다.
+    record.llm_model = config.LLM_MODEL
+    record.llm_outcome = "budget_exceeded"
+    db.commit()
+    logger.warning(
+        "AI 진단 건너뜀 — 일일 토큰 예산 초과 (%s/%s), build %s",
+        f"{used:,}", f"{budget:,}", record.build_id,
+    )
+    return True
+
+
 def _attach_diagnosis(
     db: Session, build: Build, record: BuildRecord, diagnose_fn
 ) -> None:
     if not diagnose.is_configured():
+        return
+    if _llm_budget_exceeded(db, record):
         return
     try:
         result = diagnose_fn(build)
