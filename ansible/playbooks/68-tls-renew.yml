@@ -1,0 +1,194 @@
+---
+# 오리진 TLS 인증서 자동 갱신 — 67-tls-selfsigned가 만든 리프 인증서는 1년짜리인데,
+# 그 플레이북은 모든 태스크가 creates: 가드라 재실행해도 갱신이 일어나지 않는다(부트스트랩 전용).
+# 만료 시점에 수동 개입(파일 삭제 후 재실행)에 의존하는 대신 managed 노드 systemd timer로 자동화.
+#
+# 왜 cert-manager가 아닌가: 갱신 대상이 리프 1장·연 1회다. 컨트롤러+CRD를 들이는 비용이
+# 이득보다 크다(4GB 노드 메모리 예산). openssl 몇 줄이면 같은 결과가 나온다.
+#
+# 왜 managed 노드인가: 항상 켜져 있고 이미 cluster-admin kubeconfig를 갖고 있다
+# (kd-mysql-tunnel이 그걸로 port-forward 중). kubeconfig만으로 kodeploy-tls Secret을
+# 통째로 교체할 수 있는 노드이라, 지금(ssl=full — CF가 오리진 인증서를 검증하지 않음)
+# 시점에는 CA 키를 추가로 둬도 실질적 침해 반경 증가가 없다. 단 kubeconfig와 달리 CA 키는
+# 회전으로 무효화할 수 없는 10년짜리이고, strict 전환 시엔 오리진 사칭이 가능한 키가 되므로
+# 그때는 보관 위치를 재평가해야 한다.
+#
+# CA 정본은 레포의 .tls-selfsigned/ 다(67이 생성, gitignored). managed의 /etc/kodeploy-tls는
+# 이 플레이북이 매 실행마다 동기화하는 파생 사본 — 두 계보가 갈릴 일이 없게 방향을 고정한다.
+# ⚠️ 정본이 이 머신 하나에만 있으므로 오프라인 백업이 필요하다(백로그).
+#
+# ⚠️ 알림 경로는 없다(웹훅 미도입 결정). 실패는 systemd 안에만 남고, full 모드 특성상
+#    갱신이 실패해도 사용자 증상이 0이므로 주기 점검이 유일한 감지 수단이다:
+#      ansible managed -b -m command -a "systemctl status kd-tls-renew.timer kd-tls-renew.service"
+#    control plane 인증서(2027-04-29, admin.conf 포함)가 오리진(05-18)보다 먼저 만료된다는
+#    점도 같은 점검에서 봐야 한다 — admin.conf가 죽으면 이 크론도 클러스터 접근을 잃는다:
+#      ansible master -b -m command -a "kubeadm certs check-expiration"
+#
+# ⚠️ 갱신 후 진실원은 클러스터의 Secret이다. 레포의 .tls-selfsigned/tls.crt와
+#    deploy/k8s/secrets/kodeploy-tls.yaml(둘 다 gitignored)은 부트스트랩 산출물로 stale해진다.
+#    strict 모드 전환 등으로 로컬 사본이 다시 필요해지면 클러스터에서 꺼내는 쪽이 맞다.
+- name: Origin TLS 인증서 자동 갱신 (managed 노드 timer)
+  hosts: managed
+  become: true
+  vars:
+    domain: kodeploy.com
+    cert_dir: /etc/kodeploy-tls
+    repo_cert_dir: "{{ playbook_dir }}/../../.tls-selfsigned"
+    renew_before_days: 30          # 만료 30일 전부터 갱신. timer가 주 1회라 최악에도 ~23일 여유
+    kubeconfig: /home/opc/.kube/config
+
+  tasks:
+    - name: CA 자료 디렉토리 생성
+      file:
+        path: "{{ cert_dir }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "0700"
+
+    - name: CA 인증서 + SAN 설정 배포
+      copy:
+        src: "{{ repo_cert_dir }}/{{ item }}"
+        dest: "{{ cert_dir }}/{{ item }}"
+        owner: root
+        group: root
+        mode: "0600"
+      loop:
+        - ca.crt
+        - san.cnf
+
+    - name: CA 개인키 배포
+      no_log: true                 # 키 내용이 ansible diff/출력에 찍히지 않게
+      copy:
+        src: "{{ repo_cert_dir }}/ca.key"
+        dest: "{{ cert_dir }}/ca.key"
+        owner: root
+        group: root
+        mode: "0600"
+
+    - name: 갱신 스크립트 설치
+      copy:
+        dest: /usr/local/bin/kd-tls-renew.sh
+        owner: root
+        group: root
+        mode: "0755"
+        content: |
+          #!/bin/bash
+          # 오리진 인증서 만료 검사 → 필요 시 재발급 + Secret 교체 + 서빙 반영 확인. systemd timer가 호출.
+          # 판정은 apply 성공(status code)이 아니라 "노드 30443이 실제로 새 인증서를 내놓는가"(sentinel)로 한다.
+          set -euo pipefail
+          export KUBECONFIG={{ kubeconfig }}
+          CERT_DIR={{ cert_dir }}
+          DOMAIN={{ domain }}
+          SECRET=kodeploy-tls
+          NS=default
+
+          work=$(mktemp -d)
+          trap 'rm -rf "$work"' EXIT
+
+          # CA 자체의 잔여 수명 경고 — 리프는 자동 갱신돼도 CA(10년)가 끝나면 이 스크립트도 같이 끝난다.
+          # 400일 전부터 매주 경고가 journal에 남으므로 놓칠 수 없다.
+          if ! openssl x509 -checkend $((400 * 86400)) -noout -in "$CERT_DIR/ca.crt" >/dev/null; then
+            echo "경고: CA 인증서 만료까지 400일 미만 — CA 교체 계획 필요" >&2
+          fi
+
+          # 현재 클러스터가 들고 있는 인증서 기준으로 판정한다. 로컬 파일이 아니라 라이브 상태를
+          # 보는 이유: 수동 교체·부트스트랩 재실행 등 어떤 경로로 바뀌었어도 항상 진실을 본다.
+          need_renew=false
+          if kubectl -n "$NS" get secret "$SECRET" -o jsonpath='{.data.tls\.crt}' 2>/dev/null \
+              | base64 -d > "$work/live.crt" && [ -s "$work/live.crt" ]; then
+            if openssl x509 -checkend $(({{ renew_before_days }} * 86400)) -noout -in "$work/live.crt" >/dev/null; then
+              echo "갱신 불필요 — $(openssl x509 -in "$work/live.crt" -noout -enddate)"
+              exit 0
+            fi
+            echo "만료 {{ renew_before_days }}일 이내 — 갱신 시작 ($(openssl x509 -in "$work/live.crt" -noout -enddate))"
+            need_renew=true
+          else
+            # Secret이 없거나 비었으면 그 자체가 비정상 — 같은 발급 경로로 자가 복구한다.
+            echo "Secret $SECRET 을 읽지 못함 — 신규 발급으로 복구" >&2
+            need_renew=true
+          fi
+
+          # 재발급: 키까지 새로 만든다(키 재사용 안 함 — 갱신이 곧 키 회전이 되게)
+          openssl genrsa -out "$work/tls.key" 4096 2>/dev/null
+          openssl req -new -key "$work/tls.key" -subj "/CN=*.${DOMAIN}" \
+            -config "$CERT_DIR/san.cnf" -out "$work/tls.csr"
+          openssl x509 -req -in "$work/tls.csr" \
+            -CA "$CERT_DIR/ca.crt" -CAkey "$CERT_DIR/ca.key" -CAcreateserial \
+            -days 365 -sha256 -extensions v3_req -extfile "$CERT_DIR/san.cnf" \
+            -out "$work/tls.crt" 2>/dev/null
+
+          # 발급물 자가 검증 — 체인 유효 + SAN이 실제로 들어갔는지(과거 -extensions 누락형 실수 방어)
+          openssl verify -CAfile "$CERT_DIR/ca.crt" "$work/tls.crt" >/dev/null
+          openssl x509 -in "$work/tls.crt" -noout -ext subjectAltName | grep -q "DNS:\*\.${DOMAIN}"
+
+          kubectl -n "$NS" create secret tls "$SECRET" \
+            --cert="$work/tls.crt" --key="$work/tls.key" \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+          # 반영 확인: Envoy Gateway가 Secret 변경을 SDS로 리로드하는 데 시간이 걸릴 수 있어
+          # 최대 2분 재시도. 끝까지 옛 인증서면 non-zero로 죽는다 — Secret만 바뀌고 서빙은
+          # 안 바뀐 상태를 "성공"으로 두는 게 제일 나쁘다(빨간 systemctl status가 낫다).
+          new_serial=$(openssl x509 -in "$work/tls.crt" -noout -serial)
+          node_ip=$(kubectl get nodes \
+            -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}')
+          for _ in $(seq 1 12); do
+            served=$(echo | timeout 10 openssl s_client \
+                -connect "${node_ip}:30443" -servername "api.${DOMAIN}" 2>/dev/null \
+              | openssl x509 -noout -serial 2>/dev/null || true)
+            if [ "$served" = "$new_serial" ]; then
+              echo "갱신 완료 + 서빙 반영 확인 — $(openssl x509 -in "$work/tls.crt" -noout -enddate)"
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "실패: Secret은 교체됐지만 Envoy가 새 인증서를 서빙하지 않음 (served=${served:-없음})" >&2
+          exit 1
+
+    - name: systemd service (oneshot)
+      copy:
+        dest: /etc/systemd/system/kd-tls-renew.service
+        mode: "0644"
+        content: |
+          [Unit]
+          Description=Origin TLS certificate renewal (kodeploy)
+          After=network-online.target
+          Wants=network-online.target
+
+          [Service]
+          Type=oneshot
+          ExecStart=/usr/local/bin/kd-tls-renew.sh
+
+    - name: systemd timer (주 1회 — 갱신 임계 30일 대비 검사 간격이 충분히 촘촘)
+      copy:
+        dest: /etc/systemd/system/kd-tls-renew.timer
+        mode: "0644"
+        content: |
+          [Unit]
+          Description=Check origin TLS certificate weekly (kodeploy)
+
+          [Timer]
+          OnCalendar=weekly
+          Persistent=true
+          RandomizedDelaySec=300
+
+          [Install]
+          WantedBy=timers.target
+
+    - name: timer 활성화 + 시작
+      systemd:
+        name: kd-tls-renew.timer
+        enabled: true
+        state: started
+        daemon_reload: true
+
+    # 계측기 선검증 — 지금은 만료가 멀어서 "갱신 불필요" 경로가 도는 게 정상이지만,
+    # kubeconfig 접근·Secret 조회·openssl 판정이 실제로 동작하는지는 지금 확인된다.
+    - name: 갱신 스크립트 1회 실행 (동작 검증)
+      command: /usr/local/bin/kd-tls-renew.sh
+      register: renew_check
+      changed_when: false
+
+    - name: 결과 출력
+      debug:
+        var: renew_check.stdout_lines
