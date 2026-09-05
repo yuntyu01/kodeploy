@@ -8,30 +8,77 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole                                        # 클러스터 전역 권한 (ns 무관 — kodeploy-build, tenant-xxx 모두 적용)
 metadata:
   name: kodeploy-core
+# 원칙: core가 app/ 코드에서 "실제로 호출하는" 동사만 둔다 (2026-09 전수 대조).
+# watch는 어디서도 안 쓴다 — 상태 추적은 전부 폴링(pipeline/status)이라 의도적으로 뺐다.
+# ⚠️ 새 K8s 호출을 추가하고 여기를 안 늘리면 대부분 403으로 터지지만, 항상 그렇진 않다:
+#    admin/service.py:217, console/logs.py:58·72, pipeline.py:473·508 등은 ApiException을
+#    삼켜서 "빈 목록/빈 로그/삭제 성공"으로 위장한다. 권한을 줄인 뒤 검증할 땐 화면이 뜨는지가
+#    아니라 실제 내용(로그 줄·Pod 행)이 나오는지로 판정할 것.
 rules:
-  - apiGroups: ["batch"]                                 # BuildKit 빌드 Job 관리용 (kodeploy-build ns)
-    resources: ["jobs", "jobs/status"]
-    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
-  - apiGroups: ["apps"]                                  # 유저 앱 Deployment + mysql StatefulSet 관리용 (tenant ns)
-    resources: ["deployments", "deployments/status", "statefulsets"]
-    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
-  - apiGroups: [""]                                      # core API 그룹
-    resources: ["namespaces"]                            # 테넌트 ns 프로비저닝/삭제
-    verbs: ["get", "create", "delete"]
+  # --- BuildKit 빌드 Job (kodeploy-build ns) ---
+  - apiGroups: ["batch"]
+    resources: ["jobs"]
+    verbs: ["list", "create", "delete"]                  # list=진단, create=빌드 제출, delete=재빌드 전 청소
+  - apiGroups: ["batch"]
+    resources: ["jobs/status"]
+    verbs: ["get"]                                       # read_namespaced_job_status — 빌드 완료 판정
+
+  # --- 유저 앱 워크로드 (tenant ns) ---
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "create", "update", "patch", "delete"]  # patch=env 변경 재기동, update=스펙 교체
+  - apiGroups: ["apps"]
+    resources: ["deployments/status"]
+    verbs: ["get"]                                       # 롤아웃 완료 대기
+  - apiGroups: ["apps"]
+    resources: ["statefulsets"]
+    verbs: ["create", "delete"]                          # mysql/postgres — 만들고 지우기만, 수정은 안 함
+
+  # --- 테넌트 프로비저닝 ---
   - apiGroups: [""]
-    resources: ["services", "pods", "pods/log", "pods/exec",  # pods/exec=터미널 WebSocket
-                "secrets", "resourcequotas",
-                "persistentvolumeclaims"]
-    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
-  - apiGroups: [""]                                      # 관리자 페이지 노드 현황용 (읽기 전용)
-    resources: ["nodes", "nodes/proxy"]                  # nodes/proxy = kubelet stats/summary (CPU/메모리/디스크)
-    verbs: ["get", "list"]
-  - apiGroups: ["projectcalico.org"]                     # Calico NetworkPolicy (per-tenant 격리)
+    resources: ["namespaces"]
+    verbs: ["get", "create", "delete"]                   # get=Terminating 대기, delete=앱 삭제(하위 리소스 일괄 정리)
+
+  # --- 테넌트 내부 리소스 ---
+  - apiGroups: [""]
+    resources: ["services", "secrets"]
+    verbs: ["get", "create", "update", "delete"]         # list 없음 — 이름을 알고 여는 것만. 전역 secret 열람 차단
+  - apiGroups: [""]
+    resources: ["persistentvolumeclaims"]
+    verbs: ["create"]                                    # 삭제는 ns delete가 대신함
+  - apiGroups: [""]
+    resources: ["resourcequotas"]
+    verbs: ["delete"]                                    # 옛 quota 잔재 청소용(stack/resources.py) — 잔재 정리 확인되면 코드와 함께 제거
+
+  # --- Pod 조회/로그/터미널 ---
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["list"]                                      # 라벨 셀렉터로 대상 Pod 찾기. get/delete 안 씀(재기동은 Deployment patch)
+  - apiGroups: [""]
+    resources: ["pods/log"]
+    verbs: ["get"]
+  - apiGroups: [""]
+    resources: ["pods/exec"]
+    # get만 남겨봤다가 되돌림 — 실측 결과 GET 업그레이드만으로는 apiserver가 403을 준다
+    # (빈 reason 403. can-i는 get을 yes로 답하는데 실제 요청은 거부 — connecter 서브리소스는
+    #  인가 경로가 다르다). 구 role의 get+create 조합은 터미널 동작이 검증된 상태라 그대로 유지.
+    verbs: ["get", "create"]
+
+  # --- 관리자 페이지 노드 현황 (읽기 전용) ---
+  - apiGroups: [""]
+    resources: ["nodes"]
+    verbs: ["list"]
+  - apiGroups: [""]
+    resources: ["nodes/proxy"]
+    verbs: ["get"]                                       # kubelet stats/summary (CPU/메모리/디스크)
+
+  # --- 네트워크/라우팅 ---
+  - apiGroups: ["projectcalico.org"]                     # per-tenant NetworkPolicy — 생성만(삭제는 ns delete가 처리)
     resources: ["networkpolicies"]
-    verbs: ["get", "list", "create", "delete"]
-  - apiGroups: ["gateway.networking.k8s.io"]             # 유저 앱 서브도메인 라우팅용
+    verbs: ["create"]
+  - apiGroups: ["gateway.networking.k8s.io"]             # 유저 앱 서브도메인 라우팅
     resources: ["httproutes"]
-    verbs: ["get", "list", "create", "update", "patch", "delete"]  # patch=커스텀 도메인 hostname 주입, delete=앱 삭제 시 정리
+    verbs: ["create", "patch", "delete"]                 # patch=커스텀 도메인 hostname 주입, delete=앱 삭제 시 정리
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding                                 # SA를 ClusterRole에 연결 
